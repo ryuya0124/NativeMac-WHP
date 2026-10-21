@@ -1,0 +1,525 @@
+diff --git a/crates/metal2vulkan/src/cache/mod.rs b/crates/metal2vulkan/src/cache/mod.rs
+index 18aefa5..6385c70 100644
+--- a/crates/metal2vulkan/src/cache/mod.rs
++++ b/crates/metal2vulkan/src/cache/mod.rs
+@@ -60,7 +60,7 @@ mod tests;
+ /// unchanged version, and its bless records the version. Independent of the crate's version and of
+ /// [`ARTIFACT_FORMAT_VERSION`]. The commit that bumps it says what changed; this comment keeps no
+ /// history.
+-pub const SEMANTICS_VERSION: u32 = 1694;
++pub const SEMANTICS_VERSION: u32 = 1695;
+ 
+ /// The byte-layout version of encoded artifacts (`CompiledFunction::to_bytes` and the
+ /// [`PipelineArtifact`] encodings). Every encoded artifact carries it, and a decode under another
+diff --git a/crates/metal2vulkan/src/memory/handles.rs b/crates/metal2vulkan/src/memory/handles.rs
+index f204e28..dbe6f7e 100644
+--- a/crates/metal2vulkan/src/memory/handles.rs
++++ b/crates/metal2vulkan/src/memory/handles.rs
+@@ -839,7 +839,7 @@ fn nested_address(
+                 indices,
+                 ..
+             } => {
+-                let (delta, more) =
++                let (delta, more, _) =
+                     super::provenance::gep_displacement(e, layouts, *src_ty, indices).ok()?;
+                 konst = konst.checked_add(delta?)?;
+                 strides.extend(more);
+diff --git a/crates/metal2vulkan/src/memory/provenance.rs b/crates/metal2vulkan/src/memory/provenance.rs
+index ea93e35..66e1d3b 100644
+--- a/crates/metal2vulkan/src/memory/provenance.rs
++++ b/crates/metal2vulkan/src/memory/provenance.rs
+@@ -23,7 +23,9 @@
+ use std::collections::{BTreeMap, HashMap};
+ 
+ use crate::air::abi::{AbiHandle, AbiInt, Member, MemberKind, ParamBinding, ParamRole};
+-use crate::air::intrinsics::{AirIntrinsic, HandleKind, Operand, ResultField, Signature};
++use crate::air::intrinsics::{
++    AirIntrinsic, HandleKind, MathFn, Operand, ResultField, Sign, Signature,
++};
+ use crate::air::ir::{
+     AddrSpace, BlockId, Body, Callee, CastOp, Const, ConstExpr, ConstId, GlobalId, Inst, InstId,
+     InstKind, Type, TypeId, TypeLayouts, Value, ValueIndex,
+@@ -687,11 +689,12 @@ pub(crate) fn gep_displacement(
+     layouts: &TypeLayouts,
+     src_ty: TypeId,
+     idx: &[Value],
+-) -> Result<(Option<i64>, Vec<u64>), Error> {
++) -> Result<(Option<i64>, Vec<u64>, Option<(i64, i64)>), Error> {
+     // The exact constant displacement; `None` once it leaves `i128` (several huge indices),
+     // which makes the offset unknown (`Top`) like any displacement outside `i64`.
+     let mut konst: Option<i128> = Some(0);
+     let mut strides: Vec<u64> = Vec::new();
++    let mut bounds = Some((0i128, 0i128));
+     let mut cur = src_ty;
+     for (n, &i) in idx.iter().enumerate() {
+         let scale = if n == 0 {
+@@ -706,6 +709,12 @@ pub(crate) fn gep_displacement(
+                         .and_then(|o| o.get(k).copied())
+                         .ok_or_else(not_lowered)?;
+                     konst = konst.and_then(|c| c.checked_add(i128::from(off)));
++                    bounds = bounds.and_then(|(lo, hi)| {
++                        Some((
++                            lo.checked_add(i128::from(off))?,
++                            hi.checked_add(i128::from(off))?,
++                        ))
++                    });
+                     cur = *fields.get(k).ok_or_else(not_lowered)?;
+                     continue;
+                 }
+@@ -717,6 +726,18 @@ pub(crate) fn gep_displacement(
+             }
+         }
+         .ok_or_else(not_lowered)?;
++        bounds = bounds.and_then(|(lo, hi)| {
++            let (a, b) = if scale == 0 {
++                (0, 0)
++            } else {
++                index_bounds(e, i, 8)?
++            };
++            let scale = i128::from(scale);
++            Some((
++                lo.checked_add(i128::from(a).checked_mul(scale)?)?,
++                hi.checked_add(i128::from(b).checked_mul(scale)?)?,
++            ))
++        });
+         match const_index(e, i) {
+             Some(k) => {
+                 konst = konst.and_then(|c| {
+@@ -729,7 +750,41 @@ pub(crate) fn gep_displacement(
+             None => strides.push(scale),
+         }
+     }
+-    Ok((konst.and_then(|c| i64::try_from(c).ok()), strides))
++    let bounds =
++        bounds.and_then(|(lo, hi)| Some((i64::try_from(lo).ok()?, i64::try_from(hi).ok()?)));
++    Ok((konst.and_then(|c| i64::try_from(c).ok()), strides, bounds))
++}
++
++/// Conservative signed-index bounds, without assuming that a GEP stays in an array subobject.
++/// Unsigned minimum with a nonnegative constant and its zero extension supply finite bounds;
++/// the fixed walk depth keeps malformed or cyclic input from growing analysis work.
++fn index_bounds(e: &Entry, value: Value, fuel: u8) -> Option<(i64, i64)> {
++    if let Some(k) = const_index(e, value) {
++        return Some((k, k));
++    }
++    if fuel == 0 {
++        return None;
++    }
++    let Value::Inst(id) = value else { return None };
++    let inst = e.module.func(e.func)?.body.as_ref()?.insts.get(id)?;
++    match &inst.kind {
++        InstKind::Cast {
++            op: CastOp::ZExt,
++            v,
++        } => {
++            let (lo, hi) = index_bounds(e, *v, fuel - 1)?;
++            (lo >= 0).then_some((lo, hi))
++        }
++        InstKind::Call(call) if matches!(&call.callee, Callee::Air { op: AirIntrinsic::Math(math), .. } if math.f == MathFn::IMin(Sign::Unsigned) && math.ty.lanes == 1) => {
++            call.args
++                .iter()
++                .filter_map(|v| const_index(e, *v))
++                .filter(|k| *k >= 0)
++                .min()
++                .map(|hi| (0, hi))
++        }
++        _ => None,
++    }
+ }
+ 
+ /// The dense index of a pointer-typed argument or instruction.
+@@ -1189,11 +1244,11 @@ impl<'a> Cx<'a> {
+ 
+     /// The fact of `getelementptr src_ty, base, idx..`.
+     fn gep(&self, base: PtrFact, src_ty: TypeId, idx: &[Value]) -> Result<PtrFact, Error> {
+-        let (delta, strides) = gep_displacement(self.e, self.layouts, src_ty, idx)?;
+-        let range = match (base.range, delta, strides.is_empty()) {
+-            (OffsetRange::Empty, _, _) => OffsetRange::Empty,
+-            (OffsetRange::Span { lo, hi }, Some(d), true) => {
+-                match (lo.checked_add(d), hi.checked_add(d)) {
++        let (delta, strides, bounds) = gep_displacement(self.e, self.layouts, src_ty, idx)?;
++        let range = match (base.range, bounds) {
++            (OffsetRange::Empty, _) => OffsetRange::Empty,
++            (OffsetRange::Span { lo, hi }, Some((a, b))) => {
++                match (lo.checked_add(a), hi.checked_add(b)) {
+                     (Some(lo), Some(hi)) => OffsetRange::Span { lo, hi },
+                     _ => OffsetRange::Top,
+                 }
+@@ -2635,7 +2690,6 @@ impl Walk<'_, '_> {
+         }
+         m.charge(map_entry_bytes::<InstId, ()>())?;
+         self.cx.cells.facts.accesses.insert(id);
+-        let slot = Slot::of(f.range);
+         let cells: Vec<InstId> = roots
+             .iter()
+             .filter_map(|r| match r {
+@@ -2643,9 +2697,12 @@ impl Walk<'_, '_> {
+                 _ => None,
+             })
+             .collect();
+-        grow(&mut self.slots, cells.len(), m)?;
+         for a in cells {
+-            self.slots.push((a, slot, v, id));
++            for slot in Slot::possible(f) {
++                m.tick(1)?;
++                grow(&mut self.slots, 1, m)?;
++                self.slots.push((a, slot, v, id));
++            }
+         }
+         Ok(true)
+     }
+diff --git a/crates/metal2vulkan/src/memory/provenance/cells.rs b/crates/metal2vulkan/src/memory/provenance/cells.rs
+index 5472c07..df9ffce 100644
+--- a/crates/metal2vulkan/src/memory/provenance/cells.rs
++++ b/crates/metal2vulkan/src/memory/provenance/cells.rs
+@@ -76,7 +76,7 @@ use crate::air::ir::{
+ use crate::budget::{tree_bytes, Meter};
+ use crate::error::Error;
+ 
+-use super::{grow, map_entry_bytes, push_working, Cx, Extent, OffsetRange, PtrFact, Root};
++use super::{grow, map_entry_bytes, push_working, Cx, Extent, OffsetRange, PtrFact, Root, Shape};
+ 
+ /// Where a pointer access into a cell lands.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+@@ -91,6 +91,40 @@ impl Slot {
+     pub(crate) fn of(range: OffsetRange) -> Slot {
+         range.exact().map_or(Slot::Any, Slot::At)
+     }
++
++    /// At most 64 separated pointer slots proved by both the offset range and its stride.
++    /// Larger, unaligned, or unknown sets retain the conservative whole-cell access.
++    pub(crate) fn possible(f: PtrFact) -> impl Iterator<Item = Slot> {
++        let finite = (|| {
++            let OffsetRange::Span { lo, hi } = f.range else {
++                return None;
++            };
++            if lo == hi {
++                return Some((lo, 1, 1));
++            }
++            let Shape::Strided { base, strides } = f.shape else {
++                return None;
++            };
++            let gcd = |mut a: u64, mut b: u64| {
++                while b != 0 {
++                    (a, b) = (b, a % b);
++                }
++                a
++            };
++            let step = i64::try_from(strides.iter().reduce(gcd)?).ok()?;
++            if step < POINTER_BYTES || step % POINTER_BYTES != 0 {
++                return None;
++            }
++            let first = lo.checked_add(base.checked_sub(lo)?.rem_euclid(step))?;
++            let count = hi.checked_sub(first)?.checked_div(step)?.checked_add(1)?;
++            (count > 0 && count <= 64).then_some((first, step, count))
++        })();
++        let (first, step, count) = finite.unwrap_or((0, 1, 1));
++        (0..count).map(move |n| match finite {
++            Some(_) => Slot::At(first + n * step),
++            None => Slot::Any,
++        })
++    }
+ }
+ 
+ /// The endpoints of a copy between forwarding cells ([`Cx::copy_endpoints`]).
+@@ -374,23 +408,25 @@ impl Cx<'_> {
+                 _ => None,
+             })
+             .collect();
+-        let slot = Slot::of(f.range);
+         let mut out = PtrFact::BOTTOM;
+         let mut zeroed = false;
+         for a in cells {
+             if self.cells.readers.insert((a, me)) {
+                 self.cells.charge(READER_BYTES, m)?;
+             }
+-            zeroed = zeroed || self.cells.zeroed(a, slot, m)?;
+-            let all = (a, Slot::At(i64::MIN))..=(a, Slot::Any);
+-            for (&(_, s), x) in self.cells.contents.range(all) {
++            for slot in Slot::possible(f) {
+                 m.tick(1)?;
+-                if slot == Slot::Any || s == Slot::Any || s == slot {
+-                    out = PtrFact {
+-                        roots: self.sets.join(out.roots, x.roots, m)?,
+-                        range: out.range.join(x.range),
+-                        shape: out.shape.join(x.shape),
+-                    };
++                zeroed = zeroed || self.cells.zeroed(a, slot, m)?;
++                let all = (a, Slot::At(i64::MIN))..=(a, Slot::Any);
++                for (&(_, s), x) in self.cells.contents.range(all) {
++                    m.tick(1)?;
++                    if slot == Slot::Any || s == Slot::Any || s == slot {
++                        out = PtrFact {
++                            roots: self.sets.join(out.roots, x.roots, m)?,
++                            range: out.range.join(x.range),
++                            shape: out.shape.join(x.shape),
++                        };
++                    }
+                 }
+             }
+         }
+@@ -431,16 +467,18 @@ impl Cx<'_> {
+                     _ => None,
+                 })
+                 .collect();
+-            let slot = Slot::of(pf.range);
+             for a in cells {
+-                let old = self.cells.contents.get(&(a, slot)).copied();
+-                let new = self.join(old.unwrap_or(PtrFact::BOTTOM), vf, m)?;
+-                if Some(new) != old {
+-                    if old.is_none() {
+-                        self.cells.charge(CONTENT_BYTES, m)?;
++                for slot in Slot::possible(pf) {
++                    m.tick(1)?;
++                    let old = self.cells.contents.get(&(a, slot)).copied();
++                    let new = self.join(old.unwrap_or(PtrFact::BOTTOM), vf, m)?;
++                    if Some(new) != old {
++                        if old.is_none() {
++                            self.cells.charge(CONTENT_BYTES, m)?;
++                        }
++                        self.cells.contents.insert((a, slot), new);
++                        grew.push(a);
+                     }
+-                    self.cells.contents.insert((a, slot), new);
+-                    grew.push(a);
+                 }
+             }
+         }
+@@ -1602,18 +1640,21 @@ fn note_access(
+                 u.open = true;
+                 continue;
+             }
+-            match Slot::of(f.range) {
+-                Slot::At(o) => {
+-                    if !u.slots.contains_key(&o) {
+-                        m.charge(map_entry_bytes::<i64, TypeId>())?;
+-                    }
+-                    if u.slots.insert(o, ty).is_some_and(|t| t != ty) {
+-                        u.open = true;
++            for slot in Slot::possible(f) {
++                m.tick(1)?;
++                match slot {
++                    Slot::At(o) => {
++                        if !u.slots.contains_key(&o) {
++                            m.charge(map_entry_bytes::<i64, TypeId>())?;
++                        }
++                        if u.slots.insert(o, ty).is_some_and(|t| t != ty) {
++                            u.open = true;
++                        }
+                     }
+-                }
+-                Slot::Any => {
+-                    if u.wild.replace(ty).is_some_and(|t| t != ty) {
+-                        u.open = true;
++                    Slot::Any => {
++                        if u.wild.replace(ty).is_some_and(|t| t != ty) {
++                            u.open = true;
++                        }
+                     }
+                 }
+             }
+@@ -1773,6 +1814,35 @@ mod tests {
+         crate::pipeline::testing::meter()
+     }
+ 
++    #[test]
++    fn finite_slots_are_separated_and_bounded() {
++        let make = |lo, hi, stride| PtrFact {
++            roots: super::super::RootSetId::EMPTY,
++            range: OffsetRange::Span { lo, hi },
++            shape: Shape::Strided {
++                base: lo,
++                strides: super::super::Strides::one(stride).expect("stride"),
++            },
++        };
++        assert_eq!(
++            Slot::possible(make(8, 16, 8)).collect::<Vec<_>>(),
++            vec![Slot::At(8), Slot::At(16)]
++        );
++        assert_eq!(Slot::possible(make(0, 63 * 8, 8)).count(), 64);
++        assert_eq!(
++            Slot::possible(make(0, 64 * 8, 8)).collect::<Vec<_>>(),
++            vec![Slot::Any]
++        );
++        assert_eq!(
++            Slot::possible(make(0, 8, 4)).collect::<Vec<_>>(),
++            vec![Slot::Any]
++        );
++        assert_eq!(
++            Slot::possible(make(i64::MIN, i64::MAX, 8)).collect::<Vec<_>>(),
++            vec![Slot::Any]
++        );
++    }
++
+     /// Cell `x` (instruction 0) holds a pointer slot at 0 and `data` data accesses of four bytes
+     /// past it; cell `y` (instruction 1) is empty. `copies` copies of `x`'s first 8 bytes into
+     /// `y` each move the slot onto `y`'s slot 0, so each keeps both cells closed. Settled, the
+diff --git a/crates/metal2vulkan/src/tests/engine_pointer_cells.rs b/crates/metal2vulkan/src/tests/engine_pointer_cells.rs
+index 4afba30..d520c7a 100644
+--- a/crates/metal2vulkan/src/tests/engine_pointer_cells.rs
++++ b/crates/metal2vulkan/src/tests/engine_pointer_cells.rs
+@@ -1512,6 +1512,8 @@ use:
+   call void @air.write_texture_2d.i16.v4f16(ptr addrspace(1) %u, <2 x i16> %pos, <4 x half> <half 1.0, half 1.0, half 1.0, half 1.0>, i16 0, i32 2)
+   ret void
+ }
++
++
+ declare void @air.write_texture_2d.i16.v4f16(ptr addrspace(1), <2 x i16>, <4 x half>, i16, i32)
+ !air.kernel = !{!0}
+ !air.version = !{!9}
+@@ -1755,3 +1757,140 @@ declare void @air.write_texture_2d.i16.v4f16(ptr addrspace(1), <2 x i16>, <4 x h
+         );
+     }
+ }
++
++/// A bounded handle-array index reaches only its array, keeping a neighboring sampler and data
++/// out of the texture's cell group. An unbounded index must still refuse this mixed cell.
++#[test]
++fn bounded_texture_indices_keep_neighboring_sampler_and_data_separate() {
++    let text = r#"%T = type { ptr addrspace(1) }
++%H = type { ptr addrspace(2), [2 x %T], i32 }
++define void @bounded_handles(ptr addrspace(1) %t0, ptr addrspace(1) %t1, <2 x i16> %pos, ptr addrspace(2) %sampler) {
++entry:
++  %a = alloca %H, align 8
++  %s = getelementptr inbounds %H, ptr %a, i64 0, i32 0
++  store ptr addrspace(2) %sampler, ptr %s, align 8
++  %e0 = getelementptr inbounds %H, ptr %a, i64 0, i32 1, i64 0, i32 0
++  store ptr addrspace(1) %t0, ptr %e0, align 8
++  %e1 = getelementptr inbounds %H, ptr %a, i64 0, i32 1, i64 1, i32 0
++  store ptr addrspace(1) %t1, ptr %e1, align 8
++  %d = getelementptr inbounds %H, ptr %a, i64 0, i32 2
++  store i32 19, ptr %d, align 4
++  %x = extractelement <2 x i16> %pos, i64 0
++  %xx = zext i16 %x to i32
++  %k = call i32 @air.min.u.i32(i32 %xx, i32 1)
++  %kk = zext i32 %k to i64
++  %e = getelementptr inbounds %H, ptr %a, i64 0, i32 1, i64 %kk, i32 0
++  %u = load ptr addrspace(1), ptr %e, align 8
++  call void @air.write_texture_2d.i16.v4f16(ptr addrspace(1) %u, <2 x i16> %pos, <4 x half> <half 1.0, half 1.0, half 1.0, half 1.0>, i16 0, i32 2)
++  ret void
++}
++declare i32 @air.min.u.i32(i32, i32)
++declare void @air.write_texture_2d.i16.v4f16(ptr addrspace(1), <2 x i16>, <4 x half>, i16, i32)
++!air.kernel = !{!0}
++!air.version = !{!9}
++!air.language_version = !{!10}
++!0 = !{ptr @bounded_handles, !1, !2}
++!1 = !{}
++!2 = !{!3, !4, !5, !6}
++!3 = !{i32 0, !"air.texture", !"air.location_index", i32 0, i32 1, !"air.write", !"air.arg_type_name", !"texture2d<half, write>", !"air.arg_name", !"t0"}
++!4 = !{i32 1, !"air.texture", !"air.location_index", i32 1, i32 1, !"air.write", !"air.arg_type_name", !"texture2d<half, write>", !"air.arg_name", !"t1"}
++!5 = !{i32 2, !"air.thread_position_in_grid", !"air.arg_type_name", !"ushort2", !"air.arg_name", !"pos"}
++!6 = !{i32 3, !"air.sampler", !"air.location_index", i32 0, i32 1, !"air.arg_type_name", !"sampler", !"air.arg_name", !"s"}
++!9 = !{i32 2, i32 8, i32 0}
++!10 = !{!"Metal", i32 4, i32 0, i32 0}
++"#;
++    let Some(bc) = assemble("bounded_handles", text) else {
++        return;
++    };
++    let unbounded = text.replace("%kk = zext i32 %k to i64", "%kk = zext i32 %xx to i64");
++    let Some(negative) = assemble("unbounded_handles", &unbounded) else {
++        return;
++    };
++    for stem in PROFILES {
++        let prof = p(stem);
++        let a = compile(&bc, "bounded_handles", &prof).unwrap_or_else(|e| panic!("{stem}: {e}"));
++        link_and_validate(&a, &prof).unwrap_or_else(|e| panic!("{stem}: L3: {e}"));
++        assert!(
++            a.strategies
++                .entries
++                .get("access.cell.load")
++                .is_some_and(|u| u.uses == 1),
++            "{stem}"
++        );
++        assert!(
++            matches!(compile(&negative, "bounded_handles", &prof), Err(Error::Unsupported(u))
++                if u.feature == Feature::Lowering(LowerFamily::Access) && u.needs == Needs::NotImplemented),
++            "{stem}: an unbounded access is not proved separate"
++        );
++    }
++}
++
++/// A bounded pointer read (and a bounded write before it) keeps adjacent data intact. Run both
++/// scheduling orders with independent expected values, including both selected buffers.
++#[test]
++fn bounded_pointer_array_reads_and_writes_preserve_neighboring_data() {
++    for write in [false, true] {
++        let body = r#"entry:
++  %s = alloca %S, align 8
++  %a = getelementptr inbounds %S, ptr %s, i64 0, i32 1, i64 0
++  %b = getelementptr inbounds %S, ptr %s, i64 0, i32 1, i64 1
++  %left = getelementptr inbounds %S, ptr %s, i64 0, i32 0
++  %right = getelementptr inbounds %S, ptr %s, i64 0, i32 2
++  store i32 19, ptr %left, align 4
++  store i32 23, ptr %right, align 4
++  store ptr addrspace(1) %b1, ptr %a, align 8
++  store ptr addrspace(1) %b2, ptr %b, align 8
++  %k = call i32 @air.min.u.i32(i32 %t, i32 1)
++  %kk = zext i32 %k to i64
++  %slot = getelementptr inbounds %S, ptr %s, i64 0, i32 1, i64 %kk
++  WRITE
++  %p = load ptr addrspace(1), ptr %slot, align 8
++  %i = zext i32 %t to i64
++  %q = getelementptr inbounds i32, ptr addrspace(1) %p, i64 %i
++  %v = load i32, ptr addrspace(1) %q, align 4
++  %l = load i32, ptr %left, align 4
++  %r = load i32, ptr %right, align 4
++  %sum = add i32 %l, %r
++  %result = add i32 %v, %sum
++  %out = getelementptr inbounds i32, ptr addrspace(1) %b0, i64 %i
++  store i32 %result, ptr addrspace(1) %out, align 4
++  ret void
++"#
++        .replace(
++            "WRITE",
++            if write {
++                "store ptr addrspace(1) %b2, ptr %slot, align 8"
++            } else {
++                ""
++            },
++        );
++        let text = kernel(
++            "bounded_buffers",
++            3,
++            "%S = type { i32, [2 x ptr addrspace(1)], i32 }",
++            &body,
++        ) + "\ndeclare i32 @air.min.u.i32(i32, i32)\n";
++        let Some(bc) = assemble("bounded_buffers", &text) else {
++            return;
++        };
++        let a = input(3);
++        let b = input(11);
++        let expected: Vec<u32> = (0..THREADS as usize)
++            .map(|i| {
++                if !write && i == 0 {
++                    a[i] + 42
++                } else {
++                    b[i] + 42
++                }
++            })
++            .collect();
++        for (stem, bufs) in run_everywhere(
++            &bc,
++            "bounded_buffers",
++            &[vec![0; THREADS as usize], a, b],
++            (if write { 3 } else { 2 }, 1),
++        ) {
++            assert_eq!(bufs[0], expected, "{stem}: bounded write={write}");
++        }
++    }
++}
+diff --git a/docs/API.md b/docs/API.md
+index de22923..0bac414 100644
+--- a/docs/API.md
++++ b/docs/API.md
+@@ -1,5 +1,10 @@
+ # The API
+ 
++Private pointer cells retain finite index bounds from scalar unsigned `min` with a nonnegative
++constant, including zero extensions. An access proved to cover at most 64 separated pointer
++slots joins those slots only, keeping neighboring handles and data separate. Larger or unknown
++sets retain whole-cell analysis; mixed pointer/data accesses can still be refused.
++
+ `metal2vulkan` compiles Metal AIR into Vulkan pipelines through an API shaped like Metal's object
+ lifecycle. You hand it Metal-shaped inputs (a device description, a library, pipeline
+ descriptors, what a draw or dispatch binds) and get back plain data to create and record Vulkan

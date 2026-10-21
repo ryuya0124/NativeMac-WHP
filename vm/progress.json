@@ -161,6 +161,26 @@
       "panic": "pmap_recycle_page; pageout/storage completion stack",
       "causality": "unresolved",
       "astcRejections": 0
+    },
+    "boundedCellRepair": {
+      "sourceRevision": "0e83a42",
+      "authoredPointerCellTestsPassed": 35,
+      "finiteSlotBoundaryTestPassed": true,
+      "clippyTranslatorAndAir": "passed: all targets/all features, warnings denied",
+      "capturedFailureOfflineTranslation": {
+        "passed": true,
+        "seconds": 0.047,
+        "peakJobMiB": 7.691,
+        "timeLimitSeconds": 20,
+        "memoryLimitMiB": 500,
+        "profile": "committed reference RTX profile; not exact host profile"
+      },
+      "guestQualification": "failed black display on two boots; prior library comparison in progress",
+      "gpuValueProbePending": true
+    },
+    "bitReverseProbe": {
+      "m4ReferenceValuesVerified": 16384,
+      "guestVerified": false
     }
   }
 }

@@ -68,5 +68,12 @@
     "applyAfter": "patches/metal2vulkan-llvm-bitreverse.patch",
     "sourceRevision": "d1c818e9183457f9a0c506dbed0463da9f6f4540",
     "status": "CPU flag combinations and authored ray pipeline validation passed; GPU ray execution unqualified"
+  },
+  "metal2vulkanBoundedCellRepair": {
+    "patch": "patches/metal2vulkan-bounded-pointer-cells.patch",
+    "applyAfter": "patches/metal2vulkan-ray-cull-flags.patch",
+    "sourceRevision": "0e83a420aff41b97926599678d4101dc2c0ef585",
+    "status": "experimental; authored mixed-cell regression and captured failure pass offline; VM retest pending",
+    "usesCpuRendering": false
   }
 }

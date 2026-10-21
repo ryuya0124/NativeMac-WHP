@@ -47,3 +47,5 @@ metal2vulkan-runtime = { path = "C:/path/to/metal2vulkan/crates/metal2vulkan-run
 Use `cargo +1.98.1 --config <local-config.toml> build -p reims-vgpu-c --no-default-features --features vulkan --release`. The first resolution updates the local Reims lockfile to these path dependencies. Keep this build separate from the unmodified pinned build. This repair is experimental: see [the FHD compatibility checks](GPU_COMPATIBILITY.md) for executed tests and remaining runtime failures.
 
 The optional `patches/metal2vulkan-ray-cull-flags.patch` applies after the bitreverse patch and corrects the invalid primitive-cull flag combination found by the authored CPU/validation suite. It does not enable guest ray-tracing capabilities.
+
+The experimental bounded private-cell repair is `patches/metal2vulkan-bounded-pointer-cells.patch`, applied after the ray-cull repair. It preserves unsigned-min index bounds and keeps small separated slot sets apart from neighboring handles/data. Use its authored regression and a guest retest; an offline SPIR-V validation pass does not qualify the VM.

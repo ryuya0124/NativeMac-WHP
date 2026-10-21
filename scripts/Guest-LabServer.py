@@ -22,6 +22,7 @@ files = {
     'Installer.cpio': root / 'backend/media/Installer.cpio',
     'SharedSupport.dmg': root / 'backend/media/SharedSupport.dmg',
     'metal-probe-x64': root / 'artifacts/metal-probe/metal-probe-x64',
+    'bitreverse-probe-x64': root / 'artifacts/metal-probe/bitreverse-probe-x64',
     'queue-burst-probe-x64': root / 'artifacts/metal-probe/queue-burst-probe-x64',
     'texture-lifetime-probe-x64': root / 'artifacts/metal-probe/texture-lifetime-probe-x64',
     'display-probe-x64': root / 'artifacts/metal-probe/display-probe-x64',
