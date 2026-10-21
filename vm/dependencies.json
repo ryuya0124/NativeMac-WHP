@@ -9,8 +9,23 @@
     "commit": "7f37f7654e441dee0f468954a96d8f94cb7e2ff4",
     "patch": "patches/reims-msvc.patch",
     "crate": "reims-vgpu-c",
-    "features": ["vulkan"],
-    "qemuFrontendUsed": false
+    "features": [
+      "vulkan"
+    ],
+    "qemuFrontendUsed": false,
+    "guestMetalCompat": {
+      "sourceDirectory": "guest/metal-compat",
+      "sourceCommit": "7f37f7654e441dee0f468954a96d8f94cb7e2ff4",
+      "liluSourceCommit": "e4748cc081bf060302c7d3c44a643ce1d11b7e1d",
+      "macKernelSdkCommit": "3f750085caa17ec3a7880f11c11bf4f48cd6a164",
+      "architecture": "x86_64",
+      "testedDarwin": "25.6.0",
+      "qualification": "in_progress",
+      "buildInstructions": "docs/GPU_STABILITY.md",
+      "patch": "patches/reims-metal-compat-astc.patch",
+      "testedSnapshotRevision": "c3eda37b47e8d8efb4adde4a94c6d854624a7ab3",
+      "manifest": "docs/verification/metal-compat-source-manifest.json"
+    }
   },
   "amdVanilla": {
     "repository": "https://github.com/AMD-OSX/AMD_Vanilla.git",
@@ -24,7 +39,19 @@
     "architecture": "x86_64",
     "macKernelSdkCommit": "3f750085caa17ec3a7880f11c11bf4f48cd6a164"
   },
-  "firmware": { "openCore": "1.0.8 DEBUG", "hyperVEfiBase": "0.4.0 DEBUG", "iasl": "20250807", "clang": "22.1.8" },
-  "appleRecovery": { "version": "26.6.2", "build": "25G83", "originalDmgBytes": 960530321 },
-  "appleInstaller": { "originalPackageBytes": 18384624402, "requiresOriginalPkgDmgFooter": true }
+  "firmware": {
+    "openCore": "1.0.8 DEBUG",
+    "hyperVEfiBase": "0.4.0 DEBUG",
+    "iasl": "20250807",
+    "clang": "22.1.8"
+  },
+  "appleRecovery": {
+    "version": "26.6.2",
+    "build": "25G83",
+    "originalDmgBytes": 960530321
+  },
+  "appleInstaller": {
+    "originalPackageBytes": 18384624402,
+    "requiresOriginalPkgDmgFooter": true
+  }
 }

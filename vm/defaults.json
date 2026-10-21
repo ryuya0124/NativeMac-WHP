@@ -3,8 +3,8 @@
   "memoryGiB": 12,
   "processors": 8,
   "limits": {
-    "maxMemoryGiB": 24,
-    "maxProcessors": 8
+    "maxMemoryGiB": 256,
+    "maxProcessors": 64
   },
   "bootValidation": {
     "memoryGiB": 12,
@@ -12,5 +12,8 @@
   },
   "hypervisor": "whp",
   "allowCpuTranslation": false,
-  "allowSoftwareGpu": false
+  "allowSoftwareGpu": false,
+  "gpuTransport": "compat",
+  "rejectAstcTextures": true,
+  "displayResolution": "1920x1080"
 }

@@ -1,12 +1,23 @@
 param(
-    [ValidateRange(1,24)][int]$MemoryGiB = 12,
-    [ValidateRange(1,8)][int]$Processors = 8,
+    [ValidateRange(1,256)][int]$MemoryGiB = 12,
+    [ValidateRange(1,64)][int]$Processors = 8,
     [switch]$FirmwareOnly,
     [switch]$Gpu,
-    [switch]$SerialConsole
+    [switch]$SerialConsole,
+    [ValidateSet('legacy','compat')][string]$MetalTransport,
+    [ValidateSet('1920x1080','2560x1440','3840x2160')][string]$DisplayResolution
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
+$defaults = Get-Content (Join-Path $projectRoot 'vm/defaults.json') -Raw | ConvertFrom-Json
+if (!$DisplayResolution) {
+    $DisplayResolution = if ($defaults.displayResolution) { [string]$defaults.displayResolution } else { '1920x1080' }
+}
+if ($DisplayResolution -notin @('1920x1080','2560x1440','3840x2160')) { throw 'Unsupported display resolution.' }
+if (!$MetalTransport) {
+    $MetalTransport = if ($defaults.gpuTransport) { [string]$defaults.gpuTransport } else { 'legacy' }
+}
+if ($MetalTransport -notin @('legacy','compat')) { throw 'Unknown GPU transport in VM defaults.' }
 $pathHash = [System.Security.Cryptography.SHA256]::Create()
 try { $identity = [BitConverter]::ToString($pathHash.ComputeHash([Text.Encoding]::UTF8.GetBytes($projectRoot.ToLowerInvariant()))).Replace('-','') }
 finally { $pathHash.Dispose() }
@@ -33,8 +44,12 @@ $options = @('--hypervisor','whp','--processors',"$Processors",'--vps-per-socket
     '--vnc-listen','127.0.0.1','--vnc-port','5905','--log-file',$workerLog,'--vmgs',"file:$vmgs")
 if (!$Gpu) { $options += '--gfx' }
 if (!$FirmwareOnly) {
-    $prepareOptions = @('--processors',"$Processors")
+    $prepareOptions = @('--processors',"$Processors",'--resolution',$DisplayResolution)
     if ($Gpu) { $prepareOptions += '--gpu' }
+    if ($Gpu -and $MetalTransport -eq 'compat') {
+        $prepareOptions += '--metal-compat'
+        if ($defaults.rejectAstcTextures) { $prepareOptions += '--reject-astc' }
+    }
     & python (Join-Path $PSScriptRoot 'Prepare-Boot.py') @prepareOptions
     if ($LASTEXITCODE -ne 0) { throw 'Boot media preparation failed' }
     & (Join-Path $projectRoot 'backend/firmware/opencore-1.0.8-debug/Utilities/ocvalidate/ocvalidate.exe') (Join-Path $projectRoot 'backend/boot/config.plist')
@@ -58,8 +73,13 @@ if ($Gpu) {
     $options += @('--pcie-root-complex','rc0,low_mmio=256M,high_mmio=4K',
         '--pcie-root-port','rc0:gpu0,addr=1','--pcie-ecam-below-4gb','--reims-gpu',$library,'--vnc','--net','consomme')
 }
-Write-Host "Starting WHP VM: RAM ${MemoryGiB} GiB, ${Processors} cores; limits 24 GiB / 8 cores."
-& $exe @options
+Write-Host "Starting WHP VM: RAM ${MemoryGiB} GiB, ${Processors} cores, $DisplayResolution; limits 256 GiB / 64 cores."
+# The OpenVMM worker inherits this per-launch setting. No machine environment is changed.
+$previousResolution = $env:NATIVEMAC_DISPLAY_RESOLUTION
+try {
+    $env:NATIVEMAC_DISPLAY_RESOLUTION = $DisplayResolution
+    & $exe @options
+} finally { $env:NATIVEMAC_DISPLAY_RESOLUTION = $previousResolution }
 if ($LASTEXITCODE -ne 0) { throw "VM exited with code $LASTEXITCODE" }
 } finally {
     if ($ownsMutex) { $vmMutex.ReleaseMutex() }

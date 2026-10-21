@@ -25,6 +25,10 @@ The token-scoped `scripts/Guest-LabServer.py --bind <Windows-LAN-IP>` can serve 
 
 ## App
 
-Run `scripts/Build.ps1 -Publish`, then `artifacts/app/TahoeVm.exe --start-vm --memory 12 --processors 8`. Choose NativeMac in OpenCore. RAM and CPU caps are enforced at 24 GiB and 8 virtual processors. Guest display and input use the independent GPU window. The WinUI app manages resources and power.
+Run `scripts/Build.ps1 -Publish`, then `artifacts/app/TahoeVm.exe --start-vm --memory 12 --processors 8`. Choose NativeMac in OpenCore. RAM and CPU are configurable before startup up to 256 GiB and 64 virtual processors; the default and tested allocation remains 12 GiB / 8 processors. Allocations beyond available host resources are not qualified. Guest display and input use the independent GPU window. The WinUI app manages resources and power.
 
 The recorded Metal result is a validation of one compute workload, alongside the setup UI. See `vm/progress.json` for known limitations. Additional applications and long-running workloads need separate validation.
+
+The experimental default Metal transport also needs the guest bridge described in [GPU_STABILITY.md](GPU_STABILITY.md). Apply `patches/reims-metal-compat-astc.patch` to the pinned Reims sources and commit the guest directory before exporting its build snapshot. `rejectAstcTextures` in vm/defaults.json enables allocation rejection for the current host, whose Vulkan runtime rejects ASTC. This is not an ASTC decoder or a long-term compatibility guarantee.
+
+Display modes: select FHD/WQHD/4K before startup, or pass `--resolution 3840x2160` to TahoeVm / `-DisplayResolution 3840x2160` to Start-VM.ps1. OpenCore and the GPU mode cap receive the same resolution. Defaults remain 1920x1080, 12 GiB, 8 processors.

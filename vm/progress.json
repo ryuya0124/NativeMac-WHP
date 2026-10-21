@@ -1,8 +1,8 @@
 {
   "verifiedOn": "2026-10-21",
   "limits": {
-    "memoryGiB": 24,
-    "processors": 8
+    "memoryGiB": 256,
+    "processors": 64
   },
   "lastRecoveryUserlandBoot": {
     "memoryGiB": 12,
@@ -72,7 +72,8 @@
     "screenEvidence": "artifacts/normal-os-gpu-verified.png"
   },
   "knownLimitations": [
-    "An iconservicesagent task can fault with an empty GPU resource entry. The setup screen and Metal compute test have succeeded; broad application compatibility is not verified.",
+    "Some earlier boots still reported empty GPU texture entries and GPU hang/restart requests. Long-term qualification is in progress.",
+    "Bursts of desktop actions can queue for approximately 10 seconds; cause under investigation.",
     "Guest display uses a separate GPU window."
   ],
   "mouseWheel": {
@@ -84,5 +85,53 @@
     "liveScrollVerified": true,
     "verification": "User confirmed scrolling works after Windows restart and rebuilt backend boot",
     "verifiedOn": "2026-10-21"
+  },
+  "stabilityCandidate": {
+    "status": "in_progress",
+    "gpuTransport": "compat",
+    "resolution": [
+      1920,
+      1080
+    ],
+    "efiPresentationEnabled": false,
+    "memoryGiB": 12,
+    "processors": 8,
+    "inputTestsPassed": 6,
+    "guestComputeRunsPassed": 5,
+    "guestResourceProbeRunsPassed": 6,
+    "displayTiming": {
+      "seconds": 20.005,
+      "completed": 3043,
+      "meanFps": 152.11,
+      "errors": 0,
+      "provesLongTermStability": false
+    },
+    "userConfirmedSmootherUnlock": true,
+    "userReportedBurstInputDelaySeconds": 10,
+    "previousCandidateGpuFaults": 6,
+    "continuousObservationPassed": false,
+    "lastContinuousObservation": "failed: host process aborted on unsupported ASTC 8x8 texture while system apps were used",
+    "windowsFamilyAuditCandidate": "rejected: very slow desktop; original reporting restored",
+    "astcAllocationRejection": "negative probe passed; nil returned; following compute and presentation passed",
+    "successfulUserUnlocks": 3,
+    "systemAppLaunchAndComputeChecks": 8,
+    "benchmark3D": {
+      "name": "GravityMark",
+      "version": "1.89",
+      "status": "failed",
+      "failure": "UnknownIntrinsic llvm.bitreverse.i32 during pipeline creation; host worker aborted",
+      "score": null
+    },
+    "displayModes": {
+      "implemented": [
+        "1920x1080",
+        "2560x1440",
+        "3840x2160"
+      ],
+      "guestVerified": [
+        "1920x1080"
+      ],
+      "default": "1920x1080"
+    }
   }
 }

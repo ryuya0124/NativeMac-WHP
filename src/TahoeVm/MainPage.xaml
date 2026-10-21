@@ -26,17 +26,22 @@
                 <InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Margin="0,8,0,0"
                     Title="macOS 26起動・ゲストMetal計算を確認しました"
                     Message="このPCでmacOS 26.6.2を12 GiB・8コアで起動し、RTX 5080によるゲスト内Metal計算4096個の一致を確認しました。VMの画面は別ウィンドウで開きます。" />
-                <TextBlock Text="VMリソース上限：RAM 24 GB / CPU 8コア" Foreground="#72C5D5" />
+                <TextBlock Text="設定上限：RAM 256 GiB / CPU 64コア" Foreground="#72C5D5" />
             </StackPanel>
             <StackPanel Grid.Row="1" Spacing="16">
                 <Border Style="{StaticResource Card}">
                     <StackPanel Spacing="10">
                         <TextBlock Text="MACOS / WHP VM" FontSize="12" Foreground="#72C5D5" />
-                        <NumberBox x:Name="VmMemory" Header="RAM (GiB)" Value="12" Minimum="1" Maximum="24" SpinButtonPlacementMode="Compact" />
-                        <NumberBox x:Name="VmProcessors" Header="CPUコア" Value="8" Minimum="1" Maximum="8" SpinButtonPlacementMode="Compact" />
+                        <NumberBox x:Name="VmMemory" Header="RAM (GiB)" Value="12" Minimum="1" Maximum="256" SpinButtonPlacementMode="Compact" />
+                        <NumberBox x:Name="VmProcessors" Header="CPUコア" Value="8" Minimum="1" Maximum="64" SpinButtonPlacementMode="Compact" />
+                        <ComboBox x:Name="VmResolution" Header="最大解像度（起動時に適用）" SelectedIndex="0" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="FHD · 1920 × 1080" Tag="1920x1080" />
+                            <ComboBoxItem Content="WQHD · 2560 × 1440" Tag="2560x1440" />
+                            <ComboBoxItem Content="4K · 3840 × 2160" Tag="3840x2160" />
+                        </ComboBox>
                         <Button x:Name="VmStartButton" Content="macOS VMを起動" Click="StartVm_Click" HorizontalAlignment="Stretch" />
                         <Button x:Name="VmStopButton" Content="VMの電源を切る" Click="StopVm_Click" IsEnabled="False" HorizontalAlignment="Stretch" />
-                        <TextBlock x:Name="VmStatus" Text="ゲスト画面は別ウィンドウで開きます。" Foreground="#ACBDD1" />
+                        <TextBlock x:Name="VmStatus" Text="変更したRAM・CPU・解像度は次回起動時に適用します。" Foreground="#ACBDD1" />
                     </StackPanel>
                 </Border>
                 <Border Style="{StaticResource Card}">

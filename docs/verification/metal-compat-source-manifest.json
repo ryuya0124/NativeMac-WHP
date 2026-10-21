@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "revision": "c3eda37b47e8d8efb4adde4a94c6d854624a7ab3",
+  "files": {
+    "DirtyABI.hpp": "fa35683ea9292dd01137b345ef7cfbc92f347f740addc6ec4f421508674a6fd5",
+    "Info.plist": "f7b2413d2388d46006d5da2903303a3a77cdcec5cbfebf495fa00dcad1ec8ce3",
+    "README.md": "d10b954277cd28d7f85c38092037c16cd0ec411f02589297c743f786d5f066e2",
+    "ReimsMetalCompat.cpp": "346030774bfc3ab25d78a3d0b6116a23c744d68702d0a07e3fcc7abdeca86d82",
+    "ResourceABI.hpp": "7e5a9d16f0d09f044c262051c56e5bcb1eb30484642df60ab281b47af269401d",
+    "SubmissionABI.hpp": "3cd34d884bfb2fc2761c6caea3bc5357099364a01b12b23f335e2f76a4ad04e3",
+    "TextureABI.hpp": "40654b1d61f82cf85cf3a941f0725c2c43adface05368bd026864b370903f842",
+    "abi-test.cpp": "bdbdb8a9a715beadc464d7109e70ee42d4d7bbc68ba41756fb0d8a005a964bd5",
+    "build.sh": "bcc1697d8a83a4750221c9a8442420c72f42be676bd33c3bdaf39564f22a72cc",
+    "compute-probe.m": "b223ab6b0a7096c6a28dfe7b3e186e1b0f445b517f41d89efd78406c8e6bc8aa",
+    "empty-command-probe.m": "754829623ab328e89108b7272f9da0744f936e8bc8bea60a8b2d22cd5f49a68a",
+    "event-probe.m": "9300727c94c439ba7db5201dbf71c4c90c57c396a2050e98a580e07b63e99935",
+    "iosurface-probe.m": "a75f4697225c22b40d9676d400331b380ca488ede99b03bda6f31ef2fb64c5be",
+    "managed-probe.m": "8456f5cfd5e53fe0580a9a3aca2e6ad47f3bd434d3c0b4b5b6243deccf707d1d",
+    "queue-burst-probe.m": "cbd5f6024f3d89d409374d0cef2a1851641be2157a2207e63a1f9f93582efd58",
+    "resource-probe.m": "d0b4a3133aa279bc4e8a7c995baf8d5d6dc89c7f935b1220e3fa327a37aa914b",
+    "source_snapshot.py": "4328d884aa978526094431b5cc1d5c1d094d26818c0c53452d2497301906849e",
+    "test_source_snapshot.py": "fc6d33d3f2a2a03afb11ce810e003d9ad572e4144b951c5afe31497d4e1d6a75",
+    "texture-lifetime-probe.m": "c7264190a56def9323684fb3d9e49978fc711f57a4f37105f9092211b759ceab"
+  }
+}

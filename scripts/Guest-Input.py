@@ -6,6 +6,10 @@ import time
 
 p = argparse.ArgumentParser()
 p.add_argument('--text')
+p.add_argument('--keyboard-layout', choices=['us', 'jis'], default='us',
+               help='Guest keyboard layout used to interpret the RFB US scan codes')
+p.add_argument('--release-modifiers', action='store_true',
+               help='Release guest Shift/Control/Meta/Alt before diagnostic input')
 p.add_argument('--key', action='append', default=[])
 p.add_argument('--click', nargs=2, type=int)
 p.add_argument('--move', nargs=2, type=int)
@@ -14,7 +18,8 @@ p.add_argument('--guest-size', nargs=2, type=int, default=[1280, 800])
 a = p.parse_args()
 keys = {'enter': 0xff0d, 'tab': 0xff09, 'escape': 0xff1b,
         'up': 0xff52, 'down': 0xff54, 'left': 0xff51, 'right': 0xff53,
-        'shift': 0xffe1, 'ctrl': 0xffe3, 'alt': 0xffe9, 'meta': 0xffeb}
+        'shift': 0xffe1, 'ctrl': 0xffe3, 'alt': 0xffe9, 'meta': 0xffe7,
+        'space': 0x20}
 
 with socket.create_connection(('127.0.0.1', 5905), timeout=10) as s:
     def read(n):
@@ -40,6 +45,10 @@ with socket.create_connection(('127.0.0.1', 5905), timeout=10) as s:
         s.sendall(struct.pack('>BBHI', 4, int(down), 0, code))
         time.sleep(0.015)
 
+    if a.release_modifiers:
+        for code in (0xffe1,0xffe2,0xffe3,0xffe4,0xffe7,0xffe8,0xffe9,0xffea):
+            key(code, False)
+
     if a.click or a.move:
         x, y = a.click or a.move
         x = min(width - 1, max(0, round(x * width / a.guest_size[0])))
@@ -54,7 +63,15 @@ with socket.create_connection(('127.0.0.1', 5905), timeout=10) as s:
             s.sendall(struct.pack('>BBHH', 5, 0, x, y))
             time.sleep(0.025)
     if a.text:
+        # RFB maps ASCII to US physical keys; macOS can interpret those as JIS.
+        jis = {':': "'", '=': '_', '+': ':', '@': '[', '[': ']', ']': '\\',
+               '{': '}', '}': '|', '^': '=', '~': '+', '`': '{',
+               '"': '@', "'": '&', '&': '^', '(': '*', ')': '(', '*': '"'}
+        if a.keyboard_layout == 'jis' and any(c in a.text for c in '\\|_'):
+            raise ValueError('JIS yen/ro keys cannot be represented by this RFB server')
         for char in a.text:
+            if a.keyboard_layout == 'jis':
+                char = jis.get(char, char)
             code = 0xff0d if char == '\n' else ord(char)
             key(code, True)
             key(code, False)

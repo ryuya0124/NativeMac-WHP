@@ -39,17 +39,34 @@ use vmcore::{device_state::ChangeDeviceState, interrupt::Interrupt,
     size:u32, serial:u32, port:u64, name:*const u8, name_length:usize,
     width:f64, height:f64, callbacks:*const c_void, window:*const WindowConfig,
 }
+#[repr(C)] struct DisplayCallbacks {
+    size:u32, ctx:*mut c_void, destroy:usize,
+    mode:Option<extern "C" fn(*mut c_void,u16,u16,u32)>,
+    frame:usize, glyph:usize, show:usize, moved:usize,
+}
+#[repr(C)] struct DisplayCoord {x:u16,y:u16}
 #[repr(C)] struct FrameTargetConfig { size:u32, width:u32, height:u32, format:u32 }
 const _: () = {
     assert!(std::mem::size_of::<Config>()==64);
     assert!(std::mem::size_of::<WindowConfig>()==32);
     assert!(std::mem::size_of::<WindowCallbacks>()==72);
     assert!(std::mem::size_of::<DisplayConfig>()==64);
+    assert!(std::mem::size_of::<DisplayCallbacks>()==64);
+    assert!(std::mem::size_of::<DisplayCoord>()==4);
 };
 type Create = unsafe extern "C" fn(*const Config,*mut *mut c_void)->u32;
 type Release = unsafe extern "C" fn(*mut c_void);
 type Read = unsafe extern "C" fn(*mut c_void,u64)->u32;
 type Write = unsafe extern "C" fn(*mut c_void,u64,u32);
+
+fn display_resolution(value:Option<&str>)->Result<(u16,u16)> {
+    match value.unwrap_or("1920x1080") {
+        "1920x1080"=>Ok((1920,1080)),
+        "2560x1440"=>Ok((2560,1440)),
+        "3840x2160"=>Ok((3840,2160)),
+        value=>anyhow::bail!("unsupported NativeMac display resolution: {value}"),
+    }
+}
 
 struct Runtime {
     device:*mut c_void, display:*mut c_void,
@@ -158,16 +175,23 @@ impl Runtime {
             anyhow::ensure!(status==0,"rvg_device_create status {status}");
             let mut runtime=Self{device,display:std::ptr::null_mut(),release,display_release,reset,read,write,
                 _library:library,_interrupt:interrupt,_views:views,_memory:memory,regions,
-                _input:Box::new(WindowInput{send:input,mouse:std::sync::atomic::AtomicU64::new(0)}),log_level:3};
+                _input:Box::new(WindowInput::new(input)?),log_level:3};
             let create_display:libloading::Symbol<unsafe extern "C" fn(*mut c_void,*const DisplayConfig,*mut *mut c_void)->u32>=runtime._library.get(b"rvg_display_create\0")?;
             let window_callbacks=WindowCallbacks{size:std::mem::size_of::<WindowCallbacks>() as u32,
                 ctx:(&mut *runtime._input as *mut WindowInput).cast(),
                 destroy:0,pointer:Some(pointer),wheel:Some(wheel),key:Some(key),close:0,scroll:0,relative:0};
+            let resolution=std::env::var("NATIVEMAC_DISPLAY_RESOLUTION").ok();
+            let (width,height)=display_resolution(resolution.as_deref())?;
             let window=WindowConfig{size:std::mem::size_of::<WindowConfig>() as u32,flags:1,
-                callbacks:(&window_callbacks as *const WindowCallbacks).cast(),width:1280,height:800,ppi:110.0};
+                callbacks:(&window_callbacks as *const WindowCallbacks).cast(),width,height,ppi:110.0};
+            let display_callbacks=DisplayCallbacks{size:std::mem::size_of::<DisplayCallbacks>() as u32,
+                ctx:Box::into_raw(Box::new(runtime._input.display_mode.clone())).cast(),
+                destroy:release_mode_context as *const () as usize,
+                mode:Some(mode_changed),frame:0,glyph:0,show:0,moved:0};
             let name=b"NativeMac WHP";
             let config=DisplayConfig{size:std::mem::size_of::<DisplayConfig>() as u32,serial:1,port:0,
-                name:name.as_ptr(),name_length:name.len(),width:295.0,height:185.0,callbacks:std::ptr::null(),window:&window};
+                name:name.as_ptr(),name_length:name.len(),width:295.0,height:185.0,
+                callbacks:(&display_callbacks as *const DisplayCallbacks).cast(),window:&window};
             let status=create_display(device,&config,&mut runtime.display);
             anyhow::ensure!(status==0,"rvg_display_create status {status}");
             tracing::info!(ranges=ranges.len(),"Reims Vulkan PCI GPU initialized");
@@ -215,15 +239,96 @@ impl InspectMut for Runtime {
                 counts(self.display,&mut guest,&mut host);
             }
         }
+        let mode=self._input.display_mode.load(std::sync::atomic::Ordering::Relaxed);
+        let mut cursor=DisplayCoord{x:65535,y:65535};
+        unsafe {
+            if let Ok(position)=self._library.get::<unsafe extern "C" fn(*mut c_void)->DisplayCoord>(b"rvg_display_cursor_position\0") {
+                cursor=position(self.display);
+            }
+        }
         req.respond().field("guest_presents",guest).field("host_presents",host)
+            .field("efi_enabled",unsafe{(self.read)(self.device,0x1200)})
+            .field("binary_version",unsafe{(self.read)(self.device,0x1034)})
+            .field("display_width",mode as u16).field("display_height",(mode>>16) as u16)
+            .field("guest_cursor_x",cursor.x).field("guest_cursor_y",cursor.y)
+            .field("pointer_events_received",self._input.motion.received.load(std::sync::atomic::Ordering::Relaxed))
+            .field("pointer_reports_sent",self._input.motion.sent.load(std::sync::atomic::Ordering::Relaxed))
             .field_mut("capture",&mut CaptureAction(self))
             .field_mut("log_level",&mut LogLevelAction(self));
     }
 }
 
+#[derive(Default)]
+struct MotionBuffer {
+    pending:Option<input_core::MouseData>,
+    buttons:u8,
+}
+impl MotionBuffer {
+    fn push(&mut self,data:input_core::MouseData)->Vec<input_core::MouseData> {
+        let mut immediate=Vec::new();
+        if data.button_mask != self.buttons {
+            // Preserve the final held-button position before an up, and every down/up.
+            if let Some(pending)=self.pending.take() {immediate.push(pending);}
+            immediate.push(data);
+            self.buttons=data.button_mask;
+        } else {self.pending=Some(data);}
+        immediate
+    }
+}
+struct MotionQueue {
+    buffer:std::sync::Mutex<MotionBuffer>,
+    send:mesh::Sender<input_core::InputData>,
+    stop:std::sync::atomic::AtomicBool,
+    received:std::sync::atomic::AtomicU64,
+    sent:std::sync::atomic::AtomicU64,
+}
+impl MotionQueue {
+    fn send(&self,data:input_core::MouseData) {
+        self.sent.fetch_add(1,std::sync::atomic::Ordering::Relaxed);
+        self.send.send(input_core::InputData::Mouse(data));
+    }
+}
 struct WindowInput {
     send:mesh::Sender<input_core::InputData>,
     mouse:std::sync::atomic::AtomicU64,
+    display_mode:std::sync::Arc<std::sync::atomic::AtomicU32>,
+    motion:std::sync::Arc<MotionQueue>,
+    worker:Option<std::thread::JoinHandle<()>>,
+}
+impl WindowInput {
+    fn new(send:mesh::Sender<input_core::InputData>)->Result<Self> {
+        let motion=std::sync::Arc::new(MotionQueue {
+            buffer:std::sync::Mutex::new(MotionBuffer::default()),send:send.clone(),
+            stop:std::sync::atomic::AtomicBool::new(false),
+            received:std::sync::atomic::AtomicU64::new(0),sent:std::sync::atomic::AtomicU64::new(0),
+        });
+        let queue=motion.clone();
+        let worker=std::thread::Builder::new().name("nativemac-mouse".into()).spawn(move || {
+            while !queue.stop.load(std::sync::atomic::Ordering::Acquire) {
+                {
+                    let mut buffer=queue.buffer.lock().unwrap_or_else(|e|e.into_inner());
+                    if let Some(data)=buffer.pending.take() {queue.send(data);}
+                }
+                std::thread::park_timeout(std::time::Duration::from_millis(8));
+            }
+        })?;
+        Ok(Self{send,mouse:std::sync::atomic::AtomicU64::new(0),
+            display_mode:std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),motion,worker:Some(worker)})
+    }
+}
+extern "C" fn mode_changed(ctx:*mut c_void,width:u16,height:u16,format:u32) {
+    unsafe {(&*ctx.cast::<std::sync::Arc<std::sync::atomic::AtomicU32>>()).store(
+        u32::from(width)|(u32::from(height)<<16),std::sync::atomic::Ordering::Relaxed);}
+    tracing::info!(width,height,format,"guest display mode changed");
+}
+extern "C" fn release_mode_context(ctx:*mut c_void) {
+    unsafe {drop(Box::from_raw(ctx.cast::<std::sync::Arc<std::sync::atomic::AtomicU32>>()));}
+}
+impl Drop for WindowInput {
+    fn drop(&mut self) {
+        self.motion.stop.store(true,std::sync::atomic::Ordering::Release);
+        if let Some(worker)=self.worker.take() {worker.thread().unpark();let _=worker.join();}
+    }
 }
 // USB HID keyboard usages from the window to Hyper-V's AT set-1 codes.
 fn scan_code(usage:u16)->Option<u16> {
@@ -269,26 +374,54 @@ extern "C" fn pointer(ctx:*mut c_void,x:u16,y:u16,width:u16,height:u16,buttons:u
     let button_mask=((buttons&1)|((buttons&2)<<1)|((buttons&4)>>1)) as u8;
     unsafe { let input=&*ctx.cast::<WindowInput>();
         input.mouse.store(u64::from(x)|(u64::from(y)<<16)|(u64::from(button_mask)<<32),std::sync::atomic::Ordering::Relaxed);
-        input.send.send(input_core::InputData::Mouse(input_core::MouseData{button_mask,x,y}));
+        input.motion.received.fetch_add(1,std::sync::atomic::Ordering::Relaxed);
+        let mut buffer=input.motion.buffer.lock().unwrap_or_else(|e|e.into_inner());
+        for event in buffer.push(input_core::MouseData{button_mask,x,y}) {input.motion.send(event);}
     }
 }
 extern "C" fn wheel(ctx:*mut c_void,dy:i32,_dx:i32) {
     if dy==0 {return;}
     unsafe { let input=&*ctx.cast::<WindowInput>();
+        let mut buffer=input.motion.buffer.lock().unwrap_or_else(|e|e.into_inner());
+        if let Some(data)=buffer.pending.take() {input.motion.send(data);}
         let mouse=input.mouse.load(std::sync::atomic::Ordering::Relaxed);
         let mut data=input_core::MouseData{x:mouse as u16,y:(mouse>>16) as u16,button_mask:(mouse>>32) as u8};
         let held=data.button_mask;
         for _ in 0..dy.unsigned_abs().min(32) {
             data.button_mask=held|if dy>0 {8} else {16};
-            input.send.send(input_core::InputData::Mouse(data));
+            input.motion.send(data);
             data.button_mask=held;
-            input.send.send(input_core::InputData::Mouse(data));
+            input.motion.send(data);
         }
     }
 }
 
 #[cfg(test)] mod tests {
+    #[test] fn resolution_caps_are_bounded_and_reject_unknown_modes() {
+        assert_eq!(super::display_resolution(None).unwrap(),(1920,1080));
+        assert_eq!(super::display_resolution(Some("2560x1440")).unwrap(),(2560,1440));
+        assert_eq!(super::display_resolution(Some("3840x2160")).unwrap(),(3840,2160));
+        for invalid in ["0x0","7680x4320","3840x2161","3840X2160",""] {
+            assert!(super::display_resolution(Some(invalid)).is_err());
+        }
+    }
     use super::*;
+    #[test] fn continuous_motion_keeps_only_the_newest_position() {
+        let mut buffer=MotionBuffer::default();
+        for x in 0..1000 {assert!(buffer.push(input_core::MouseData{x,y:100,button_mask:0}).is_empty());}
+        assert_eq!(buffer.pending.take().unwrap().x,999);
+    }
+    #[test] fn dragging_preserves_button_edges_and_final_position() {
+        let mut buffer=MotionBuffer::default();
+        let down=buffer.push(input_core::MouseData{x:10,y:10,button_mask:1});
+        assert_eq!(down.len(),1);assert_eq!(down[0].button_mask,1);
+        for x in 11..1000 {assert!(buffer.push(input_core::MouseData{x,y:10,button_mask:1}).is_empty());}
+        let up=buffer.push(input_core::MouseData{x:1000,y:10,button_mask:0});
+        assert_eq!(up.len(),2);
+        assert_eq!((up[0].x,up[0].button_mask),(999,1));
+        assert_eq!((up[1].x,up[1].button_mask),(1000,0));
+        assert!(buffer.pending.is_none());
+    }
     #[test] fn keyboard_preserves_extended_modifiers() {
         assert_eq!(scan_code(4),Some(0x1e));
         assert_eq!(scan_code(39),Some(0x0b));

@@ -8,9 +8,16 @@ import shutil
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
-parser.add_argument('--processors', type=int, default=8, choices=range(1, 9))
+parser.add_argument('--processors', type=int, default=8, choices=range(1, 65))
 parser.add_argument('--gpu', action='store_true')
+parser.add_argument('--metal-compat', action='store_true')
+parser.add_argument('--reject-astc', action='store_true')
+parser.add_argument('--resolution', choices=('1920x1080', '2560x1440', '3840x2160'), default='1920x1080')
 args = parser.parse_args()
+if args.metal_compat and not args.gpu:
+    parser.error('--metal-compat requires --gpu')
+if args.reject_astc and not args.metal_compat:
+    parser.error('--reject-astc requires --metal-compat')
 firmware = ROOT / 'backend/firmware'
 oc = firmware / 'opencore-1.0.8-debug'
 hv = firmware / 'hyperv-0.4.0'
@@ -46,7 +53,7 @@ for table in config['ACPI']['Add']:
         table['Path'] = 'SSDT-NM-VMBUS.aml'
 config['Misc']['Boot']['HideAuxiliary'] = False
 config['Misc']['Boot']['Timeout'] = 15
-config['UEFI']['Output']['Resolution'] = '1280x800'
+config['UEFI']['Output']['Resolution'] = args.resolution
 config['Misc']['Debug']['Target'] = 11  # logging, console, serial
 config['Misc']['Serial']['Init'] = True
 for driver in config['UEFI']['Drivers']:
@@ -56,7 +63,20 @@ if args.gpu:
         'Enabled':True,'LoadEarly':False,'HideVerbose':False,'Path':'ReimsVgpu.efi'})
 config['NVRAM']['Add']['7C436110-AB2A-4BBB-A880-FE41995C9F82']['boot-args'] = '-v debug=0x10a keepsyms=1 serial=9 -lilubetaall'
 if args.gpu:
-    config['NVRAM']['Add']['7C436110-AB2A-4BBB-A880-FE41995C9F82']['boot-args'] += ' npci=0x2000 -hvpcinative -hvctrldbg -hvvmbusdbg -hvkbddbg -hvmousedbg'
+    config['NVRAM']['Add']['7C436110-AB2A-4BBB-A880-FE41995C9F82']['boot-args'] += ' npci=0x2000 -hvpcinative'
+if args.metal_compat:
+    # The initial qualification is restricted to this guest's exact Darwin version.
+    additions = config['Kernel']['Add']
+    lilu_index = next(i for i, item in enumerate(additions) if item['BundlePath'] == 'Lilu.kext')
+    additions.insert(lilu_index + 1, {
+        'Arch': 'x86_64', 'BundlePath': 'ReimsMetalCompat.kext',
+        'Comment': 'Experimental Intel Metal transport compatibility', 'Enabled': True,
+        'ExecutablePath': 'Contents/MacOS/ReimsMetalCompat', 'PlistPath': 'Contents/Info.plist',
+        'MinKernel': '25.6.0', 'MaxKernel': '25.6.0',
+    })
+    config['NVRAM']['Add']['7C436110-AB2A-4BBB-A880-FE41995C9F82']['boot-args'] += ' -reimsmetal'
+    if args.reject_astc:
+        config['NVRAM']['Add']['7C436110-AB2A-4BBB-A880-FE41995C9F82']['boot-args'] += ' -reimsnoastc'
 # These identities belong only to this isolated VM, with no Apple account use.
 config['PlatformInfo']['Generic']['SystemUUID'] = 'D488B4F3-9A52-4C77-A188-461088798C2E'
 (out / 'config.plist').write_bytes(plistlib.dumps(config))
@@ -102,6 +122,13 @@ if args.gpu:
     modified_info.write_bytes(plistlib.dumps(info))
     files[name] = modified_info
 files['EFI/OC/ACPI/SSDT-NM-VMBUS.aml'] = ROOT / 'artifacts/SSDT-NM-VMBUS.aml'
+if args.metal_compat:
+    bridge = ROOT / 'artifacts/metal-compat/ReimsMetalCompat.kext'
+    if not (bridge / 'Contents/MacOS/ReimsMetalCompat').is_file():
+        raise FileNotFoundError('Build the pinned ReimsMetalCompat source snapshot first')
+    for source in bridge.rglob('*'):
+        if source.is_file():
+            files['EFI/OC/Kexts/ReimsMetalCompat.kext/' + source.relative_to(bridge).as_posix()] = source
 for source in files.values():
     if not source.is_file():
         raise FileNotFoundError(source)

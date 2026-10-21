@@ -36,6 +36,14 @@ public sealed partial class MainPage : Page
                 int cpuIndex = Array.IndexOf(args, "--processors");
                 if (memoryIndex >= 0) VmMemory.Value = int.Parse(args[memoryIndex + 1]);
                 if (cpuIndex >= 0) VmProcessors.Value = int.Parse(args[cpuIndex + 1]);
+                int resolutionIndex = Array.IndexOf(args, "--resolution");
+                if (resolutionIndex >= 0)
+                {
+                    string resolution = args[resolutionIndex + 1];
+                    VmResolution.SelectedItem = VmResolution.Items.Cast<ComboBoxItem>()
+                        .FirstOrDefault(item => (string)item.Tag == resolution)
+                        ?? throw new ArgumentException("未対応の解像度です。");
+                }
                 CpuState.Text = "WHP VMを使用";
                 CpuDetails.Text = "単体プローブは実行していません。";
                 StartVm_Click(this, new RoutedEventArgs());
@@ -138,6 +146,7 @@ public sealed partial class MainPage : Page
         {
             int memory = checked((int)VmMemory.Value);
             int processors = checked((int)VmProcessors.Value);
+            string resolution = (string)((ComboBoxItem)VmResolution.SelectedItem).Tag;
             _renderTimer.Stop();
             if (_renderer != IntPtr.Zero) NativeEngine.NmGpuDestroy(_renderer);
             _renderer = IntPtr.Zero;
@@ -158,13 +167,15 @@ public sealed partial class MainPage : Page
                 VmStartButton.IsEnabled = true;
                 VmStopButton.IsEnabled = false;
                 VmMemory.IsEnabled = VmProcessors.IsEnabled = true;
+                VmResolution.IsEnabled = true;
                 CpuButton.IsEnabled = true;
             });
-            _vm.Start(memory, processors);
-            VmStatus.Text = $"WHPで起動中 · {memory} GiB / {processors}コア";
+            _vm.Start(memory, processors, resolution);
+            VmStatus.Text = $"WHPで起動中 · {memory} GiB / {processors}コア / {resolution}";
             VmStartButton.IsEnabled = false;
             VmStopButton.IsEnabled = true;
             VmMemory.IsEnabled = VmProcessors.IsEnabled = false;
+            VmResolution.IsEnabled = false;
             CpuButton.IsEnabled = false;
         }
         catch (Exception error) { VmStatus.Text = error.Message; }

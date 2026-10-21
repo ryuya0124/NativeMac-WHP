@@ -5,6 +5,7 @@ import json
 import secrets
 import shutil
 import argparse
+import socket
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--bind', required=True, help='Windows LAN address reachable from the guest')
@@ -16,12 +17,15 @@ state = root / 'artifacts/guest-channel.json'
 token = secrets.token_hex(24)
 address = args.bind
 port = args.port
-state.write_text(json.dumps({'base': f'http://{address}:{port}/{token}/'}))
 files = {
     'InstallAssistant.pkg': root / 'backend/media/InstallAssistant-26.6.2.pkg',
     'Installer.cpio': root / 'backend/media/Installer.cpio',
     'SharedSupport.dmg': root / 'backend/media/SharedSupport.dmg',
     'metal-probe-x64': root / 'artifacts/metal-probe/metal-probe-x64',
+    'queue-burst-probe-x64': root / 'artifacts/metal-probe/queue-burst-probe-x64',
+    'texture-lifetime-probe-x64': root / 'artifacts/metal-probe/texture-lifetime-probe-x64',
+    'display-probe-x64': root / 'artifacts/metal-probe/display-probe-x64',
+    'format-probe-x64': root / 'artifacts/metal-probe/format-probe-x64',
 }
 
 class Handler(BaseHTTPRequestHandler):
@@ -67,5 +71,16 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         print(f'Received guest result: {size} bytes', flush=True)
 
+class LabServer(ThreadingHTTPServer):
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+server = LabServer((address, port), Handler)
+state.write_text(json.dumps({'base': f'http://{address}:{port}/{token}/'}))
 print(f'VM lab channel listening on {address}:{port}', flush=True)
-ThreadingHTTPServer((address, port), Handler).serve_forever()
+server.serve_forever()

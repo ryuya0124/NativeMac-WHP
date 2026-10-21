@@ -13,10 +13,12 @@ internal sealed class VmSession
     public event Action<string>? Output;
     public event Action<int>? Exited;
 
-    public void Start(int memoryGiB, int processors)
+    public void Start(int memoryGiB, int processors, string displayResolution)
     {
-        if (memoryGiB is < 1 or > 24 || processors is < 1 or > 8)
-            throw new ArgumentOutOfRangeException(nameof(memoryGiB), "VM上限は24 GiB・8コアです。");
+        if (displayResolution is not ("1920x1080" or "2560x1440" or "3840x2160"))
+            throw new ArgumentException("未対応の解像度です。", nameof(displayResolution));
+        if (memoryGiB is < 1 or > 256 || processors is < 1 or > 64)
+            throw new ArgumentOutOfRangeException(nameof(memoryGiB), "VMの設定上限は256 GiB・64コアです。");
         if (_process is { HasExited: false }) throw new InvalidOperationException("VMは実行中です。");
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "scripts", "Start-VM.ps1")))
@@ -48,7 +50,7 @@ internal sealed class VmSession
         };
         foreach (var value in new[] { "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
             Path.Combine(root, "scripts", "Start-VM.ps1"), "-MemoryGiB", memoryGiB.ToString(),
-            "-Processors", processors.ToString(), "-Gpu" }) start.ArgumentList.Add(value);
+            "-Processors", processors.ToString(), "-Gpu", "-DisplayResolution", displayResolution }) start.ArgumentList.Add(value);
         var process = new Process { StartInfo = start, EnableRaisingEvents = true };
         process.OutputDataReceived += (_, e) => Receive(e.Data);
         process.ErrorDataReceived += (_, e) => Receive(e.Data);
@@ -64,7 +66,7 @@ internal sealed class VmSession
         Directory.CreateDirectory(Path.Combine(root, "artifacts"));
         File.WriteAllText(Path.Combine(root, "artifacts", "vm-session.json"),
             JsonSerializer.Serialize(new { appPid = Environment.ProcessId, launcherPid = process.Id,
-                controlPipe = pipeName, memoryGiB, processors, guestGpuVerification = "not_run_this_session" }));
+                controlPipe = pipeName, memoryGiB, processors, displayResolution, guestGpuVerification = "not_run_this_session" }));
         _ = RunControl(pipeName, _control.Token);
     }
 
