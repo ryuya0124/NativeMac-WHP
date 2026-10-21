@@ -23,8 +23,35 @@
       "qualification": "in_progress",
       "buildInstructions": "docs/GPU_STABILITY.md",
       "patch": "patches/reims-metal-compat-astc.patch",
-      "testedSnapshotRevision": "c3eda37b47e8d8efb4adde4a94c6d854624a7ab3",
-      "manifest": "docs/verification/metal-compat-source-manifest.json"
+      "testedSnapshotRevision": "81cc109e0b1c9df3ccb3b1771a2d0b3cf9ea6b1e",
+      "manifest": "docs/verification/metal-compat-source-manifest.json",
+      "aliasLifetimeRepair": {
+        "patch": "patches/reims-metal-compat-alias-lifetime.patch",
+        "applyAfter": "patches/reims-metal-compat-astc.patch",
+        "candidateSourceRevision": "02266317b4059bb9511b599ad02aaad9d0b97518",
+        "status": "experimental; 192 no-copy buffer releases and 18087936 GPU values passed; subsequent heap-allocation benchmark timed out and display stopped"
+      },
+      "resourceDiagnostics": {
+        "patch": "patches/reims-metal-resource-diagnostics.patch",
+        "applyAfter": "patches/reims-metal-compat-alias-lifetime.patch",
+        "sourceRevision": "81cc109e0b1c9df3ccb3b1771a2d0b3cf9ea6b1e",
+        "scope": "explicitly armed client; same owning task only; bounded 512-byte resource input"
+      }
+    },
+    "contiguousMemoryRuns": {
+      "patch": "patches/reims-contiguous-memory-runs.patch",
+      "applyAfter": "patches/reims-msvc.patch",
+      "sourceRevision": "c812e2c68edd8a31b0999e018feb6d038c372972",
+      "status": "experimental; 2304 debug core tests pass; boot reaches desktop, but 64-MiB GPU probe and GravityMark timeout; not qualified",
+      "usesCpuRendering": false,
+      "rejectedExperiment": "64-KiB bounded Windows views: boot delayed and GravityMark timed out; original view implementation restored"
+    },
+    "freshSharedAliases": {
+      "patch": "patches/reims-fresh-shared-aliases.patch",
+      "applyAfter": "patches/reims-contiguous-memory-runs.patch",
+      "sourceRevision": "1c805df7d6f777a48d905298e2c8289191022aef",
+      "status": "experimental; cold boot, 2142 FHD indexed/textured scene frames and 29360128 large-buffer GPU values pass; commercial benchmark and continuous stability pending",
+      "usesCpuRendering": false
     }
   },
   "amdVanilla": {

@@ -59,6 +59,9 @@ into no-op draws or successful fake completions.
 
 The source is Reims commit `7f37f7654e441dee0f468954a96d8f94cb7e2ff4`,
 `guest/metal-compat`, with `patches/reims-metal-compat-astc.patch` applied.
+The experimental alias-lifetime candidate additionally applies
+`patches/reims-metal-compat-alias-lifetime.patch` after that patch. It is not
+qualified for stable desktop operation; see docs/GPU_COMPATIBILITY.md.
 Commit the patched guest sources before export. The tested local snapshot
 revision is recorded in vm/dependencies.json; its file hashes are preserved
 in docs/verification/metal-compat-source-manifest.json.
@@ -105,3 +108,19 @@ The frontend and boot preparation now accept 1920x1080, 2560x1440 and 3840x2160 
 RAM and CPU settings apply at the next startup. Their configurable bounds are 256 GiB and 64 virtual processors, as requested by the user after the initial 24 GiB / 8-core cap. The current allocation remains 12 GiB / 8 virtual processors. Larger settings are not qualified and require sufficient host resources.
 
 The user prioritizes FHD instruction compatibility before further 4K tests. The first 4K trial reached macOS userland but kept a black display at 1920x1200; it is not qualified. A subsequent FHD trial logged three empty-resource faults, three GPU hangs and a pmap_recycle_page panic. The panic stack includes pageout/storage completion and does not establish a shader-decoder cause. Returning to the prior library restored a responsive FHD desktop, idle CPU, and checked Metal compute. The bitreverse candidate is being retested after the reproduction apps were closed and guest writes synchronized.
+
+The alias-lifetime candidate passed a new file-backed no-copy buffer probe:
+192 releases and 18,087,936 GPU outputs checked on the Windows guest. The
+following FHD GravityMark run timed out after heap allocation refusals and
+left display presents stopped. There was no new kernel panic in this trial;
+this does not prove that the pageout panic is fixed. The current runtime disk
+is a full copy made while the VM was stopped; the pre-trial original is
+preserved under ignored artifacts. Further heap and display recovery work is
+required before the acceptance criteria can pass.
+
+
+The current fresh-alias candidate and benchmark limits are recorded in
+`docs/GPU_COMPATIBILITY.md` and `vm/dependencies.json`. The 64-KiB view-bound
+experiment was rejected. Do not restore it as the qualified runtime. Keep planned
+repair restarts marked in the maintenance file. A first desktop appearance or a
+passing host memory test does not satisfy the acceptance criteria.

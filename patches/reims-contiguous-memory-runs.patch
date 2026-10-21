@@ -1,0 +1,144 @@
+diff --git a/crates/reims-vgpu-core/src/memory/map.rs b/crates/reims-vgpu-core/src/memory/map.rs
+index b9221d5..e7fd582 100644
+--- a/crates/reims-vgpu-core/src/memory/map.rs
++++ b/crates/reims-vgpu-core/src/memory/map.rs
+@@ -2,6 +2,7 @@
+ //! translations and mappings made from them.
+ 
+ use std::num::NonZeroU64;
++use std::borrow::Cow;
+ use std::sync::Arc;
+ 
+ use crate::guest::records::APV_PAGE_SIZE;
+@@ -54,6 +55,47 @@ fn ptr_u64(x: u64) -> HostPtr {
+ }
+ 
+ impl<P: Platform> MemoryMap<P> {
++    // Only fully valid, length-exact plans can be grouped. Refused plans keep their
++    // original partial mappings and failure order. Never cross a host-map boundary.
++    fn contiguous_ranges<'a>(&self, ranges: &'a [PhysRange], total: u64) -> Cow<'a, [PhysRange]> {
++        let mut sum = 0u64;
++        let host_page = self.platform.vm().page_size();
++        for range in ranges {
++            let Some(end) = range.physical_address.checked_add(range.physical_length) else {
++                return Cow::Borrowed(ranges);
++            };
++            let Some(next) = sum.checked_add(range.physical_length) else {
++                return Cow::Borrowed(ranges);
++            };
++            if range.physical_address == 0 || range.physical_length % host_page != 0 ||
++                (range.physical_length != 0 && !self.ranges.iter().any(|map| {
++                    if range.physical_address < map.physical_address ||
++                        range.physical_address >= map.physical_end || end > map.physical_end {
++                        return false;
++                    }
++                    addr_u64(map.virtual_address).checked_add(range.physical_address - map.physical_address)
++                        .is_some_and(|source| source % host_page == 0)
++                })) {
++                return Cow::Borrowed(ranges);
++            }
++            sum = next;
++        }
++        if sum != total || ranges.len() < 2 { return Cow::Borrowed(ranges); }
++        let mut grouped: Vec<PhysRange> = Vec::with_capacity(ranges.len());
++        for range in ranges {
++            if let Some(last) = grouped.last_mut() {
++                if last.physical_length != 0 && range.physical_length != 0 &&
++                    last.physical_address.checked_add(last.physical_length) == Some(range.physical_address) &&
++                    self.ranges.iter().any(|map| last.physical_address >= map.physical_address &&
++                        range.physical_address + range.physical_length <= map.physical_end) {
++                    last.physical_length += range.physical_length;
++                    continue;
++                }
++            }
++            grouped.push(*range);
++        }
++        Cow::Owned(grouped)
++    }
+     /// `mach_vm_remap`s `piece_length` bytes of `map_range`'s host memory at `piece_address` to
+     /// `target` (shared, overwrite); only `KERN_SUCCESS` is tested.
+     fn map_physical_range(
+@@ -286,6 +328,13 @@ impl<P: Platform> MemoryMap<P> {
+ 
+         let mut mapped: u64 = 0;
+         let mut target = addr_u64(address);
++        let grouped = self.contiguous_ranges(ranges, total_length);
++        static LOGGED_PLANS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
++        if ranges.len() >= 32 && LOGGED_PLANS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 16 {
++            log::info!("fresh mapping plan: {} bytes, {} input ranges, {} grouped ranges",
++                total_length, ranges.len(), grouped.len());
++        }
++        let ranges = grouped.as_ref();
+         for request in ranges {
+             let mut range = *request;
+             // Guest physical 0 is refused, even with length 0.
+@@ -1017,6 +1066,34 @@ mod tests {
+             assert_eq!(remaps[1].args[0], Arg::Ptr(va.addr() + PAGE as usize));
+         }
+ 
++        #[test]
++        fn contiguous_requests_share_one_remap_without_copying_or_reordering() {
++            let p = plat();
++            let (ram, m) = ram_map(&p, &[(0x4000, 4 * PAGE)]);
++            let bytes = pattern((3 * PAGE) as usize, 7);
++            assert!(ram.write(0x4000, &bytes));
++            let requests = [pr(0x4000, PAGE), pr(0x4000 + PAGE, PAGE), pr(0x4000 + 2 * PAGE, PAGE)];
++            let mapping = m.new_range_mapping(&requests, 3 * PAGE, 1).unwrap();
++            assert_eq!(p.fake_vm().read(mapping.virtual_address(), 3 * PAGE).unwrap(), bytes);
++            let remaps = p.call_log().calls_to("mach_vm_remap");
++            assert_eq!(remaps.len(), 1);
++            assert_eq!(remaps[0].args, vec![Arg::Ptr(mapping.virtual_address().addr()),
++                Arg::Ptr(ram.host_addr(0x4000).unwrap().addr()), Arg::U64(3 * PAGE)]);
++            assert!(!mapping.writable());
++        }
++
++        #[test]
++        fn contiguous_grouping_keeps_invalid_plans_and_host_boundaries() {
++            let p = plat();
++            let (_ram, m) = ram_map(&p, &[(0x4000, PAGE), (0x4000 + PAGE, PAGE)]);
++            let separate = [pr(0x4000, PAGE), pr(0x4000 + PAGE, PAGE)];
++            assert_eq!(m.contiguous_ranges(&separate, 2 * PAGE).len(), 2);
++            let invalid = [pr(0x4000, PAGE), pr(0, PAGE)];
++            assert_eq!(m.contiguous_ranges(&invalid, 2 * PAGE).as_ref(), &invalid);
++            let excess = [pr(0x4000, PAGE), pr(0x4000 + PAGE, PAGE)];
++            assert_eq!(m.contiguous_ranges(&excess, PAGE).as_ref(), &excess);
++        }
++
+         /// A request over contiguous map ranges is split, not refused.
+         #[test]
+         fn a_request_over_contiguous_ranges_is_split() {
+diff --git a/crates/reims-vgpu-vulkan/src/os/windows/vm.rs b/crates/reims-vgpu-vulkan/src/os/windows/vm.rs
+index 8a1e3c7..679e15f 100644
+--- a/crates/reims-vgpu-vulkan/src/os/windows/vm.rs
++++ b/crates/reims-vgpu-vulkan/src/os/windows/vm.rs
+@@ -551,6 +551,30 @@ pub(crate) mod tests {
+             .is_ok()
+     }
+ 
++    #[test]
++    fn fragmented_large_alias_preserves_every_page_and_survives_source_release() {
++        let vm = WindowsVm;
++        let length = 16 * 1024 * 1024;
++        let source = vm.allocate_anywhere(length).unwrap();
++        let target = vm.allocate_anywhere(length).unwrap();
++        let started = std::time::Instant::now();
++        for page in 0..length / PAGE {
++            let from = HostAddr::from_addr(source.addr() + ((page ^ 1) * PAGE).to_usize());
++            let to = HostAddr::from_addr(target.addr() + (page * PAGE).to_usize());
++            // SAFETY: the source allocation and the new alias each contain this page.
++            unsafe { from.as_ptr::<u32>().write(page as u32) };
++            vm.remap_shared_overwrite(to, from, PAGE).unwrap();
++        }
++        assert!(vm.deallocate(source, length).is_success());
++        for page in 0..length / PAGE {
++            // SAFETY: each target page independently retains the section backing it.
++            let value = unsafe { target.as_ptr::<u32>().add((page * PAGE / 4).to_usize()).read() };
++            assert_eq!(u64::from(value), page);
++        }
++        assert!(vm.deallocate(target, length).is_success());
++        eprintln!("fragmented alias: {} pages in {:?}", length / PAGE, started.elapsed());
++    }
++
+     #[test]
+     fn aliases_are_shared_page_aligned_and_outlive_the_source() {
+         let vm = WindowsVm;

@@ -23,6 +23,10 @@ files = {
     'SharedSupport.dmg': root / 'backend/media/SharedSupport.dmg',
     'metal-probe-x64': root / 'artifacts/metal-probe/metal-probe-x64',
     'bitreverse-probe-x64': root / 'artifacts/metal-probe/bitreverse-probe-x64',
+    'buffer-lifetime-probe-x64': root / 'artifacts/metal-probe/buffer-lifetime-x64',
+    'heap-probe-x64': root / 'artifacts/metal-probe/heap-probe-x64',
+    'scene-probe-x64': root / 'artifacts/metal-probe/scene-probe-x64',
+    'task-runner-x64': root / 'artifacts/metal-probe/task-runner-x64',
     'queue-burst-probe-x64': root / 'artifacts/metal-probe/queue-burst-probe-x64',
     'texture-lifetime-probe-x64': root / 'artifacts/metal-probe/texture-lifetime-probe-x64',
     'display-probe-x64': root / 'artifacts/metal-probe/display-probe-x64',
@@ -52,6 +56,16 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
         elif name in files:
             path = files[name]
+            # Windows editors may write CRLF. Shell source must be sent as LF;
+            # binary probe downloads retain their exact bytes and hashes.
+            if name == 'agent':
+                data = path.read_bytes().replace(b'\r\n', b'\n')
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                print('Served agent', flush=True)
+                return
             self.send_response(200)
             self.send_header('Content-Length', str(path.stat().st_size))
             self.end_headers()

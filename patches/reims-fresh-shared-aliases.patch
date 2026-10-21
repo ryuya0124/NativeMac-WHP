@@ -1,0 +1,235 @@
+diff --git a/crates/reims-vgpu-core/src/memory/map.rs b/crates/reims-vgpu-core/src/memory/map.rs
+index e7fd582..cd7d88b 100644
+--- a/crates/reims-vgpu-core/src/memory/map.rs
++++ b/crates/reims-vgpu-core/src/memory/map.rs
+@@ -318,7 +318,19 @@ impl<P: Platform> MemoryMap<P> {
+             total_length % const { NonZeroU64::new(APV_PAGE_SIZE).unwrap() } == 0,
+             DeathKind::MappingLengthUnaligned
+         );
+-        let Ok(address) = vm.allocate_anywhere(total_length) else {
++        let grouped = self.contiguous_ranges(ranges, total_length);
++        // Only complete, valid plans take the optional fresh-alias path. Invalid inputs
++        // retain the legacy partial-operation and refusal order below.
++        let fresh_sources = if matches!(grouped, Cow::Owned(_)) && total_length != 0 {
++            Some(grouped.iter().filter(|r| r.physical_length != 0).map(|r| {
++                (self.virtual_address_for_physical(r.physical_address, r.physical_length), r.physical_length)
++            }).collect::<Vec<_>>())
++        } else {
++            None
++        };
++        let fresh = fresh_sources.as_ref().and_then(|sources| vm.allocate_shared_ranges(sources));
++        let batched = fresh.is_some();
++        let Ok(address) = fresh.unwrap_or_else(|| vm.allocate_anywhere(total_length)) else {
+             return None;
+         };
+         // The whole allocation freed, the result ignored.
+@@ -328,14 +340,13 @@ impl<P: Platform> MemoryMap<P> {
+ 
+         let mut mapped: u64 = 0;
+         let mut target = addr_u64(address);
+-        let grouped = self.contiguous_ranges(ranges, total_length);
+         static LOGGED_PLANS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+         if ranges.len() >= 32 && LOGGED_PLANS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 16 {
+             log::info!("fresh mapping plan: {} bytes, {} input ranges, {} grouped ranges",
+                 total_length, ranges.len(), grouped.len());
+         }
+         let ranges = grouped.as_ref();
+-        for request in ranges {
++        for request in ranges.iter().filter(|_| !batched) {
+             let mut range = *request;
+             // Guest physical 0 is refused, even with length 0.
+             if range.physical_address == 0 {
+@@ -396,7 +407,7 @@ impl<P: Platform> MemoryMap<P> {
+             }
+         }
+ 
+-        if mapped != total_length {
++        if !batched && mapped != total_length {
+             free_all();
+             return None;
+         }
+diff --git a/crates/reims-vgpu-core/src/platform/os/vm.rs b/crates/reims-vgpu-core/src/platform/os/vm.rs
+index 7e35e95..5905494 100644
+--- a/crates/reims-vgpu-core/src/platform/os/vm.rs
++++ b/crates/reims-vgpu-core/src/platform/os/vm.rs
+@@ -63,6 +63,15 @@ pub trait HostVm: Send + Sync {
+     fn page_shift(&self) -> u32;
+     /// `mach_vm_allocate(task, &a, len, VM_FLAGS_ANYWHERE)`: a fresh zero-filled range.
+     fn allocate_anywhere(&self, len: u64) -> Result<HostAddr, KernReturn>;
++    /// Optional fresh shared alias of nonempty, page-aligned source ranges, concatenated
++    /// in order. `None` selects allocate-and-remap; `Some(Err(_))` leaves no allocation.
++    /// The result preserves source protections and retains backing after each source unmaps.
++    fn allocate_shared_ranges(
++        &self,
++        _ranges: &[(HostAddr, u64)],
++    ) -> Option<Result<HostAddr, KernReturn>> {
++        None
++    }
+     /// `mach_vm_allocate(task, &addr, len, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE)`: replaces
+     /// `addr..addr+len` with zero fill.
+     fn allocate_fixed_overwrite(&self, addr: HostAddr, len: u64) -> Result<(), KernReturn>;
+diff --git a/crates/reims-vgpu-vulkan/src/os/windows/vm.rs b/crates/reims-vgpu-vulkan/src/os/windows/vm.rs
+index 679e15f..9080a61 100644
+--- a/crates/reims-vgpu-vulkan/src/os/windows/vm.rs
++++ b/crates/reims-vgpu-vulkan/src/os/windows/vm.rs
+@@ -418,6 +418,47 @@ impl HostVm for WindowsVm {
+     fn page_shift(&self) -> u32 {
+         page_size().trailing_zeros()
+     }
++    fn allocate_shared_ranges(
++        &self,
++        ranges: &[(HostAddr, u64)],
++    ) -> Option<Result<HostAddr, KernReturn>> {
++        Some((|| {
++            let mut parts = Vec::new();
++            let mut length = 0u64;
++            for &(source, size) in ranges {
++                if size == 0 || size % page_size() != 0 || source.addr().to_u64() % page_size() != 0 {
++                    return Err(INVALID_ARGUMENT);
++                }
++                let source_parts = files::pieces(source.addr().to_u64(), size).ok_or(INVALID_ADDRESS)?;
++                for mut piece in source_parts {
++                    piece.at = piece.at.checked_add(length).ok_or(INVALID_ARGUMENT)?;
++                    parts.push(piece);
++                }
++                length = length.checked_add(size).ok_or(INVALID_ARGUMENT)?;
++            }
++            if length == 0 { return Err(INVALID_ARGUMENT); }
++            let first = reserve(length)?;
++            // Install directly into fresh placeholders. Repeated overwrites would split
++            // and remap the still-unused tail for every fragmented source page.
++            if let Err(kr) = install(first, length, &parts) {
++                // install restored the entire range to one empty placeholder.
++                unsafe { VirtualFree(ptr(first), 0, MEM_RELEASE) };
++                return Err(kr);
++            }
++            {
++                let mut views = VIEWS.lock();
++                for piece in &parts {
++                    views.insert(first + piece.at, View {
++                        length: piece.length, backing: piece.backing.clone(), prot: piece.prot,
++                    });
++                }
++            }
++            for piece in &parts {
++                files::record(first + piece.at, piece.length, piece.backing.clone(), piece.prot);
++            }
++            Ok(HostPtr::from_addr(first.to_usize()))
++        })())
++    }
+     fn allocate_anywhere(&self, length: u64) -> Result<HostAddr, KernReturn> {
+         let (_, length) = pages(HostAddr::NULL, length).ok_or(NO_SPACE)?;
+         if length == 0 {
+@@ -551,6 +592,56 @@ pub(crate) mod tests {
+             .is_ok()
+     }
+ 
++    #[test]
++    fn fresh_fragmented_alias_retains_contents_protections_and_backing() {
++        let vm = WindowsVm;
++        let length = 64 * 1024 * 1024;
++        let source = vm.allocate_anywhere(length).unwrap();
++        let mut ranges = Vec::new();
++        for page in 0..length / PAGE {
++            let from = source.wrapping_add((page ^ 1) * PAGE);
++            // SAFETY: the source has length bytes and every page is in that allocation.
++            unsafe { from.as_ptr::<u32>().write(page as u32) };
++            ranges.push((from, PAGE));
++        }
++        let started = std::time::Instant::now();
++        let alias = vm.allocate_shared_ranges(&ranges).unwrap().unwrap();
++        for page in 0..length / PAGE {
++            // SAFETY: the alias has one page per source entry.
++            unsafe {
++                let at = alias.wrapping_add(page * PAGE).as_ptr::<u32>();
++                assert_eq!(u64::from(at.read()), page);
++                at.write((page as u32) ^ 0x55aa);
++                assert_eq!(ranges[page.to_usize()].0.as_ptr::<u32>().read(), (page as u32) ^ 0x55aa);
++            }
++        }
++        assert!(vm.deallocate(source, length).is_success());
++        for page in 0..length / PAGE {
++            // SAFETY: every alias retains its backing after the original source is gone.
++            unsafe { assert_eq!(alias.wrapping_add(page * PAGE).as_ptr::<u32>().read(), (page as u32) ^ 0x55aa); }
++        }
++        vm.protect_max(alias, length, VmProt::READ).unwrap();
++        assert!(vm.protect_max(alias, length, VmProt::READ | VmProt::WRITE).is_err());
++        assert!(vm.deallocate(alias, length).is_success());
++        assert!(!mapped(alias));
++        eprintln!("fresh fragmented alias: {} pages in {:?}", ranges.len(), started.elapsed());
++    }
++
++    #[test]
++    fn fresh_alias_refuses_invalid_sources_without_reserving_memory() {
++        let vm = WindowsVm;
++        assert!(vm.allocate_shared_ranges(&[]).unwrap().is_err());
++        assert!(vm.allocate_shared_ranges(&[(HostAddr::NULL, PAGE)]).unwrap().is_err());
++        let source = vm.allocate_anywhere(PAGE).unwrap();
++        assert!(vm.allocate_shared_ranges(&[(source, PAGE - 1)]).unwrap().is_err());
++        assert!(vm.allocate_shared_ranges(&[(source.wrapping_add(1), PAGE)]).unwrap().is_err());
++        vm.protect_max(source, PAGE, VmProt::READ).unwrap();
++        let alias = vm.allocate_shared_ranges(&[(source, PAGE)]).unwrap().unwrap();
++        assert!(vm.protect_max(alias, PAGE, VmProt::READ | VmProt::WRITE).is_err());
++        assert!(vm.deallocate(source, PAGE).is_success());
++        assert!(vm.deallocate(alias, PAGE).is_success());
++    }
++
+     #[test]
+     fn fragmented_large_alias_preserves_every_page_and_survives_source_release() {
+         let vm = WindowsVm;
+diff --git a/crates/reims-vgpu-vulkan/src/remap.rs b/crates/reims-vgpu-vulkan/src/remap.rs
+index 5b5197d..782c3b5 100644
+--- a/crates/reims-vgpu-vulkan/src/remap.rs
++++ b/crates/reims-vgpu-vulkan/src/remap.rs
+@@ -357,6 +357,24 @@ impl HostVm for VulkanVm {
+         Ok(at)
+     }
+ 
++    fn allocate_shared_ranges(
++        &self,
++        ranges: &[(HostAddr, u64)],
++    ) -> Option<Result<HostAddr, KernReturn>> {
++        self.vm.allocate_shared_ranges(ranges).map(|result| result.map(|at| {
++            let total = ranges.iter().map(|(_, length)| length).sum();
++            let replaced = self.changed(at, total);
++            HOLDS.lock().replaced(&replaced);
++            let mut target = at.addr().to_u64();
++            let mut mappings = GUEST_MAPPINGS.lock();
++            for &(source, length) in ranges {
++                mappings.mapped(target, target + length, source.addr().to_u64());
++                target += length;
++            }
++            at
++        }))
++    }
++
+     fn allocate_fixed_overwrite(&self, addr: HostAddr, len: u64) -> Result<(), KernReturn> {
+         self.vm.allocate_fixed_overwrite(addr, len)?;
+         let pages = self.changed(addr, len);
+@@ -511,6 +529,26 @@ mod tests {
+         SEEN.with(|s| std::mem::take(&mut *s.borrow_mut()))
+     }
+ 
++    #[cfg(target_os = "windows")]
++    #[test]
++    fn fresh_alias_reports_and_names_fragmented_sources() {
++        let vm = VulkanVm { vm: OsVm::new(), report: seen };
++        let page = vm.page_size();
++        let source = OsVm::new().allocate_anywhere(2 * page).unwrap();
++        let alias = vm.allocate_shared_ranges(&[(source.wrapping_add(page), page), (source, page)])
++            .unwrap().unwrap();
++        assert_eq!(take(), [(alias, 2 * page, true)]);
++        let first = alias.addr().to_u64();
++        let from = source.addr().to_u64();
++        assert_eq!(as_guests(vec![first..first + 2 * page]),
++            [from + page..from + 2 * page, from..from + page]);
++        assert!(OsVm::new().deallocate(source, 2 * page).is_success());
++        assert!(vm.deallocate(alias, 2 * page).is_success());
++        assert_eq!(take(), [(alias, 2 * page, true)]);
++        assert!(!crate::os::mapped(alias));
++        assert!(!shows_guest_pages(alias, 2 * page));
++    }
++
+     /// Each Mach VM call that changes pages reports them, from the page of its first byte to
+     /// the page past its last: one that maps after it, `deallocate` at the unmap, its pages still
+     /// mapped; `protect_max` and a refused remap report nothing

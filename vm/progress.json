@@ -118,7 +118,7 @@
     "benchmark3D": {
       "name": "GravityMark",
       "version": "1.89",
-      "status": "offline Access repair passes; actual 3D retest blocked by kernel pageout panic",
+      "status": "prior shader creation refusal passed; heap allocation refused, 180-second timeout, display stopped",
       "failure": "UnknownIntrinsic llvm.bitreverse.i32 during pipeline creation; host worker aborted",
       "score": null,
       "secondFailure": "Lowering(Access), compute pipeline, compute_main block 1 instruction 43",
@@ -129,7 +129,9 @@
         "memoryLimitMiB": 500,
         "timeLimitSeconds": 20
       },
-      "investigation": "private-cell bounded index analysis repaired; runtime kernel panic remains unresolved"
+      "investigation": "private-cell bounded index analysis repaired; runtime kernel panic remains unresolved",
+      "heapAllocationFailureMiB": 16,
+      "latestExit": 143
     },
     "displayModes": {
       "implemented": [
@@ -175,7 +177,7 @@
         "memoryLimitMiB": 500,
         "profile": "committed reference RTX profile; not exact host profile"
       },
-      "guestQualification": "private-allocation scope restores display; kernel pageout panic recurred after unlock; VM stopped",
+      "guestQualification": "boots and checked no-copy GPU lifetime probe passes with alias-lifetime bridge; heap benchmark leaves display stopped",
       "gpuValueProbePending": false,
       "fullTranslatorSuite": {
         "passed": 3242,
@@ -191,6 +193,34 @@
       "guestVerified": true,
       "guestValuesVerified": 16384,
       "guestLibrary": "pre-bounded semantics 1693"
+    },
+    "aliasLifetimeRepair": {
+      "sourceRevision": "0226631",
+      "kernelPanicCauseProven": false,
+      "authoredOwnershipTests": "passed",
+      "loadedKextUuidMatchesBuild": true,
+      "fileBackedBufferReleases": 192,
+      "gpuValuesVerified": 18087936,
+      "mappingErrors": 0,
+      "desktopStability": "failed: display did not recover after heap benchmark timeout",
+      "oneTimeRootDiagnosticRemoved": true
     }
+  },
+  "currentFreshAliasTrial": {
+    "reimsRevision": "1c805df7d6f777a48d905298e2c8289191022aef",
+    "translatorRevision": "4518f0219cc1d0b87179269742461d523a392710",
+    "resolution": "1920x1080",
+    "memoryGiB": 12,
+    "processors": 8,
+    "authoredSceneFrames": 2142,
+    "authoredSceneSeconds": 15.001,
+    "authoredSceneMeanCompletedFps": 142.79,
+    "authoredSceneReadbackPassed": true,
+    "largeBufferValuesChecked": 29360128,
+    "largeBufferReleases": 3,
+    "postProbeTerminalWindowVerified": true,
+    "gravityMarkStatus": "300-second bounded trial running; no score yet",
+    "continuousStabilityQualified": false,
+    "verification": "docs/verification/fresh-alias.json"
   }
 }

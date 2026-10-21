@@ -13,6 +13,7 @@ Tests use macOS 26.6.2 x86_64, WHP, 12 GiB / 8 virtual processors, and RTX 5080 
 | LLVM `bitreverse` | Authored overload checks, lowering-selection check, 10 integer differential tests, AIR suite (434 tests); authored Metal uint4 reverse-bits probe checked 16,384 guest GPU outputs | Passed these checks; the Metal probe alone does not establish which decoder intrinsic was exercised |
 | GravityMark 1.89, FHD rasterization | First run aborted on `llvm.bitreverse.i32` during pipeline creation | Failed twice: the repaired decoder reaches a later `Lowering(Access)` refusal at compute_main block 1 / instruction 43. No score or completed 3D pass |
 | Multiple restored desktop apps | A later FHD trial had three empty-resource faults, three GPU hang reports, then a `pmap_recycle_page` kernel panic | Failed; the panic stack includes pageout and storage completion; causality is unresolved |
+| File-backed no-copy buffers | 192 GPU buffer lifetimes; 18,087,936 output values compared; all 192 deallocators completed with successful flush/unmap | Passed on M4 reference and Windows guest with bridge revision `0226631`; no long-term stability claim |
 
 Each newly reached refusal needs an authored regression and a guest retest. A benchmark finishing, a reported Metal family, and source-level API inventory do not establish support for every shader or application. Shader bodies and logs derived from guest applications remain private artifacts.
 
@@ -27,3 +28,36 @@ The bounded-cell candidate passed 35 authored pointer-cell engine tests and the 
 The restored pre-bounded library passed the authored uint4 bit-reversal probe: all 16,384 guest GPU outputs matched an independent CPU reference. The same probe passed on the M4 reference Mac. The private-cell candidate also passed the original 4,096-value GPU compute probe at the lock screen, but after unlock the guest panicked in `pmap_recycle_page` during pageout/storage completion. No host GPU fatal, exec fault or hang report preceded this panic. Its cause is unresolved, the VM is stopped, and no completed 3D score or continuous stability pass exists.
 
 A full translator CPU suite at revision `0e83a42` passed 3,242 tests, failed one, and ignored ten. The remaining failure is the generated fixture golden comparison: LLVM 21/22 lifetime-marker signatures give different type numbering in 14 fixtures. This is an unresolved gate failure; focused checks and offline translation passes do not make the full suite green.
+
+The bridge candidate now withdraws its CPU alias before asking the backend to release the backing allocation. Refused releases restore the alias, and failed restoration closes the connection to further commands. Native ownership-order tests cover success, refusal, retry and failed restoration. The x86_64 kext built without warnings; its loaded UUID matches the candidate binary and committed source manifest. The one-time root boot diagnostic's LaunchDaemon and script were confirmed removed.
+
+With this bridge and translator revision `4518f02`, GravityMark passed the prior shader-creation refusal and displayed its initialization window. It then repeatedly failed to allocate 16-MiB GPU heaps. The 180-second bound terminated the benchmark (exit 143); no score was produced. Guest display presents stopped and did not recover after termination. No kernel panic or host GPU fatal was observed in that trial. The pageout panic's cause therefore remains unproven, and desktop stability is still failed. The next test isolates heap creation using the authored `HeapProbe.m`; its ordinary and placement private-heap allocations pass on the M4 reference Mac.
+
+## Fresh-alias investigation (2026-10-22)
+
+The frozen worker was repeatedly sampled inside Windows `MapViewOfFile3` while
+assembling fragmented shared-buffer/texture aliases. Samples moved between
+resources; this establishes a mapping bottleneck, not a permanent deadlock.
+A 64-KiB view-bound trial delayed unlock and still timed out in GravityMark; it
+was rejected. Contiguous physical-run grouping (`c812e2c`) passed all 2,304 core
+unit tests in a serial debug run and booted to Terminal, but did not qualify:
+the 64-MiB no-copy GPU round exceeded its completion bound, and GravityMark
+again timed out after 180 seconds (exit 143, no score).
+
+The next candidate (`1c805df`) installs a fully validated fresh alias directly
+into placeholders. It keeps real shared file backing, source protections,
+source-page identity and runtime remap/lifetime reporting. Invalid core plans
+keep their original partial-operation and refusal ordering. Five native Windows
+VM tests pass, including a fragmented 64-MiB / 16,384-page alias checked in both
+write directions and after releasing the source. The same guest then passed all three 16/32/64-MiB no-copy rounds: 29,360,128 checked GPU values and three completed deallocators in 8.520331 seconds. A new Terminal window opened after the probes. A 300-second GravityMark trial and continuous stability qualification remain pending.
+
+[3DMark for macOS requires Apple Silicon](https://support.benchmarks.ul.com/support/solutions/articles/44002642889-3dmark-for-macos-system-requirements),
+so it cannot measure this Intel guest. The installed x86_64 GravityMark Metal
+workload remains the commercial benchmark trial. `SceneProbe.m` adds an authored
+FHD diagnostic with 441 indexed, instanced, textured cubes, depth testing and a
+GPU pixel readback. Its frame-completion rate is a diagnostic measurement, not a
+3DMark score or a count of frames physically shown by the monitor. The M4
+reference build passes. The Windows guest at `1c805df` completed 2,142 frames in
+15.001 seconds (142.79 completed frames/s), with zero errors and a checked GPU
+pixel readback. This small scene does not qualify GravityMark or general desktop
+stability.

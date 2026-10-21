@@ -1,0 +1,33 @@
+{
+  "sourceRevision": "1c805df7d6f777a48d905298e2c8289191022aef",
+  "translatorRevision": "4518f0219cc1d0b87179269742461d523a392710",
+  "coreMappingTestsPassed": 54,
+  "previousSerialDebugCoreTestsPassed": 2304,
+  "nativeWindowsVmTestsPassed": 5,
+  "fragmentedAliasBytes": 67108864,
+  "fragmentedAliasPages": 16384,
+  "nativeFragmentedAliasSeconds": 0.1070719,
+  "patchChainMatchesPinnedSource": true,
+  "guestQualified": false,
+  "benchmark3DQualified": false,
+  "authoredScene": {
+    "resolution": "1920x1080",
+    "instances": 441,
+    "trianglesPerFrame": 5292,
+    "elapsedSeconds": 15.001,
+    "completedFrames": 2142,
+    "meanCompletedFramesPerSecond": 142.79,
+    "errors": 0,
+    "gpuReadbackPassed": true,
+    "commercialBenchmarkScore": false
+  },
+  "largeBufferProbe": {
+    "rounds": 3,
+    "released": 3,
+    "valuesChecked": 29360128,
+    "mappingErrors": 0,
+    "elapsedSeconds": 8.520331,
+    "passed": true
+  },
+  "postProbeNewTerminalWindowVerified": true
+}

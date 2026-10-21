@@ -1,0 +1,28 @@
+{
+  "bridgeSourceRevision": "02266317b4059bb9511b599ad02aaad9d0b97518",
+  "loadedGuestKextUuid": "d1fb0d51-0851-3dbe-b9b1-5d1fe247cd3f",
+  "loadedUuidMatchesBuiltCandidate": true,
+  "abiAndLifetimeOrderTests": "passed on build Mac with Wall Wextra Werror",
+  "sourceSnapshotTestsPassed": 3,
+  "nativeBuildWarnings": 0,
+  "fileBackedNoCopyProbe": {
+    "rounds": 192,
+    "released": 192,
+    "valuesChecked": 18087936,
+    "mappingErrors": 0,
+    "referenceM4": "passed",
+    "windowsGuest": "passed"
+  },
+  "oneTimeRootDiagnosticRemoved": true,
+  "continuousStabilityQualified": false,
+  "benchmark3DQualified": false,
+  "benchmark3D": {
+    "name": "GravityMark 1.89",
+    "mode": "1920x1080, 20000 asteroids, Metal x64 raster",
+    "result": "timeout after heap allocation refusals; no score",
+    "timeoutSeconds": 180,
+    "heapAllocationFailureMiB": 16,
+    "kernelPanicObserved": false,
+    "displayStoppedAfterTermination": true
+  }
+}

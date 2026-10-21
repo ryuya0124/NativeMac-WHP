@@ -1,0 +1,210 @@
+diff --git a/guest/metal-compat/AliasLifetime.hpp b/guest/metal-compat/AliasLifetime.hpp
+new file mode 100644
+index 0000000..cc034bb
+--- /dev/null
++++ b/guest/metal-compat/AliasLifetime.hpp
+@@ -0,0 +1,14 @@
++#pragma once
++
++namespace ReimsABI {
++enum class AliasRelease { Released, Retained, Unmapped };
++
++// Withdraw CPU access before the backing owner may recycle its pages. A refused
++// release leaves the owner alive, so access can be restored for a later retry.
++template <typename Alias, typename Release>
++AliasRelease releaseAlias(Alias &alias, Release release) {
++    alias.unmap();
++    if (release()) return AliasRelease::Released;
++    return alias.remap() ? AliasRelease::Retained : AliasRelease::Unmapped;
++}
++}
+diff --git a/guest/metal-compat/README.md b/guest/metal-compat/README.md
+index 615184e..8ca7965 100644
+--- a/guest/metal-compat/README.md
++++ b/guest/metal-compat/README.md
+@@ -112,6 +112,12 @@ The thread call must also use `THREAD_CALL_OPTIONS_ONCE`: otherwise two
+ drainers can deliver scheduled/completed notifications out of order.
+ CPU aliases of existing device-pager memory use `kIOMemoryHostOnly`, without
+ attempting to DMA-wire the same pages again (`prepare()` returned unsupported).
++The kernel alias is withdrawn before requesting release of its backing allocation.
++A refused release restores the alias; if remapping fails, the connection closes
++to further commands instead of dereferencing the missing mapping. Allocation
++failure cleanup also removes aliases before releasing backend resources. These
++ordering rules do not establish the cause of a guest pageout panic; cold-boot
++and application lifetime qualification remain necessary.
+ 
+ Remaining qualification includes mip/slice preservation and
+ resource cleanup under failure, WindowServer, guest restart and a matched
+diff --git a/guest/metal-compat/ReimsMetalCompat.cpp b/guest/metal-compat/ReimsMetalCompat.cpp
+index 0039aea..5e65389 100644
+--- a/guest/metal-compat/ReimsMetalCompat.cpp
++++ b/guest/metal-compat/ReimsMetalCompat.cpp
+@@ -13,6 +13,7 @@
+ #include "SubmissionABI.hpp"
+ #include "DirtyABI.hpp"
+ #include "TextureABI.hpp"
++#include "AliasLifetime.hpp"
+ 
+ class ReimsMetalClient;
+ 
+@@ -83,6 +84,7 @@ struct MappedRange {
+     IOMemoryDescriptor *descriptor;
+     IOMemoryMap *mapping;
+     IOReturn error;
++    bool writableMapping;
+     bool open(task_t task, uint64_t address, uint64_t length, bool writable = false) {
+         error = kIOReturnBadArgument;
+         if (!address || !length || address > UINT64_MAX - length) return false;
+@@ -91,15 +93,23 @@ struct MappedRange {
+         error = kIOReturnNoMemory;
+         if (!descriptor) return false;
+         // Existing device-pager mappings cannot be DMA-wired again; this is a CPU alias.
+-        mapping = descriptor->map(writable ? 0 : kIOMapReadOnly);
++        writableMapping = writable;
++        return remap();
++    }
++    bool remap() {
++        if (!descriptor || mapping) return mapping != nullptr;
++        mapping = descriptor->map(writableMapping ? 0 : kIOMapReadOnly);
+         error = mapping ? kIOReturnSuccess : kIOReturnVMError;
+         return mapping != nullptr;
+     }
+     uint8_t *bytes() const {
+         return mapping ? reinterpret_cast<uint8_t *>(mapping->getVirtualAddress()) : nullptr;
+     }
++    void unmap() {
++        if (mapping) { mapping->release(); mapping = nullptr; }
++    }
+     void close() {
+-        if (mapping) mapping->release();
++        unmap();
+         if (descriptor) descriptor->release();
+         *this = {};
+     }
+@@ -199,6 +209,24 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+         return call(legacyShared, 8, &args);
+     }
+ 
++    IOReturn releaseAliased(MappedRange &alias, uint32_t selector, uint64_t identifier) {
++        // A kernel alias must disappear while its backend allocation is still alive.
++        // Keep the descriptor so a refused release can restore the same live allocation.
++        IOExternalMethodArguments args {};
++        args.scalarInput = &identifier;
++        args.scalarInputCount = 1;
++        IOReturn status = kIOReturnError;
++        auto result = ReimsABI::releaseAlias(alias, [&] {
++            status = call(legacyShared, selector, &args);
++            return status == kIOReturnSuccess;
++        });
++        if (result == ReimsABI::AliasRelease::Unmapped) {
++            closing = true;
++            return alias.error;
++        }
++        return status;
++    }
++
+     void disposePending(Pending *pending) {
+         if (pending->memory) releaseShared(pending->memory);
+         if (pending->commands) releaseShared(pending->commands);
+@@ -518,6 +546,7 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+         if (resourceStage == 4) resourceError = status;
+         clientShared.close();
+         if (status != kIOReturnSuccess) {
++            resource->kernelShared.close();
+             if (resource->identifier) releaseLegacyResource(resource->identifier);
+             resource->dispose();
+             return status;
+@@ -552,6 +581,7 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+                 IOExternalMethodArguments cleanup {};
+                 cleanup.scalarInput = &identifier;
+                 cleanup.scalarInputCount = 1;
++                memory->range.close();
+                 call(legacyShared, 8, &cleanup);
+                 status = kIOReturnNoMemory;
+             }
+@@ -572,7 +602,7 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+         if (!closing && *link) {
+             uint32_t references = ReimsABI::read<uint32_t>((*link)->kernelShared.bytes(), 24);
+             status = flushDirty();
+-            if (status == kIOReturnSuccess) status = releaseLegacyResource(value);
++            if (status == kIOReturnSuccess) status = releaseAliased((*link)->kernelShared, 1, value);
+             trace("resource-release", 1, status, 0, (*link)->identifier, (*link)->objectIdentifier, references);
+             if (status == kIOReturnSuccess) {
+                 Resource *resource = *link;
+@@ -1025,7 +1055,7 @@ public:
+             SharedMemory **link = &sharedMemory;
+             while (*link && (*link)->identifier != args->scalarInput[0]) link = &(*link)->next;
+             if (!*link) return kIOReturnNotFound;
+-            IOReturn status = call(legacyShared, 8, args);
++            IOReturn status = releaseAliased((*link)->range, 8, args->scalarInput[0]);
+             if (status == kIOReturnSuccess) {
+                 SharedMemory *memory = *link;
+                 *link = memory->next;
+diff --git a/guest/metal-compat/abi-test.cpp b/guest/metal-compat/abi-test.cpp
+index 28bbc8a..d3faab6 100644
+--- a/guest/metal-compat/abi-test.cpp
++++ b/guest/metal-compat/abi-test.cpp
+@@ -2,6 +2,7 @@
+ #include "SubmissionABI.hpp"
+ #include "DirtyABI.hpp"
+ #include "TextureABI.hpp"
++#include "AliasLifetime.hpp"
+ #include <assert.h>
+ #include <initializer_list>
+ 
+@@ -227,7 +228,55 @@ static void checkTextureFormats() {
+         assert(!ReimsABI::astcFormat(pixel));
+ }
+ 
++static void checkAliasRelease() {
++    struct Alias {
++        bool mapped = true, ownerAlive = true, canMap = true;
++        unsigned unmaps = 0, remaps = 0;
++        void unmap() { assert(mapped && ownerAlive); mapped = false; ++unmaps; }
++        bool remap() {
++            assert(!mapped && ownerAlive);
++            ++remaps;
++            mapped = canMap;
++            return mapped;
++        }
++    };
++    using ReimsABI::AliasRelease;
++    Alias released;
++    auto result = ReimsABI::releaseAlias(released, [&] {
++        assert(!released.mapped && released.ownerAlive);
++        released.ownerAlive = false;
++        return true;
++    });
++    assert(result == AliasRelease::Released && !released.mapped && !released.ownerAlive);
++    assert(released.unmaps == 1 && released.remaps == 0);
++
++    Alias retained;
++    result = ReimsABI::releaseAlias(retained, [&] {
++        assert(!retained.mapped && retained.ownerAlive);
++        return false;
++    });
++    assert(result == AliasRelease::Retained && retained.mapped && retained.ownerAlive);
++    assert(retained.unmaps == 1 && retained.remaps == 1);
++    result = ReimsABI::releaseAlias(retained, [&] {
++        assert(!retained.mapped && retained.ownerAlive);
++        retained.ownerAlive = false;
++        return true;
++    });
++    assert(result == AliasRelease::Released && !retained.mapped && !retained.ownerAlive);
++    assert(retained.unmaps == 2 && retained.remaps == 1);
++
++    Alias failed;
++    failed.canMap = false;
++    result = ReimsABI::releaseAlias(failed, [&] {
++        assert(!failed.mapped && failed.ownerAlive);
++        return false;
++    });
++    assert(result == AliasRelease::Unmapped && !failed.mapped && failed.ownerAlive);
++    assert(failed.unmaps == 1 && failed.remaps == 1);
++}
++
+ int main() {
++    checkAliasRelease();
+     checkTextureFormats();
+     checkComputePipelines();
+     assert(ReimsABI::batchSize(1, 48, 48) == 32);

@@ -1,0 +1,135 @@
+diff --git a/guest/metal-compat/README.md b/guest/metal-compat/README.md
+index 8ca7965..4f251a6 100644
+--- a/guest/metal-compat/README.md
++++ b/guest/metal-compat/README.md
+@@ -122,3 +122,9 @@ and application lifetime qualification remain necessary.
+ Remaining qualification includes mip/slice preservation and
+ resource cleanup under failure, WindowServer, guest restart and a matched
+ TestUFO performance comparison.
++
++An explicitly armed diagnostic client can read the last resource request made
++by the same owning task, with its return status and a 512-byte bound. Arming
++clears the record; reading disables recording. Nothing is published to the
++registry or collected from other tasks. This isolates authored heap probes
++without relying on interposition inside the dyld shared cache.
+diff --git a/guest/metal-compat/ReimsMetalCompat.cpp b/guest/metal-compat/ReimsMetalCompat.cpp
+index 5e65389..dfd3af7 100644
+--- a/guest/metal-compat/ReimsMetalCompat.cpp
++++ b/guest/metal-compat/ReimsMetalCompat.cpp
+@@ -14,6 +14,7 @@
+ #include "DirtyABI.hpp"
+ #include "TextureABI.hpp"
+ #include "AliasLifetime.hpp"
++#include "ResourceDiagnostic.hpp"
+ 
+ class ReimsMetalClient;
+ 
+@@ -168,6 +169,8 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+     bool traceThisClient {false};
+     uint32_t resourceStage {0};
+     IOReturn resourceError {kIOReturnSuccess};
++    bool resourceDiagnosticEnabled {false};
++    ReimsABI::ResourceDiagnostic resourceDiagnostic {};
+     IOExternalTrap releaseTrap {};
+     IOExternalTrap submitTrap {};
+     IOExternalTrap childReleaseTrap {}, dirtySetupTrap {}, dirtyFlushTrap {};
+@@ -922,6 +925,15 @@ public:
+                             IOExternalMethodDispatch *, OSObject *, void *) override {
+         IOLockLock(stateLock);
+         IOReturn status = closing ? kIOReturnNotOpen : dispatch(selector, args);
++        if (selector == 9 && args && args->structureInput && clientsLock) {
++            IOLockLock(clientsLock);
++            for (auto client = clients; client; client = client->nextClient) {
++                if (client->owner == owner && client->resourceDiagnosticEnabled)
++                    client->resourceDiagnostic.record(args->structureInput,
++                        args->structureInputSize, static_cast<int32_t>(status));
++            }
++            IOLockUnlock(clientsLock);
++        }
+         if (args && (selector == 9 || selector >= 256) && args->structureInput && args->structureInputSize >= 8) {
+             auto input = args->structureInput;
+             uint32_t first = ReimsABI::read<uint32_t>(input, 0), second = ReimsABI::read<uint32_t>(input, 4);
+@@ -953,6 +965,23 @@ public:
+     IOReturn dispatch(uint32_t selector, IOExternalMethodArguments *args) {
+         if (!args || args->structureInputDescriptor || args->structureOutputDescriptor ||
+             args->asyncReferenceCount) return kIOReturnUnsupported;
++        if (selector == probeVersionSelector + 2 && !args->scalarInputCount &&
++            !args->structureInputSize && !args->scalarOutputCount && !args->structureOutputSize) {
++            IOLockLock(clientsLock);
++            resourceDiagnostic = {};
++            resourceDiagnosticEnabled = true;
++            IOLockUnlock(clientsLock);
++            return kIOReturnSuccess;
++        }
++        if (selector == probeVersionSelector + 3 && !args->scalarInputCount &&
++            !args->structureInputSize && !args->scalarOutputCount && args->structureOutput &&
++            args->structureOutputSize == sizeof(resourceDiagnostic)) {
++            IOLockLock(clientsLock);
++            memcpy(args->structureOutput, &resourceDiagnostic, sizeof(resourceDiagnostic));
++            resourceDiagnosticEnabled = false;
++            IOLockUnlock(clientsLock);
++            return kIOReturnSuccess;
++        }
+         if (selector == probeVersionSelector && !args->scalarInputCount &&
+             !args->structureInputSize && args->scalarOutputCount == 4 && args->scalarOutput) {
+             args->scalarOutput[0] = 0x524d434f;
+diff --git a/guest/metal-compat/ResourceDiagnostic.hpp b/guest/metal-compat/ResourceDiagnostic.hpp
+new file mode 100644
+index 0000000..40d54ff
+--- /dev/null
++++ b/guest/metal-compat/ResourceDiagnostic.hpp
+@@ -0,0 +1,26 @@
++#pragma once
++#include <stdint.h>
++#include <stddef.h>
++#include <string.h>
++
++namespace ReimsABI {
++// An explicit diagnostic client can inspect only resource calls by its own task.
++struct ResourceDiagnostic {
++    uint32_t sequence;
++    uint32_t size;
++    int32_t status;
++    uint32_t reserved;
++    uint8_t bytes[512];
++
++    void record(const void *input, size_t length, int32_t result) {
++        if (!input || length > sizeof(bytes)) return;
++        ++sequence;
++        size = static_cast<uint32_t>(length);
++        status = result;
++        reserved = 0;
++        memset(bytes, 0, sizeof(bytes));
++        memcpy(bytes, input, length);
++    }
++};
++static_assert(sizeof(ResourceDiagnostic) == 528, "diagnostic wire size");
++}
+diff --git a/guest/metal-compat/abi-test.cpp b/guest/metal-compat/abi-test.cpp
+index d3faab6..36308c7 100644
+--- a/guest/metal-compat/abi-test.cpp
++++ b/guest/metal-compat/abi-test.cpp
+@@ -3,10 +3,23 @@
+ #include "DirtyABI.hpp"
+ #include "TextureABI.hpp"
+ #include "AliasLifetime.hpp"
++#include "ResourceDiagnostic.hpp"
+ #include <assert.h>
+ #include <initializer_list>
+ 
+ static void checkComputePipelines() {
++    ReimsABI::ResourceDiagnostic diagnostic {};
++    uint8_t diagnosticInput[513];
++    memset(diagnosticInput, 0xa5, sizeof(diagnosticInput));
++    diagnostic.record(diagnosticInput, 512, -1);
++    assert(diagnostic.sequence == 1 && diagnostic.size == 512 && diagnostic.status == -1);
++    assert(diagnostic.bytes[511] == 0xa5);
++    diagnostic.record(diagnosticInput, 513, 0);
++    assert(diagnostic.sequence == 1);
++    diagnostic.record(nullptr, 4, 0);
++    assert(diagnostic.sequence == 1);
++    diagnostic.record(diagnosticInput, 4, 0);
++    assert(diagnostic.sequence == 2 && diagnostic.size == 4 && diagnostic.bytes[4] == 0);
+     for (size_t size : {36U, 56U, 108U}) assert(ReimsABI::computePipelineSize(size));
+     for (size_t size = 0; size <= 32; size++) assert(!ReimsABI::computePipelineSize(size));
+     for (size_t size : {33U, 34U, 35U, 37U, 55U, 57U, 107U, 109U})
