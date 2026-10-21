@@ -73,7 +73,16 @@
   },
   "knownLimitations": [
     "An iconservicesagent task can fault with an empty GPU resource entry. The setup screen and Metal compute test have succeeded; broad application compatibility is not verified.",
-    "Guest display uses a separate GPU window.",
-    "Wheel HID fix passes protocol tests; live verification pending."
-  ]
+    "Guest display uses a separate GPU window."
+  ],
+  "mouseWheel": {
+    "hidDescriptorBytes": 73,
+    "wheelBits": 8,
+    "packetBytes": 7,
+    "protocolTestsPassed": 3,
+    "loadedInGuest": true,
+    "liveScrollVerified": true,
+    "verification": "User confirmed scrolling works after Windows restart and rebuilt backend boot",
+    "verifiedOn": "2026-10-21"
+  }
 }

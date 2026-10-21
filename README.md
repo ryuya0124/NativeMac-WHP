@@ -17,6 +17,7 @@ CPUはWHPで実行し、QEMU実行ファイル・QEMUコア・CPU命令の動的
 - M4 Mac miniでIntel向けMetal検証プログラムと修正済みMacHyperVSupportをクロスビルド。
 - 通常OSのAppleParavirtGPUドライバー、Metalのシェーダー生成・計算・GPU完了待ち・共有バッファー読み戻し。
 - WinUIからのVM起動・終了、RAM/CPU上限、同じワークスペースの二重VM起動防止。
+- マウスホイールの上下スクロール。HIDを符号付き8ビットのホイールと予約1バイトに修正し、ゲストでの動作を確認。
 
 検証結果は`artifacts/metal-probe/guest-metal.json`、OSバージョンとGPU情報は`artifacts/metal-probe/guest-report.txt`、実際のGPU描画画面は`artifacts/normal-os-gpu-verified.png`、GitHubに含めた検証結果は[Metal計算](docs/verification/guest-metal.json)、[GPU情報](docs/verification/guest-report.txt)、[起動画面](docs/verification/setup-assistant.png)、機械可読な状態は`vm/progress.json`です。Metalの`verified: true`は4096個のGPU計算結果をCPU側で照合した結果です。ホスト単体プローブやM4上での実行結果とは分けて記録しています。
 

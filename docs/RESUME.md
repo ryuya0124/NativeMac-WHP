@@ -1,13 +1,13 @@
-# Resume checkpoint
+# Current checkpoint
 
-The user requested restarting Windows because the host became very slow. The development VM was stopped first. The GitHub repository is private.
+The Windows restart is complete. The WinUI VM is running with 12 GiB RAM and 8 virtual processors, within the 24 GiB / 8-core limits.
 
-Confirmed: Intel macOS 26.6.2 build 25G83 boots using OpenVMM WHP. Guest Metal compute verified all 4096 values on the RTX 5080, and the GPU displayed Setup Assistant. No QEMU or CPU instruction translation. Tested resources: 12 GiB / 8 cores; caps: 24 GiB / 8 cores.
+Confirmed: Intel macOS 26.6.2 build 25G83 boots using OpenVMM WHP. Guest Metal compute verified all 4096 values on the RTX 5080, and the GPU displayed Setup Assistant. No QEMU or CPU instruction translation is used. Original recovery media is read without disk-image conversion.
 
-Pending: live verification of the mouse-wheel fix. The VMBus HID descriptor now declares a signed 8-bit wheel and a reserved byte in a 7-byte packet. All 3 mouse protocol tests passed and the release backend built successfully. Live scrolling has not yet been verified.
+The mouse-wheel fix is verified: all three mouse protocol tests passed, the release backend built, and the guest logged the 73-byte HID descriptor with signed 8-bit wheel packets. The user confirmed scrolling works after this boot. Initial setup and guest-account preferences are managed by the user; do not request/store the password.
 
-Start `artifacts/app/TahoeVm.exe --start-vm --memory 12 --processors 8`, then select NativeMac in OpenCore if necessary. The user was completing account setup. After login, verify scrolling in a scrollable guest view. Do not overwrite account preferences or request/store the guest password.
+The private GitHub repository is https://github.com/ryuya0124/NativeMac-WHP. Source, patches, build prerequisites and validation evidence are committed. OS media, VM disks and compiled dependency binaries are excluded.
 
-The guest display uses a separate GPU window. The temporary HTTP lab server is stopped. Some iconservicesagent GPU tasks can report empty resource entries; broader application compatibility and long-term stability remain unverified. Boot resolution is 1280x800.
+Remaining limitations: the guest display uses a separate GPU window. Some iconservicesagent GPU tasks can report empty resource entries; broad application compatibility and long-term stability remain unverified. Boot resolution is 1280x800. The temporary HTTP lab server is stopped.
 
-Evidence is in docs/verification. Detailed local logs are under artifacts and excluded from Git.
+Evidence is in docs/verification and vm/progress.json. Detailed local logs are under artifacts and excluded from Git.
