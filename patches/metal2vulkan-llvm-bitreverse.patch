@@ -1,0 +1,189 @@
+diff --git a/crates/metal2vulkan-air/src/intrinsics/llvm.rs b/crates/metal2vulkan-air/src/intrinsics/llvm.rs
+index d784c6c..c3df7ad 100644
+--- a/crates/metal2vulkan-air/src/intrinsics/llvm.rs
++++ b/crates/metal2vulkan-air/src/intrinsics/llvm.rs
+@@ -54,6 +54,8 @@ pub enum LlvmIntOp {
+     Fshr,
+     /// `llvm.bswap`: the bytes in reverse order (a width that is a multiple of 16 bits).
+     Bswap,
++    /// `llvm.bitreverse`: reverse the bits independently in each integer lane.
++    BitReverse,
+     /// `llvm.ctpop`: the number of set bits.
+     Ctpop,
+     /// `llvm.uadd.sat`: unsigned saturating addition.
+@@ -339,6 +341,7 @@ pub(super) const BASES: &[(&str, Base)] = &[
+     ("fshl", Base::Int(LlvmIntOp::Fshl)),
+     ("fshr", Base::Int(LlvmIntOp::Fshr)),
+     ("bswap", Base::Int(LlvmIntOp::Bswap)),
++    ("bitreverse", Base::Int(LlvmIntOp::BitReverse)),
+     ("ctpop", Base::Int(LlvmIntOp::Ctpop)),
+     ("uadd.sat", Base::Int(LlvmIntOp::UAddSat)),
+     ("usub.sat", Base::Int(LlvmIntOp::USubSat)),
+@@ -393,7 +396,7 @@ impl LlvmFloatOp {
+ impl LlvmIntOp {
+     fn arity(self) -> usize {
+         match self {
+-            LlvmIntOp::Bswap | LlvmIntOp::Ctpop => 1,
++            LlvmIntOp::Bswap | LlvmIntOp::BitReverse | LlvmIntOp::Ctpop => 1,
+             LlvmIntOp::Fshl | LlvmIntOp::Fshr => 3,
+             _ => 2,
+         }
+diff --git a/crates/metal2vulkan-air/src/intrinsics/tests.rs b/crates/metal2vulkan-air/src/intrinsics/tests.rs
+index 9561ea7..7b03ce6 100644
+--- a/crates/metal2vulkan-air/src/intrinsics/tests.rs
++++ b/crates/metal2vulkan-air/src/intrinsics/tests.rs
+@@ -914,7 +914,7 @@ fn markers_are_dropped() {
+         );
+     }
+     let bases: Vec<&str> = BASES.iter().map(|(n, _)| *n).collect();
+-    assert_eq!(bases.len(), 31);
++    assert_eq!(bases.len(), 32);
+ }
+ 
+ #[test]
+@@ -1014,3 +1014,43 @@ fn dropped_family_names_only_the_markers_decode_drops() {
+     assert_eq!(dropped_family("llvm.assumed"), None);
+     assert_eq!(dropped_family("air.lifetime.start"), None);
+ }
++
++#[test]
++fn llvm_bitreverse_checks_integer_shapes_and_overload_suffixes() {
++    for elem in [Elem::I8, Elem::I16, Elem::I32, Elem::I64] {
++        for lanes in [1, 2, 4] {
++            let ty = NumTy { elem, lanes };
++            let operand = Operand::Num(ty);
++            let suffix = if lanes == 1 {
++                format!("i{}", elem.bits())
++            } else {
++                format!("v{lanes}i{}", elem.bits())
++            };
++            assert_eq!(
++                llvm(&format!("llvm.bitreverse.{suffix}"), operand, &[operand]),
++                DeclClass::Llvm(LlvmIntrinsic::Int {
++                    op: LlvmIntOp::BitReverse,
++                    ty
++                })
++            );
++            assert_eq!(
++                llvm(
++                    &format!("llvm.bitreverse.{suffix}"),
++                    operand,
++                    &[operand, operand]
++                ),
++                DeclClass::Mismatch
++            );
++        }
++    }
++    let i32s = Operand::Num(NumTy::scalar(Elem::I32));
++    let f32s = Operand::Num(NumTy::scalar(Elem::F32));
++    assert_eq!(
++        llvm("llvm.bitreverse.i64", i32s, &[i32s]),
++        DeclClass::Mismatch
++    );
++    assert_eq!(
++        llvm("llvm.bitreverse.f32", f32s, &[f32s]),
++        DeclClass::Mismatch
++    );
++}
+diff --git a/crates/metal2vulkan/src/cache/mod.rs b/crates/metal2vulkan/src/cache/mod.rs
+index bcbf97c..6959005 100644
+--- a/crates/metal2vulkan/src/cache/mod.rs
++++ b/crates/metal2vulkan/src/cache/mod.rs
+@@ -60,7 +60,7 @@ mod tests;
+ /// unchanged version, and its bless records the version. Independent of the crate's version and of
+ /// [`ARTIFACT_FORMAT_VERSION`]. The commit that bumps it says what changed; this comment keeps no
+ /// history.
+-pub const SEMANTICS_VERSION: u32 = 1692;
++pub const SEMANTICS_VERSION: u32 = 1693;
+ 
+ /// The byte-layout version of encoded artifacts (`CompiledFunction::to_bytes` and the
+ /// [`PipelineArtifact`] encodings). Every encoded artifact carries it, and a decode under another
+diff --git a/crates/metal2vulkan/src/lower/arith/mod.rs b/crates/metal2vulkan/src/lower/arith/mod.rs
+index 54f371d..0b1c876 100644
+--- a/crates/metal2vulkan/src/lower/arith/mod.rs
++++ b/crates/metal2vulkan/src/lower/arith/mod.rs
+@@ -2414,6 +2414,7 @@ fn llvm_math(op: &LlvmIntrinsic) -> Result<Fun, Error> {
+             LlvmIntOp::Fshl => IntFn::Fshl,
+             LlvmIntOp::Fshr => IntFn::Fshr,
+             LlvmIntOp::Bswap => IntFn::Bswap,
++            LlvmIntOp::BitReverse => IntFn::ReverseBits,
+             LlvmIntOp::Ctpop => IntFn::Popcount,
+             LlvmIntOp::UAddSat => IntFn::AddSat(Sign::Unsigned),
+             LlvmIntOp::USubSat => IntFn::SubSat(Sign::Unsigned),
+diff --git a/crates/metal2vulkan/src/lower/arith/tests.rs b/crates/metal2vulkan/src/lower/arith/tests.rs
+index f574d69..b1548ce 100644
+--- a/crates/metal2vulkan/src/lower/arith/tests.rs
++++ b/crates/metal2vulkan/src/lower/arith/tests.rs
+@@ -14,6 +14,7 @@ use super::libm::Lib;
+ use super::math::{self, ConvertKind, FloatFn, IntFn, Sign};
+ use super::nan::NanTest;
+ use super::ops::{self, BitcastPlan, CastKind};
++use super::{Fun, LlvmIntOp, LlvmIntrinsic};
+ use crate::air::ir::{BinOp as AirBin, FloatPredicate, IntPredicate};
+ use crate::device::DeviceProfile;
+ use crate::pipeline::sym::{ResourceKind, ResourceSlot, Stage};
+@@ -4325,3 +4326,24 @@ fn the_minimum_and_maximum_family_takes_the_device_instructions_where_measured()
+         }
+     }
+ }
++
++#[test]
++fn llvm_bitreverse_selects_exact_integer_lowering() {
++    for elem in [
++        crate::air::intrinsics::Elem::I8,
++        crate::air::intrinsics::Elem::I16,
++        crate::air::intrinsics::Elem::I32,
++        crate::air::intrinsics::Elem::I64,
++    ] {
++        for lanes in [1, 2, 4] {
++            let op = LlvmIntrinsic::Int {
++                op: LlvmIntOp::BitReverse,
++                ty: crate::air::intrinsics::NumTy { elem, lanes },
++            };
++            assert!(matches!(
++                super::llvm_math(&op),
++                Ok(Fun::Int(IntFn::ReverseBits))
++            ));
++        }
++    }
++}
+diff --git a/crates/metal2vulkan/src/lower/fragment/fetch/source_over.rs b/crates/metal2vulkan/src/lower/fragment/fetch/source_over.rs
+index 88a6857..e7612e3 100644
+--- a/crates/metal2vulkan/src/lower/fragment/fetch/source_over.rs
++++ b/crates/metal2vulkan/src/lower/fragment/fetch/source_over.rs
+@@ -139,8 +139,10 @@ mod tests {
+                 interp::run_with_images(&module, &Config::default(), resources, Vec::new())
+                     .unwrap();
+             let actual: Vec<f32> = result.buffers[0]
+-                .chunks_exact(4)
+-                .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
++                .as_chunks::<4>()
++                .0
++                .iter()
++                .map(|b| f32::from_le_bytes(*b))
+                 .collect();
+             assert_eq!(actual, expected);
+         }
+diff --git a/crates/metal2vulkan/src/tests/engine_fragment.rs b/crates/metal2vulkan/src/tests/engine_fragment.rs
+index 2770e48..e5a9075 100644
+--- a/crates/metal2vulkan/src/tests/engine_fragment.rs
++++ b/crates/metal2vulkan/src/tests/engine_fragment.rs
+@@ -559,7 +559,7 @@ fn normalized_fetch_source_over_compiles_and_links_in_the_interlock() {
+                 assert!(pipeline.graphics.color_attachments[0].is_none());
+                 // A half4 output written in the storage form by a pass variant, beside a
+                 // half2 attachment the function fetches but whose mask stores nothing.
+-                let mut half_colors = descriptor.color_attachments.clone();
++                let mut half_colors = descriptor.color_attachments;
+                 let mut coverage = ColorAttachmentDescriptor::new(PixelFormat::RG16Float);
+                 coverage.write_mask = ColorWriteMask::NONE;
+                 half_colors[1] = Some(coverage);
+diff --git a/docs/API.md b/docs/API.md
+index a163039..14e01a9 100644
+--- a/docs/API.md
++++ b/docs/API.md
+@@ -2077,3 +2077,5 @@ each item named states the rule in full.
+   buffer's length.
+ - **A physical size past the map's layers has width 0.**
+ - **A rate-mapped pass draws region by region, and refuses a cutting scissor.**
++
++LLVM integer `llvm.bitreverse` overloads on integer scalars and vectors use the same exact GPU lowering as Metal `reverse_bits`, including legalized narrow and wide integers. Their overload suffix, arity and integer shape are checked before lowering.

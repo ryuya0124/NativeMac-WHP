@@ -32,3 +32,16 @@ The recorded Metal result is a validation of one compute workload, alongside the
 The experimental default Metal transport also needs the guest bridge described in [GPU_STABILITY.md](GPU_STABILITY.md). Apply `patches/reims-metal-compat-astc.patch` to the pinned Reims sources and commit the guest directory before exporting its build snapshot. `rejectAstcTextures` in vm/defaults.json enables allocation rejection for the current host, whose Vulkan runtime rejects ASTC. This is not an ASTC decoder or a long-term compatibility guarantee.
 
 Display modes: select FHD/WQHD/4K before startup, or pass `--resolution 3840x2160` to TahoeVm / `-DisplayResolution 3840x2160` to Start-VM.ps1. OpenCore and the GPU mode cap receive the same resolution. Defaults remain 1920x1080, 12 GiB, 8 processors.
+
+## Experimental LLVM bitreverse repair
+
+`patches/metal2vulkan-llvm-bitreverse.patch` applies to the translator revision in `vm/dependencies.json` under `metal2vulkanRepair`. Apply it in a separate translator checkout. To build Reims against it, pass a local Cargo configuration with the following three overrides, replacing the example absolute path with that checkout:
+
+```toml
+[patch."https://github.com/tqmane/metal2vulkan"]
+metal2vulkan = { path = "C:/path/to/metal2vulkan/crates/metal2vulkan" }
+metal2vulkan-air = { path = "C:/path/to/metal2vulkan/crates/metal2vulkan-air" }
+metal2vulkan-runtime = { path = "C:/path/to/metal2vulkan/crates/metal2vulkan-runtime" }
+```
+
+Use `cargo +1.98.1 --config <local-config.toml> build -p reims-vgpu-c --no-default-features --features vulkan --release`. The first resolution updates the local Reims lockfile to these path dependencies. Keep this build separate from the unmodified pinned build. This repair is experimental: see [the FHD compatibility checks](GPU_COMPATIBILITY.md) for executed tests and remaining runtime failures.

@@ -118,9 +118,10 @@
     "benchmark3D": {
       "name": "GravityMark",
       "version": "1.89",
-      "status": "failed",
+      "status": "failed again after bitreverse decoding repair; access lowering under investigation",
       "failure": "UnknownIntrinsic llvm.bitreverse.i32 during pipeline creation; host worker aborted",
-      "score": null
+      "score": null,
+      "secondFailure": "Lowering(Access), compute pipeline, compute_main block 1 instruction 43"
     },
     "displayModes": {
       "implemented": [
@@ -132,6 +133,26 @@
         "1920x1080"
       ],
       "default": "1920x1080"
+    },
+    "fhdCompatibilityPriority": true,
+    "fourKQualification": "deferred after first black-display trial",
+    "bitreverseCpuValidation": {
+      "overloadTestPassed": true,
+      "loweringSelectionPassed": true,
+      "integerDifferentialTestsPassed": 10,
+      "airTestsPassed": 434,
+      "translatorSuitePassed": 3204,
+      "translatorSuiteFailed": 1,
+      "translatorSuiteIgnored": 10,
+      "failure": "LLVM assembler missing; toolchain being completed",
+      "clippyTranslatorAndAir": "passed: all targets/all features, warnings denied"
+    },
+    "subsequentFhdTrial": {
+      "execFaults": 3,
+      "gpuHangs": 3,
+      "panic": "pmap_recycle_page; pageout/storage completion stack",
+      "causality": "unresolved",
+      "astcRejections": 0
     }
   }
 }

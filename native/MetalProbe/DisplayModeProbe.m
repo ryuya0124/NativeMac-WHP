@@ -1,0 +1,38 @@
+#import <Foundation/Foundation.h>
+#import <ApplicationServices/ApplicationServices.h>
+
+// Enumerate real guest modes; an optional width/height changes this session only.
+int main(int argc, const char **argv) {
+    @autoreleasepool {
+        CGDirectDisplayID display = CGMainDisplayID();
+        CFArrayRef modes = CGDisplayCopyAllDisplayModes(display, NULL);
+        if (!modes) return 2;
+        CGDisplayModeRef selected = NULL;
+        size_t width = argc == 3 ? strtoul(argv[1], NULL, 10) : 0;
+        size_t height = argc == 3 ? strtoul(argv[2], NULL, 10) : 0;
+        NSMutableArray *list = [NSMutableArray array];
+        for (CFIndex i = 0; i < CFArrayGetCount(modes); ++i) {
+            CGDisplayModeRef mode = (CGDisplayModeRef)CFArrayGetValueAtIndex(modes, i);
+            size_t w = CGDisplayModeGetPixelWidth(mode), h = CGDisplayModeGetPixelHeight(mode);
+            [list addObject:@{@"pixelWidth":@(w), @"pixelHeight":@(h),
+                @"width":@(CGDisplayModeGetWidth(mode)), @"height":@(CGDisplayModeGetHeight(mode)),
+                @"refreshHz":@(CGDisplayModeGetRefreshRate(mode))}];
+            if (w == width && h == height && CGDisplayModeGetWidth(mode) == width)
+                selected = mode;
+        }
+        CGError status = kCGErrorSuccess;
+        if (argc == 3) {
+            if (!selected) { CFRelease(modes); return 3; }
+            status = CGDisplaySetDisplayMode(display, selected, NULL);
+        }
+        CGDisplayModeRef current = CGDisplayCopyDisplayMode(display);
+        NSDictionary *report = @{@"stage":@"display-modes", @"setStatus":@(status),
+            @"currentPixelWidth":@(current ? CGDisplayModeGetPixelWidth(current) : 0),
+            @"currentPixelHeight":@(current ? CGDisplayModeGetPixelHeight(current) : 0), @"modes":list};
+        NSData *data = [NSJSONSerialization dataWithJSONObject:report options:0 error:nil];
+        fwrite(data.bytes, 1, data.length, stdout); puts("");
+        if (current) CFRelease(current);
+        CFRelease(modes);
+        return status == kCGErrorSuccess ? 0 : 4;
+    }
+}

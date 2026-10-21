@@ -26,6 +26,8 @@ files = {
     'texture-lifetime-probe-x64': root / 'artifacts/metal-probe/texture-lifetime-probe-x64',
     'display-probe-x64': root / 'artifacts/metal-probe/display-probe-x64',
     'format-probe-x64': root / 'artifacts/metal-probe/format-probe-x64',
+    'display-mode-probe-x64': root / 'artifacts/metal-probe/display-mode-probe-x64',
+    'agent': root / 'artifacts/guest-agent.sh',
 }
 
 class Handler(BaseHTTPRequestHandler):

@@ -53,5 +53,14 @@
   "appleInstaller": {
     "originalPackageBytes": 18384624402,
     "requiresOriginalPkgDmgFooter": true
+  },
+  "metal2vulkanRepair": {
+    "repository": "https://github.com/tqmane/metal2vulkan",
+    "baseCommit": "ea5d6b877ea54e45676d199782f3db1b54fbaaa4",
+    "patch": "patches/metal2vulkan-llvm-bitreverse.patch",
+    "status": "experimental; FHD guest benchmark retest pending",
+    "usesCpuRendering": false,
+    "sourceRevision": "6e5ed98",
+    "candidateBuildSourceRevision": "46f2725"
   }
 }
