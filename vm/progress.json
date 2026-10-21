@@ -118,7 +118,7 @@
     "benchmark3D": {
       "name": "GravityMark",
       "version": "1.89",
-      "status": "failed again after bitreverse decoding repair; access lowering under investigation",
+      "status": "offline Access repair passes; actual 3D retest blocked by kernel pageout panic",
       "failure": "UnknownIntrinsic llvm.bitreverse.i32 during pipeline creation; host worker aborted",
       "score": null,
       "secondFailure": "Lowering(Access), compute pipeline, compute_main block 1 instruction 43",
@@ -129,7 +129,7 @@
         "memoryLimitMiB": 500,
         "timeLimitSeconds": 20
       },
-      "investigation": "mixed sampler/texture/data private cell loses bounded array-index provenance; structural repair under CPU validation"
+      "investigation": "private-cell bounded index analysis repaired; runtime kernel panic remains unresolved"
     },
     "displayModes": {
       "implemented": [
@@ -163,24 +163,34 @@
       "astcRejections": 0
     },
     "boundedCellRepair": {
-      "sourceRevision": "0e83a42",
+      "sourceRevision": "4518f02",
       "authoredPointerCellTestsPassed": 35,
       "finiteSlotBoundaryTestPassed": true,
       "clippyTranslatorAndAir": "passed: all targets/all features, warnings denied",
       "capturedFailureOfflineTranslation": {
         "passed": true,
-        "seconds": 0.047,
-        "peakJobMiB": 7.691,
+        "seconds": 0.235,
+        "peakJobMiB": 6.762,
         "timeLimitSeconds": 20,
         "memoryLimitMiB": 500,
         "profile": "committed reference RTX profile; not exact host profile"
       },
-      "guestQualification": "failed black display on two boots; prior library comparison in progress",
-      "gpuValueProbePending": true
+      "guestQualification": "private-allocation scope restores display; kernel pageout panic recurred after unlock; VM stopped",
+      "gpuValueProbePending": false,
+      "fullTranslatorSuite": {
+        "passed": 3242,
+        "failed": 1,
+        "ignored": 10,
+        "sourceRevision": "0e83a42",
+        "failure": "LLVM 21/22 generated fixture golden type numbering differs in 14 fixtures; unresolved"
+      },
+      "rustdocTranslatorAndAir": "passed with warnings denied"
     },
     "bitReverseProbe": {
       "m4ReferenceValuesVerified": 16384,
-      "guestVerified": false
+      "guestVerified": true,
+      "guestValuesVerified": 16384,
+      "guestLibrary": "pre-bounded semantics 1693"
     }
   }
 }

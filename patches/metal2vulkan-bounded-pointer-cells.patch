@@ -1,5 +1,5 @@
 diff --git a/crates/metal2vulkan/src/cache/mod.rs b/crates/metal2vulkan/src/cache/mod.rs
-index 18aefa5..6385c70 100644
+index 18aefa5..19607d0 100644
 --- a/crates/metal2vulkan/src/cache/mod.rs
 +++ b/crates/metal2vulkan/src/cache/mod.rs
 @@ -60,7 +60,7 @@ mod tests;
@@ -7,7 +7,7 @@ index 18aefa5..6385c70 100644
  /// [`ARTIFACT_FORMAT_VERSION`]. The commit that bumps it says what changed; this comment keeps no
  /// history.
 -pub const SEMANTICS_VERSION: u32 = 1694;
-+pub const SEMANTICS_VERSION: u32 = 1695;
++pub const SEMANTICS_VERSION: u32 = 1696;
  
  /// The byte-layout version of encoded artifacts (`CompiledFunction::to_bytes` and the
  /// [`PipelineArtifact`] encodings). Every encoded artifact carries it, and a decode under another
@@ -25,7 +25,7 @@ index f204e28..dbe6f7e 100644
                  konst = konst.checked_add(delta?)?;
                  strides.extend(more);
 diff --git a/crates/metal2vulkan/src/memory/provenance.rs b/crates/metal2vulkan/src/memory/provenance.rs
-index ea93e35..66e1d3b 100644
+index ea93e35..f039d2d 100644
 --- a/crates/metal2vulkan/src/memory/provenance.rs
 +++ b/crates/metal2vulkan/src/memory/provenance.rs
 @@ -23,7 +23,9 @@
@@ -128,7 +128,7 @@ index ea93e35..66e1d3b 100644
  }
  
  /// The dense index of a pointer-typed argument or instruction.
-@@ -1189,11 +1244,11 @@ impl<'a> Cx<'a> {
+@@ -1189,11 +1244,25 @@ impl<'a> Cx<'a> {
  
      /// The fact of `getelementptr src_ty, base, idx..`.
      fn gep(&self, base: PtrFact, src_ty: TypeId, idx: &[Value]) -> Result<PtrFact, Error> {
@@ -138,6 +138,20 @@ index ea93e35..66e1d3b 100644
 -            (OffsetRange::Span { lo, hi }, Some(d), true) => {
 -                match (lo.checked_add(d), hi.checked_add(d)) {
 +        let (delta, strides, bounds) = gep_displacement(self.e, self.layouts, src_ty, idx)?;
++        // Finite dynamic bounds refine private cells only. Other memory families keep their
++        // existing dynamic-offset analysis until their consumers qualify bounded forms.
++        let roots = self.sets.get(base.roots);
++        let private_cell = roots.iter().any(|r| matches!(r, Root::Alloca(_)))
++            && roots
++                .iter()
++                .all(|r| matches!(r, Root::Alloca(_) | Root::Null));
++        let bounds = if strides.is_empty() {
++            delta.map(|d| (d, d))
++        } else if private_cell {
++            bounds
++        } else {
++            None
++        };
 +        let range = match (base.range, bounds) {
 +            (OffsetRange::Empty, _) => OffsetRange::Empty,
 +            (OffsetRange::Span { lo, hi }, Some((a, b))) => {
@@ -145,7 +159,7 @@ index ea93e35..66e1d3b 100644
                      (Some(lo), Some(hi)) => OffsetRange::Span { lo, hi },
                      _ => OffsetRange::Top,
                  }
-@@ -2635,7 +2690,6 @@ impl Walk<'_, '_> {
+@@ -2635,7 +2704,6 @@ impl Walk<'_, '_> {
          }
          m.charge(map_entry_bytes::<InstId, ()>())?;
          self.cx.cells.facts.accesses.insert(id);
@@ -153,7 +167,7 @@ index ea93e35..66e1d3b 100644
          let cells: Vec<InstId> = roots
              .iter()
              .filter_map(|r| match r {
-@@ -2643,9 +2697,12 @@ impl Walk<'_, '_> {
+@@ -2643,9 +2711,12 @@ impl Walk<'_, '_> {
                  _ => None,
              })
              .collect();
@@ -509,14 +523,15 @@ index 4afba30..d520c7a 100644
 +    }
 +}
 diff --git a/docs/API.md b/docs/API.md
-index de22923..0bac414 100644
+index de22923..027c382 100644
 --- a/docs/API.md
 +++ b/docs/API.md
-@@ -1,5 +1,10 @@
+@@ -1,5 +1,11 @@
  # The API
  
 +Private pointer cells retain finite index bounds from scalar unsigned `min` with a nonnegative
-+constant, including zero extensions. An access proved to cover at most 64 separated pointer
++constant, including zero extensions, only for pointers rooted in private allocas. Other memory
++families keep their existing dynamic-offset analysis. An access proved to cover at most 64 separated pointer
 +slots joins those slots only, keeping neighboring handles and data separate. Larger or unknown
 +sets retain whole-cell analysis; mixed pointer/data accesses can still be refused.
 +

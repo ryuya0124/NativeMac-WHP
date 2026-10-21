@@ -72,8 +72,8 @@
   "metal2vulkanBoundedCellRepair": {
     "patch": "patches/metal2vulkan-bounded-pointer-cells.patch",
     "applyAfter": "patches/metal2vulkan-ray-cull-flags.patch",
-    "sourceRevision": "0e83a420aff41b97926599678d4101dc2c0ef585",
-    "status": "experimental; authored mixed-cell regression and captured failure pass offline; VM retest pending",
+    "sourceRevision": "4518f0219cc1d0b87179269742461d523a392710",
+    "status": "experimental; private-allocation scope boots to desktop and GPU compute passes; pageout panic after unlock remains unresolved",
     "usesCpuRendering": false
   }
 }
