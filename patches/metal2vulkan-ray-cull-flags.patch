@@ -1,0 +1,65 @@
+diff --git a/crates/metal2vulkan/src/cache/mod.rs b/crates/metal2vulkan/src/cache/mod.rs
+index 6959005..18aefa5 100644
+--- a/crates/metal2vulkan/src/cache/mod.rs
++++ b/crates/metal2vulkan/src/cache/mod.rs
+@@ -60,7 +60,7 @@ mod tests;
+ /// unchanged version, and its bless records the version. Independent of the crate's version and of
+ /// [`ARTIFACT_FORMAT_VERSION`]. The commit that bumps it says what changed; this comment keeps no
+ /// history.
+-pub const SEMANTICS_VERSION: u32 = 1693;
++pub const SEMANTICS_VERSION: u32 = 1694;
+ 
+ /// The byte-layout version of encoded artifacts (`CompiledFunction::to_bytes` and the
+ /// [`PipelineArtifact`] encodings). Every encoded artifact carries it, and a decode under another
+diff --git a/crates/metal2vulkan/src/lower/raytracing/emit.rs b/crates/metal2vulkan/src/lower/raytracing/emit.rs
+index 642409f..b28c2b0 100644
+--- a/crates/metal2vulkan/src/lower/raytracing/emit.rs
++++ b/crates/metal2vulkan/src/lower/raytracing/emit.rs
+@@ -214,6 +214,9 @@ fn flags(fb: &mut FunctionBuilder<'_>, s: &Settings) -> BResult<(SValue, SValue,
+     let facing = fb.select(skip_tri, zero, facing)?;
+     let st = bit_if(fb, skip_tri, SKIP_TRIANGLES)?;
+     let sb = bit_if(fb, skip_box, SKIP_AABBS)?;
++    // Even an unreachable traversal must have statically valid ray flags.
++    // The original booleans below still select the all-culled miss path.
++    let sb = fb.select(skip_tri, zero, sb)?;
+     let skips = fb.binary(BinOp::BitwiseOr, st, sb)?;
+     let forced_opaque = is(fb, s.forced_opacity, 1)?;
+     let forced_non_opaque = is(fb, s.forced_opacity, 2)?;
+diff --git a/crates/metal2vulkan/src/lower/raytracing/emit/tests.rs b/crates/metal2vulkan/src/lower/raytracing/emit/tests.rs
+index 98e2818..e022169 100644
+--- a/crates/metal2vulkan/src/lower/raytracing/emit/tests.rs
++++ b/crates/metal2vulkan/src/lower/raytracing/emit/tests.rs
+@@ -113,7 +113,8 @@ fn reference(
+     if !skip_tri {
+         word |= if vk_front { CULL_FRONT } else { 0 } | if vk_back { CULL_BACK } else { 0 };
+     }
+-    word |= if skip_tri { SKIP_TRIANGLES } else { 0 } | if skip_box { SKIP_AABBS } else { 0 };
++    word |= if skip_tri { SKIP_TRIANGLES } else { 0 }
++        | if skip_box && !skip_tri { SKIP_AABBS } else { 0 };
+     word |= match (forced, ocull) {
+         (1, _) => OPAQUE,
+         (2, _) => NO_OPAQUE,
+@@ -169,10 +170,10 @@ fn every_setting_combination_maps_to_valid_flags() {
+                             let case = format!("{input:?}: {got:x?}");
+                             assert_eq!(got[1] == 1, cull_all, "{case}");
+                             assert_eq!(got[2] == 1, winding == 1, "{case}");
+-                            if cull_all {
+-                                continue;
++                            // Validation also checks the unreachable traversal's operands.
++                            if !cull_all {
++                                traced += 1;
+                             }
+-                            traced += 1;
+                             let flags = got[0];
+                             assert_eq!(flags, want, "{case}");
+                             assert!(
+diff --git a/docs/API.md b/docs/API.md
+index 14e01a9..de22923 100644
+--- a/docs/API.md
++++ b/docs/API.md
+@@ -2079,3 +2079,5 @@ each item named states the rule in full.
+ - **A rate-mapped pass draws region by region, and refuses a cutting scissor.**
+ 
+ LLVM integer `llvm.bitreverse` overloads on integer scalars and vectors use the same exact GPU lowering as Metal `reverse_bits`, including legalized narrow and wide integers. Their overload suffix, arity and integer shape are checked before lowering.
++
++Ray intersection flags remain a valid Vulkan combination even when settings cull all primitive kinds. The existing all-culled miss path stays unchanged; its unreachable traversal carries only one primitive-skip flag so static SPIR-V validation accepts it.

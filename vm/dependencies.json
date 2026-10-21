@@ -62,5 +62,11 @@
     "usesCpuRendering": false,
     "sourceRevision": "6e5ed98",
     "candidateBuildSourceRevision": "46f2725"
+  },
+  "metal2vulkanRayCullRepair": {
+    "patch": "patches/metal2vulkan-ray-cull-flags.patch",
+    "applyAfter": "patches/metal2vulkan-llvm-bitreverse.patch",
+    "sourceRevision": "d1c818e9183457f9a0c506dbed0463da9f6f4540",
+    "status": "CPU flag combinations and authored ray pipeline validation passed; GPU ray execution unqualified"
   }
 }

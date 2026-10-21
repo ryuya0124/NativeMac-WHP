@@ -61,7 +61,7 @@ GUI接続の検証用レポート：
 
 実行中のREPLで`quit`を入力すると終了します。起動スクリプトはVM専用の128 GiBスパースRAWディスクを作成します。物理ディスクは使用しません。入力用RFBは127.0.0.1:5905に限定し、Reimsの画面表示とは分離しています。
 
-表示の最大解像度はWinUIでFHD・WQHD・4K（3840×2160）から選択でき、次回起動時に適用されます。既定値はFHDで、4Kのゲスト実機検証は進行中です。コマンド起動では`--resolution 3840x2160`、PowerShellでは`-DisplayResolution 3840x2160`を指定します。実験中のIntel Metal互換ブリッジを既定で使用し、連続マウス移動を8msごとにまとめます。FHDのMetal描画テストでは20秒間で3043フレーム、平均約152fpsを記録しました。ロック解除後の長時間安定性と、操作を連打したときの遅延は検証中です。ビルド手順・既知の失敗・判定条件は[GPU安定性の調査](docs/GPU_STABILITY.md)を参照してください。
+表示の最大解像度はWinUIでFHD・WQHD・4K（3840×2160）から選択でき、次回起動時に適用されます。既定値はFHDで、4Kの動作確認は保留中です。現在はFHDのGPU互換性を優先しています。コマンド起動では`--resolution 3840x2160`、PowerShellでは`-DisplayResolution 3840x2160`を指定します。実験中のIntel Metal互換ブリッジを既定で使用し、連続マウス移動を8msごとにまとめます。FHDのMetal描画テストでは20秒間で3043フレーム、平均約152fpsを記録しました。ロック解除後の長時間安定性と、操作を連打したときの遅延は検証中です。ビルド手順・既知の失敗・判定条件は[GPU安定性の調査](docs/GPU_STABILITY.md)を参照してください。
 
 制約：ゲスト画面のWinUIパネル内への埋め込み、音声、長時間の互換性・性能検証は未実装／未実施です。Metal機能はゲストが報告するMetal 2です。GPUが認識されることと、すべてのmacOSアプリが正常動作することは別の検証です。
 
@@ -97,3 +97,5 @@ ReimsのWindows開発ブランチにもTahoeの動作報告がありますが、
 `native/NativeMac.WHP/Engine.cpp`：WHPゲスト実行。`Gpu.cpp`：Direct3Dハードウェア描画。`src/TahoeVm`：WinUI 3アプリ。`scripts`：ビルド・検証。
 
 依存ファイルの配置は[BUILDING.md](docs/BUILDING.md)、外部ソースの出典は[THIRD_PARTY.md](THIRD_PARTY.md)を参照してください。
+
+FHDの3D検証ではGravityMark 1.89を実行し、LLVMビット反転のデコード不足を修正しました。次の計算シェーダーのメモリアクセス処理で停止しており、3Dベンチの完走・スコアは未取得です。検証済み経路と残る不足は[GPU互換性一覧](docs/GPU_COMPATIBILITY.md)に記録しています。

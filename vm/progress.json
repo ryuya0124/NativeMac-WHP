@@ -1,5 +1,5 @@
 {
-  "verifiedOn": "2026-10-21",
+  "verifiedOn": "2026-10-22",
   "limits": {
     "memoryGiB": 256,
     "processors": 64
@@ -110,7 +110,7 @@
     "userReportedBurstInputDelaySeconds": 10,
     "previousCandidateGpuFaults": 6,
     "continuousObservationPassed": false,
-    "lastContinuousObservation": "failed: host process aborted on unsupported ASTC 8x8 texture while system apps were used",
+    "lastContinuousObservation": "not passed; later FHD 3D benchmark aborted on access lowering",
     "windowsFamilyAuditCandidate": "rejected: very slow desktop; original reporting restored",
     "astcAllocationRejection": "negative probe passed; nil returned; following compute and presentation passed",
     "successfulUserUnlocks": 3,
@@ -121,7 +121,15 @@
       "status": "failed again after bitreverse decoding repair; access lowering under investigation",
       "failure": "UnknownIntrinsic llvm.bitreverse.i32 during pipeline creation; host worker aborted",
       "score": null,
-      "secondFailure": "Lowering(Access), compute pipeline, compute_main block 1 instruction 43"
+      "secondFailure": "Lowering(Access), compute pipeline, compute_main block 1 instruction 43",
+      "offlineReproduced": true,
+      "boundedReproduction": {
+        "seconds": 0.015,
+        "peakJobMiB": 4.004,
+        "memoryLimitMiB": 500,
+        "timeLimitSeconds": 20
+      },
+      "investigation": "mixed sampler/texture/data private cell loses bounded array-index provenance; structural repair under CPU validation"
     },
     "displayModes": {
       "implemented": [
