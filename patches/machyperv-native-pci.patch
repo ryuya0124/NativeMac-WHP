@@ -1,0 +1,187 @@
+diff --git a/MacHyperVSupport/Controller/HyperVController.cpp b/MacHyperVSupport/Controller/HyperVController.cpp
+index 25a387d..4fa0c56 100644
+--- a/MacHyperVSupport/Controller/HyperVController.cpp
++++ b/MacHyperVSupport/Controller/HyperVController.cpp
+@@ -62,7 +62,7 @@ bool HyperVController::start(IOService *provider) {
+     // IOACPIPlatformDevice parent, otherwise the system will panic.
+     // This IOPCIBridge class must be loaded first.
+     //
+-    OSDictionary *rootPciMatching = IOService::serviceMatching("HyperVPCIRoot");
++    OSDictionary *rootPciMatching = IOService::serviceMatching(checkKernelArgument("-hvpcinative") ? "AppleACPIPCI" : "HyperVPCIRoot");
+     if (rootPciMatching == nullptr) {
+       HVSYSLOG("Failed to create HyperVPCIRoot matching dictionary");
+       break;
+diff --git a/MacHyperVSupport/Controller/HyperVControllerInterrupts.cpp b/MacHyperVSupport/Controller/HyperVControllerInterrupts.cpp
+index cfd060d..310c2f6 100644
+--- a/MacHyperVSupport/Controller/HyperVControllerInterrupts.cpp
++++ b/MacHyperVSupport/Controller/HyperVControllerInterrupts.cpp
+@@ -83,7 +83,6 @@ extern "C" void initCPUSyncIC(void *cpuData) {
+   wrmsr64(kHyperVMsrSyncICControl, kHyperVMsrSyncICControlEnable | (rdmsr64(kHyperVMsrSyncICControl) & kHyperVMsrSyncICControlRsvdMask));
+ }
+ 
+-#if __MAC_OS_X_VERSION_MIN_REQUIRED < __MAC_10_6
+ extern "C" void doAllCpuSyncICEOM(void *cpu) {
+   int currentCpuIndex  = cpu_number();
+   int *desiredCpuIndex = (int*)cpu;
+@@ -92,7 +91,6 @@ extern "C" void doAllCpuSyncICEOM(void *cpu) {
+     wrmsr64(kHyperVMsrEom, 0);
+   }
+ }
+-#endif
+ 
+ bool HyperVController::allocateInterruptBuffers() {
+   //
+@@ -311,48 +309,13 @@ void HyperVController::disableInterrupts() {
+ }
+ 
+ void HyperVController::sendSynICEOM(UInt32 cpu) {
+-  //
+-  // Only EOM if there is a pending message.
+-  //
+   _cpuData[cpu].messages[kVMBusInterruptMessage].type = kHyperVMessageTypeNone;
++  // Publish the empty slot before checking the host's pending flag.
++  __sync_synchronize();
+   if (!_cpuData[cpu].messages[kVMBusInterruptMessage].flags.messagePending) {
+     return;
+   }
+-  
+-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= __MAC_10_6
+-  //
+-  // Change to desired CPU if needed.
+-  //
+-  if (cpu != cpu_number()) {
+-    if (!IOSimpleLockTryLock(_preemptionLock)) {
+-      HVSYSLOG("Failed to disable preemption");
+-      return;
+-    }
+-
+-    bool intsEnabled = ml_set_interrupts_enabled(false);
+-
+-    do {
+-      processor_t proc = _pmCallbacks.LCPUtoProcessor(cpu);
+-      if (proc == nullptr) {
+-        break;
+-      }
+-
+-      _pmCallbacks.ThreadBind(proc);
+-    } while (false);
+-
+-    IOSimpleLockUnlock(_preemptionLock);
+-    ml_set_interrupts_enabled(intsEnabled);
+-    HVDBGLOG("Changed to cpu %u", cpu_number());
+-  }
+-
+-  //
+-  // We should now be on the correct CPU, so send EOM.
+-  //
+-  wrmsr64(kHyperVMsrEom, 0);
+-#else
+-  //
+-  // PM kext API does not exist on 10.4, call function on all CPUs.
+-  //
++  // ThreadBind changes affinity but does not migrate this running thread.
++  // EOM is a per-VP MSR, so execute it synchronously on the slot's owner.
+   mp_rendezvous_no_intrs(doAllCpuSyncICEOM, &cpu);
+-#endif
+ }
+diff --git a/MacHyperVSupport/PCIRoot/HyperVPCIRoot.cpp b/MacHyperVSupport/PCIRoot/HyperVPCIRoot.cpp
+index f2871ca..34ec2c0 100644
+--- a/MacHyperVSupport/PCIRoot/HyperVPCIRoot.cpp
++++ b/MacHyperVSupport/PCIRoot/HyperVPCIRoot.cpp
+@@ -227,7 +227,7 @@ UInt16 HyperVPCIRoot::configRead16(IOPCIAddressSpace space, UInt8 offset) {
+   
+   ints = IOSimpleLockLockDisableInterrupt(_pciLock);
+   if (setConfigSpace(space, offset)) {
+-    data = inw(0xCFC);
++    data = inw(0xCFC + (offset & 3));
+   }
+   
+   IOSimpleLockUnlockEnableInterrupt(_pciLock, ints);
+@@ -245,7 +245,7 @@ void HyperVPCIRoot::configWrite16(IOPCIAddressSpace space, UInt8 offset, UInt16
+   
+   ints = IOSimpleLockLockDisableInterrupt(_pciLock);
+   if (setConfigSpace(space, offset)) {
+-    outw(0xCFC, data);
++    outw(0xCFC + (offset & 3), data);
+   }
+   
+   IOSimpleLockUnlockEnableInterrupt(_pciLock, ints);
+@@ -263,7 +263,7 @@ UInt8 HyperVPCIRoot::configRead8(IOPCIAddressSpace space, UInt8 offset) {
+   
+   ints = IOSimpleLockLockDisableInterrupt(_pciLock);
+   if (setConfigSpace(space, offset)) {
+-    data = inb(0xCFC);
++    data = inb(0xCFC + (offset & 3));
+   }
+   
+   IOSimpleLockUnlockEnableInterrupt(_pciLock, ints);
+@@ -281,7 +281,7 @@ void HyperVPCIRoot::configWrite8(IOPCIAddressSpace space, UInt8 offset, UInt8 da
+   
+   ints = IOSimpleLockLockDisableInterrupt(_pciLock);
+   if (setConfigSpace(space, offset)) {
+-    outb(0xCFC, data);
++    outb(0xCFC + (offset & 3), data);
+   }
+   
+   IOSimpleLockUnlockEnableInterrupt(_pciLock, ints);
+diff --git a/MacHyperVSupport/VMBus/HyperVVMBus.cpp b/MacHyperVSupport/VMBus/HyperVVMBus.cpp
+index b5a9035..1b61336 100644
+--- a/MacHyperVSupport/VMBus/HyperVVMBus.cpp
++++ b/MacHyperVSupport/VMBus/HyperVVMBus.cpp
+@@ -107,6 +107,15 @@ bool HyperVVMBus::sendVMBusMessageWithSize(VMBusChannelMessage *message, UInt32
+ 
+ IOReturn HyperVVMBus::sendVMBusMessageGated(VMBusChannelMessage *message, UInt32 *messageSize, VMBusChannelMessageType *responseType, VMBusChannelMessage *responseMessage) {
+   
++  // commandSleep releases the gate. Preserve one response owner while other
++  // device starts run concurrently; otherwise one GPADL response wakes every
++  // waiter, and subsequent OpenResult messages lose their owner.
++  while (_messageBusy) {
++    _cmdGate->commandSleep(&_messageBusy);
++  }
++  _messageBusy = true;
++  _vmbusWaitForMessageType = *responseType;
++
+   HypercallStatus hvStatus = kHypercallStatusSuccess;
+   IOReturn returnStatus = kIOReturnSuccess;
+   bool postCompleted = false;
+@@ -146,6 +155,9 @@ IOReturn HyperVVMBus::sendVMBusMessageGated(VMBusChannelMessage *message, UInt32
+   
+   if (returnStatus != kIOReturnSuccess) {
+     HVSYSLOG("Hypercall message type 0x%X failed with status 0x%X", msgEntry->type, hvStatus);
++    _vmbusWaitForMessageType = kVMBusChannelMessageTypeInvalid;
++    _messageBusy = false;
++    _cmdGate->commandWakeup(&_messageBusy);
+     return returnStatus;
+   }
+   
+@@ -153,13 +165,16 @@ IOReturn HyperVVMBus::sendVMBusMessageGated(VMBusChannelMessage *message, UInt32
+     //
+     // Wait for response.
+     //
+-    _vmbusWaitForMessageType = *responseType;
+-    _cmdGate->commandSleep(&_cmdGateEvent);
++    while (_vmbusWaitForMessageType != kVMBusChannelMessageTypeInvalid) {
++      _cmdGate->commandSleep(&_cmdGateEvent);
++    }
+ 
+     HVDBGLOG("Awoken from sleep, message type is %u with size %u", _vmbusWaitMessage.type, _vmbusWaitMessage.size);
+     memcpy(responseMessage, _vmbusWaitMessage.data, VMBusMessageTypeTable[*responseType].size);
+   }
+   
++  _messageBusy = false;
++  _cmdGate->commandWakeup(&_messageBusy);
+   return kIOReturnSuccess;
+ }
+ 
+diff --git a/MacHyperVSupport/VMBus/HyperVVMBus.hpp b/MacHyperVSupport/VMBus/HyperVVMBus.hpp
+index 72761ad..a718875 100644
+--- a/MacHyperVSupport/VMBus/HyperVVMBus.hpp
++++ b/MacHyperVSupport/VMBus/HyperVVMBus.hpp
+@@ -101,6 +101,7 @@ private:
+   // Flag used for waiting for incoming message response.
+   // 0 = disable.
+   //
++  bool                _messageBusy = false;
+   UInt8               _vmbusWaitForMessageType = 0;
+   UInt32              _vmbusWaitMessageCpu = 0;
+   HyperVMessage       _vmbusWaitMessage = { };

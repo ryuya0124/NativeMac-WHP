@@ -1,0 +1,11 @@
+{
+  "device": "Apple Paravirtual device",
+  "computedValues": 4096,
+  "verified": true,
+  "gpuStartTime": 14.624535781,
+  "gpuEndTime": 14.633912601,
+  "metalAvailable": true,
+  "registryID": 4294968151,
+  "hasUnifiedMemory": false,
+  "error": ""
+}

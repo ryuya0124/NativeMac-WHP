@@ -1,0 +1,25 @@
+diff --git a/crates/reims-vgpu-vulkan/build.rs b/crates/reims-vgpu-vulkan/build.rs
+index 5a61ba7..e74af64 100644
+--- a/crates/reims-vgpu-vulkan/build.rs
++++ b/crates/reims-vgpu-vulkan/build.rs
+@@ -206,6 +206,20 @@ fn windows_import_library(out: &Path) -> Result<(), String> {
+     let definition = out.join("kernelbase.def");
+     std::fs::write(&definition, "LIBRARY kernelbase.dll\nEXPORTS\nVirtualAlloc2\nMapViewOfFile3\nUnmapViewOfFile2\nQueryInterruptTimePrecise\n")
+         .map_err(|e| format!("{}: {e}", definition.display()))?;
++    if var("CARGO_CFG_TARGET_ENV")? == "msvc" {
++        let status = Command::new("lib.exe")
++            .arg("/NOLOGO")
++            .arg("/MACHINE:X64")
++            .arg(format!("/DEF:{}", definition.display()))
++            .arg(format!("/OUT:{}", out.join("kernelbase.lib").display()))
++            .status()
++            .map_err(|e| format!("lib.exe: {e}"))?;
++        if !status.success() {
++            return Err(format!("lib.exe failed: {status}"));
++        }
++        println!("cargo:rustc-link-search=native={}", out.display());
++        return Ok(());
++    }
+     let library = out.join("libkernelbase.a");
+     let status = std::process::Command::new("llvm-dlltool")
+         .args(["-m", "i386:x86-64", "-d"])

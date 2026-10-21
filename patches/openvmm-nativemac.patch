@@ -1,0 +1,903 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 8ebe88a..5f8a370 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -107,6 +107,21 @@ dependencies = [
+  "zerocopy",
+ ]
+ 
++[[package]]
++name = "android-tzdata"
++version = "0.1.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e999941b234f3131b00bc13c22d06e8c5ff726d1b6318ac7eb276997bbb4fef0"
++
++[[package]]
++name = "android_system_properties"
++version = "0.1.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ae221649c9976a6f6c56ae1facf410f3ddb33cc661c4b7b61020a912d4237fbc"
++dependencies = [
++ "libc",
++]
++
+ [[package]]
+ name = "anes"
+ version = "0.1.6"
+@@ -436,6 +451,12 @@ dependencies = [
+ name = "build_rs_guest_arch"
+ version = "0.0.0"
+ 
++[[package]]
++name = "bumpalo"
++version = "3.20.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
++
+ [[package]]
+ name = "burette"
+ version = "0.0.0"
+@@ -734,7 +755,12 @@ version = "0.4.41"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "c469d952047f47f91b68d1cba3f10d63c11d73e4636f24f08daf0278abf01c4d"
+ dependencies = [
++ "android-tzdata",
++ "iana-time-zone",
++ "js-sys",
+  "num-traits",
++ "wasm-bindgen",
++ "windows-link 0.1.3",
+ ]
+ 
+ [[package]]
+@@ -1638,10 +1664,12 @@ dependencies = [
+  "blocking",
+  "disk_backend",
+  "disk_backend_resources",
++ "fatfs",
+  "guestmem",
+  "inspect",
+  "pal_async",
+  "scsi_buffers",
++ "serde_json",
+  "storage_tests",
+  "tempfile",
+  "thiserror 2.0.16",
+@@ -2093,6 +2121,7 @@ checksum = "05669f8e7e2d7badc545c513710f0eba09c2fbef683eb859fd79c46c355048e0"
+ dependencies = [
+  "bitflags 1.3.2",
+  "byteorder",
++ "chrono",
+  "log",
+ ]
+ 
+@@ -3796,6 +3825,30 @@ dependencies = [
+  "shell-words",
+ ]
+ 
++[[package]]
++name = "iana-time-zone"
++version = "0.1.65"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e31bc9ad994ba00e440a8aa5c9ef0ec67d5cb5e5cb0cc7f8b744a35b389cc470"
++dependencies = [
++ "android_system_properties",
++ "core-foundation-sys",
++ "iana-time-zone-haiku",
++ "js-sys",
++ "log",
++ "wasm-bindgen",
++ "windows-core 0.62.0",
++]
++
++[[package]]
++name = "iana-time-zone-haiku"
++version = "0.1.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
++dependencies = [
++ "cc",
++]
++
+ [[package]]
+ name = "iced-x86"
+ version = "1.21.0"
+@@ -4223,6 +4276,17 @@ dependencies = [
+  "libc",
+ ]
+ 
++[[package]]
++name = "js-sys"
++version = "0.3.106"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7883d941dae510fb2d978fc3fe018c71c9e2892fd38854de3e8b92c2e5ad9cc5"
++dependencies = [
++ "cfg-if",
++ "futures-util",
++ "wasm-bindgen",
++]
++
+ [[package]]
+ name = "kmsg"
+ version = "0.0.0"
+@@ -4301,6 +4365,16 @@ dependencies = [
+  "cc",
+ ]
+ 
++[[package]]
++name = "libloading"
++version = "0.8.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
++dependencies = [
++ "cfg-if",
++ "windows-link 0.2.0",
++]
++
+ [[package]]
+ name = "libm"
+ version = "0.2.15"
+@@ -5017,6 +5091,27 @@ dependencies = [
+  "tempfile",
+ ]
+ 
++[[package]]
++name = "nativemac_vgpu"
++version = "0.0.0"
++dependencies = [
++ "anyhow",
++ "async-trait",
++ "chipset_device",
++ "guestmem",
++ "input_core",
++ "inspect",
++ "libloading",
++ "mesh",
++ "pci_core",
++ "pci_resources",
++ "sparse_mmap",
++ "thiserror 2.0.16",
++ "tracing",
++ "vm_resource",
++ "vmcore",
++]
++
+ [[package]]
+ name = "net_backend"
+ version = "0.0.0"
+@@ -6065,6 +6160,7 @@ dependencies = [
+  "mesh_process",
+  "mesh_rpc",
+  "mesh_worker",
++ "nativemac_vgpu",
+  "net_backend_resources",
+  "net_tap",
+  "netvsp_resources",
+@@ -6248,6 +6344,7 @@ dependencies = [
+  "hypervisor_resources",
+  "mesh_worker",
+  "missing_dev",
++ "nativemac_vgpu",
+  "net_backend",
+  "net_consomme",
+  "net_dio",
+@@ -11383,6 +11480,51 @@ dependencies = [
+  "wit-bindgen 0.51.0",
+ ]
+ 
++[[package]]
++name = "wasm-bindgen"
++version = "0.2.129"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "9bb54f33acc68fd454578d9820b0bde1a1a3d17aa17bb7b6595806d02886d409"
++dependencies = [
++ "cfg-if",
++ "once_cell",
++ "rustversion",
++ "wasm-bindgen-macro",
++ "wasm-bindgen-shared",
++]
++
++[[package]]
++name = "wasm-bindgen-macro"
++version = "0.2.129"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2e29d0c35b16e224a7eeb5cd2d25e3e1968fbd65604117b44d3b789d00ee8535"
++dependencies = [
++ "quote",
++ "wasm-bindgen-macro-support",
++]
++
++[[package]]
++name = "wasm-bindgen-macro-support"
++version = "0.2.129"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6f501a8bc3719dba86ef8ae4728879c08001bea749eb1333ac5b91e040e2a6b7"
++dependencies = [
++ "bumpalo",
++ "proc-macro2",
++ "quote",
++ "syn 3.0.4",
++ "wasm-bindgen-shared",
++]
++
++[[package]]
++name = "wasm-bindgen-shared"
++version = "0.2.129"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "23f0c9c52aa7cd7d77769a4cfe2a9adb1b331f489a41d912ce14513d5ab995c6"
++dependencies = [
++ "unicode-ident",
++]
++
+ [[package]]
+ name = "wasm-encoder"
+ version = "0.244.0"
+diff --git a/Cargo.toml b/Cargo.toml
+index d193a56..0e47cf7 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -286,6 +286,7 @@ hyperv_ic_guest = { path = "vm/devices/hyperv_ic_guest" }
+ input_core = { path = "vm/devices/input_core" }
+ hyperv_keyboard_protocol = { path = "vm/devices/input/hyperv_keyboard_protocol" }
+ cxl = { path = "vm/devices/cxl" }
++nativemac_vgpu = { path = "vm/devices/nativemac_vgpu" }
+ cxl_spec = { path = "vm/devices/cxl/cxl_spec" }
+ underhill_config = { path = "vm/devices/get/underhill_config" }
+ missing_dev = { path = "vm/devices/missing_dev" }
+diff --git a/openvmm/membacking/src/memory_manager/device_memory.rs b/openvmm/membacking/src/memory_manager/device_memory.rs
+index 8e6b251..3f8eb6f 100644
+--- a/openvmm/membacking/src/memory_manager/device_memory.rs
++++ b/openvmm/membacking/src/memory_manager/device_memory.rs
+@@ -136,7 +136,7 @@ fn unmap(&self, offset: usize, len: usize) -> io::Result<()> {
+             if !range.contains(&mapping.range) && range.overlaps(&mapping.range) {
+                 todo!("support overlapping mappings");
+             }
+-            range.contains(&mapping.range)
++            !range.contains(&mapping.range)
+         });
+ 
+         if let Some(handle) = &state.handle {
+@@ -146,6 +146,33 @@ fn unmap(&self, offset: usize, len: usize) -> io::Result<()> {
+     }
+ }
+ 
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::mapping_manager::MappingManager;
++    use crate::region_manager::RegionManager;
++
++    #[test]
++    fn unmapped_device_ranges_can_be_mapped_again() {
++        let (_thread, driver) = pal_async::DefaultPool::spawn_on_thread("device-remap-test");
++        let mappings = MappingManager::new_without_primary(&driver, 0x100000, None);
++        let regions = RegionManager::new(&driver, mappings.client().clone());
++        let mapper = DeviceMemoryMapper { region_manager: regions.client().clone() };
++        let (mut control, region) = mapper.new_region(0x10000, "test".into()).unwrap();
++        let section = sparse_mmap::alloc_shared_memory(0x20000, "test").unwrap();
++        region.map(0, &section, 0, 0x1000, true).unwrap();
++        region.map(0x2000, &section, 0x2000, 0x1000, true).unwrap();
++        // Removing the first range must preserve the second, and make the
++        // first available for a new backing after a display mode change.
++        region.unmap(0, 0x1000).unwrap();
++        region.map(0, &section, 0x1000, 0x1000, true).unwrap();
++        control.map_to_guest(0x10000, true).unwrap();
++        region.unmap(0, 0x10000).unwrap();
++        region.map(0, &section, 0, 0x1000, true).unwrap();
++        control.unmap_from_guest();
++    }
++}
++
+ #[derive(Debug)]
+ struct DeviceMemoryControl(Arc<DeviceMemoryRegion>);
+ 
+diff --git a/openvmm/openvmm_entry/Cargo.toml b/openvmm/openvmm_entry/Cargo.toml
+index 7c24e75..5afd0f1 100644
+--- a/openvmm/openvmm_entry/Cargo.toml
++++ b/openvmm/openvmm_entry/Cargo.toml
+@@ -17,6 +17,7 @@ chipset_resources.workspace = true
+ chipset_device_worker_defs.workspace = true
+ crypto.workspace = true
+ cxl.workspace = true
++nativemac_vgpu.workspace = true
+ cxl_spec.workspace = true
+ debug_worker_defs.workspace = true
+ vmotherboard.workspace = true
+diff --git a/openvmm/openvmm_entry/src/cli_args.rs b/openvmm/openvmm_entry/src/cli_args.rs
+index 1a505f8..ac24037 100644
+--- a/openvmm/openvmm_entry/src/cli_args.rs
++++ b/openvmm/openvmm_entry/src/cli_args.rs
+@@ -1174,6 +1174,10 @@ pub struct Options {
+     #[clap(long)]
+     pub battery: bool,
+ 
++    /// Independent Reims virtual GPU DLL; attach to PCIe root port named gpu0.
++    #[clap(long)]
++    pub reims_gpu: Option<PathBuf>,
++
+     /// enable guest hibernation
+     #[clap(long)]
+     pub hibernation: bool,
+diff --git a/openvmm/openvmm_entry/src/lib.rs b/openvmm/openvmm_entry/src/lib.rs
+index 01eda22..4d99cdd 100644
+--- a/openvmm/openvmm_entry/src/lib.rs
++++ b/openvmm/openvmm_entry/src/lib.rs
+@@ -938,6 +938,14 @@ async fn vm_config_from_command_line(
+         });
+     }
+ 
++    let mut input = mesh::Receiver::new();
++    if let Some(library) = &opt.reims_gpu {
++        pcie_devices.push(PcieDeviceConfig {
++            port_name: "gpu0".into(),
++            resource: nativemac_vgpu::Handle { library: library.canonicalize()?.to_string_lossy().into_owned(),input:input.sender() }.into_resource(),
++        });
++    }
++
+     #[cfg(guest_arch = "aarch64")]
+     let arch = MachineArch::Aarch64;
+     #[cfg(guest_arch = "x86_64")]
+@@ -1332,6 +1340,9 @@ async fn vm_config_from_command_line(
+     } = chipset
+         .build()
+         .context("failed to build chipset configuration")?;
++    if opt.reims_gpu.is_some() {
++        chipset_devices.retain(|device| device.name != "missing-pci");
++    }
+ 
+     let tpm_version = opt.tpm.map(|cli_ver| match cli_ver {
+         TpmVersionCli::V138 => TpmVersion::V138,
+@@ -1749,6 +1760,18 @@ async fn vm_config_from_command_line(
+         ]);
+     }
+ 
++    if opt.reims_gpu.is_some() && !opt.gfx {
++        // Input is independent of the synthetic video device: Reims owns GOP.
++        vmbus_devices.extend([
++            (DeviceVtl::Vtl0, SynthKeyboardHandle {
++                source: MultiplexedInputHandle { elevation: 1 }.into_resource(),
++            }.into_resource()),
++            (DeviceVtl::Vtl0, SynthMouseHandle {
++                source: MultiplexedInputHandle { elevation: 1 }.into_resource(),
++            }.into_resource()),
++        ]);
++    }
++
+     let vsock_listener = |path: Option<&str>| -> anyhow::Result<_> {
+         if let Some(path) = path {
+             cleanup_socket(path.as_ref());
+@@ -2180,7 +2203,7 @@ async fn vm_config_from_command_line(
+         },
+         #[cfg(windows)]
+         kernel_vmnics,
+-        input: mesh::Receiver::new(),
++        input,
+         framebuffer,
+         vga_firmware,
+         vtl2_gfx: opt.vtl2_gfx,
+diff --git a/openvmm/openvmm_entry/src/repl.rs b/openvmm/openvmm_entry/src/repl.rs
+index 3e6aca9..6417413 100644
+--- a/openvmm/openvmm_entry/src/repl.rs
++++ b/openvmm/openvmm_entry/src/repl.rs
+@@ -53,7 +53,6 @@
+ use scsidisk_resources::SimpleScsiDvdHandle;
+ use std::future::pending;
+ use std::io;
+-#[cfg(unix)]
+ use std::io::IsTerminal;
+ use std::io::Read;
+ use std::path::PathBuf;
+@@ -526,12 +525,15 @@ pub(crate) async fn run_repl(
+             let mut stdin = io::stdin();
+             loop {
+                 // Raw console text until Ctrl-Q.
+-                crossterm::terminal::enable_raw_mode().expect("failed to enable raw console mode");
++                if stdin.is_terminal() {
++                    crossterm::terminal::enable_raw_mode().expect("failed to enable raw console mode");
++                }
+ 
+                 if let Some(input) = console_in.as_mut() {
+                     let mut buf = [0; 32];
+                     loop {
+                         let n = stdin.read(&mut buf).unwrap();
++                        if n == 0 { return; }
+                         let mut b = &buf[..n];
+                         let stop = if let Some(ctrlq) = b.iter().position(|x| *x == 0x11) {
+                             b = &b[..ctrlq];
+@@ -546,13 +548,20 @@ pub(crate) async fn run_repl(
+                     }
+                 }
+ 
+-                crossterm::terminal::disable_raw_mode()
+-                    .expect("failed to disable raw console mode");
++                if stdin.is_terminal() {
++                    crossterm::terminal::disable_raw_mode()
++                        .expect("failed to disable raw console mode");
++                }
+ 
+                 loop {
+                     let line = rl.readline("openvmm> ");
+-                    if line.is_err() {
+-                        break;
++                    if let Err(error) = &line {
++                        if matches!(error, rustyline::error::ReadlineError::Interrupted) {
++                            continue;
++                        }
++                        // EOF drops the command sender and shuts down the VM.
++                        // Do not retry EOF in a tight loop when a GUI owns stdin.
++                        return;
+                     }
+                     let line = line.unwrap();
+                     let trimmed = line.trim();
+diff --git a/openvmm/openvmm_resources/Cargo.toml b/openvmm/openvmm_resources/Cargo.toml
+index 9dbf01d..09c8b92 100644
+--- a/openvmm/openvmm_resources/Cargo.toml
++++ b/openvmm/openvmm_resources/Cargo.toml
+@@ -26,6 +26,7 @@ virt_whp = ["openvmm_core/virt_whp", "dep:virt_whp"]
+ virt_hvf = ["dep:virt_hvf"]
+ 
+ [dependencies]
++nativemac_vgpu.workspace = true
+ hypervisor_resources.workspace = true
+ mesh_worker.workspace = true
+ vm_resource.workspace = true
+diff --git a/openvmm/openvmm_resources/src/lib.rs b/openvmm/openvmm_resources/src/lib.rs
+index 1a65346..5df41f7 100644
+--- a/openvmm/openvmm_resources/src/lib.rs
++++ b/openvmm/openvmm_resources/src/lib.rs
+@@ -88,6 +88,7 @@
+     disklayer_vhdx::resolver::VhdxDiskLayerResolver,
+ 
+     // PCI devices
++    nativemac_vgpu::Resolver,
+     cxl::test::resolver::CxlTestDeviceResolver,
+     gdma::resolver::GdmaDeviceResolver,
+     nvme::resolver::NvmeControllerResolver,
+diff --git a/vm/acpi/src/ssdt.rs b/vm/acpi/src/ssdt.rs
+index d36e0ee..49fa2a9 100644
+--- a/vm/acpi/src/ssdt.rs
++++ b/vm/acpi/src/ssdt.rs
+@@ -96,7 +96,7 @@ pub fn to_bytes(&self) -> Vec<u8> {
+         // N.B. Certain guest OSes will only probe ECAM ranges if they are
+         // reserved in the resources of an ACPI motherboard device.
+         if !self.pcie_ecam_ranges.is_empty() {
+-            let mut vmod = Device::new(b"VMOD");
++            let mut vmod = Device::new(b"\\_SB.ECAM");
+             vmod.add_object(&NamedObject::new(b"_HID", &EisaId(*b"PNP0C02")));
+ 
+             let mut crs = CurrentResourceSettings::new();
+@@ -157,7 +157,9 @@ pub fn add_pcie(&mut self, entry: PcieHostBridgeEntry) {
+             vnode,
+             preserve_boot_config,
+         } = entry;
+-        let mut pcie = Device::new(encode_pcie_name(index).as_slice());
++        let mut name = b"\\_SB.".to_vec();
++        name.extend_from_slice(&encode_pcie_name(index));
++        let mut pcie = Device::new(name.as_slice());
+         if cxl {
+             // As recommended by the CXL specification, describe CXL host bridges with _HID "ACPI0016"
+             // and both PNP0A03 and PNP0A08 in _CID to maximize compatibility with different OSes.
+diff --git a/vm/devices/pci/pci_core/src/cfg_space_emu.rs b/vm/devices/pci/pci_core/src/cfg_space_emu.rs
+index a4bf500..d4b522d 100644
+--- a/vm/devices/pci/pci_core/src/cfg_space_emu.rs
++++ b/vm/devices/pci/pci_core/src/cfg_space_emu.rs
+@@ -300,10 +300,10 @@ pub fn new(
+             let len = std::cmp::max(len.next_power_of_two(), MIN_BAR_SIZE);
+             let mask64 = !(len - 1);
+             bar_masks[bar_index] = cfg_space::BarEncodingBits::from_bits(mask64 as u32)
+-                .with_type_64_bit(true)
+-                .with_prefetchable(true)
++                .with_type_64_bit(!bars.below_4gb)
++                .with_prefetchable(!bars.below_4gb)
+                 .into_bits();
+-            if bar_index + 1 < N {
++            if !bars.below_4gb && bar_index + 1 < N {
+                 bar_masks[bar_index + 1] = (mask64 >> 32) as u32;
+             }
+             mapped_memory[bar_index] = Some(mapped);
+@@ -1041,6 +1041,7 @@ fn unmap_from_guest(&mut self) {
+ #[derive(Debug)]
+ pub struct DeviceBars {
+     bars: [Option<(u64, BarMemoryKind)>; 6],
++    below_4gb: bool,
+ }
+ 
+ impl DeviceBars {
+@@ -1048,9 +1049,13 @@ impl DeviceBars {
+     pub fn new() -> DeviceBars {
+         DeviceBars {
+             bars: Default::default(),
++            below_4gb: false,
+         }
+     }
+ 
++    /// Use non-prefetchable 32-bit BARs for firmware framebuffer compatibility.
++    pub fn below_4gb(mut self) -> Self { self.below_4gb=true; self }
++
+     /// Set BAR0
+     pub fn bar0(mut self, len: u64, memory: BarMemoryKind) -> Self {
+         self.bars[0] = Some((len, memory));
+diff --git a/vm/devices/pci/pcie/src/root.rs b/vm/devices/pci/pcie/src/root.rs
+index b8b1c4d..cc43424 100644
+--- a/vm/devices/pci/pcie/src/root.rs
++++ b/vm/devices/pci/pcie/src/root.rs
+@@ -26,6 +26,7 @@
+ use chipset_device::pci::PciConfigAddress;
+ use chipset_device::pci::PciConfigByteEnable;
+ use chipset_device::poll_device::PollDevice;
++use chipset_device::pio::PortIoIntercept;
+ use cxl::CxlComponentRegisters;
+ use inspect::Inspect;
+ use inspect::InspectMut;
+@@ -91,6 +92,8 @@ pub struct GenericPcieRootComplex {
+     reserved_device_numbers: u32,
+     /// Bus config space accesses handler.
+     bus_cfg_handler: PciBusCfgAccessHandler,
++    #[inspect(hex)] legacy_address:u32,
++    legacy_data_reads:u64,
+ }
+ 
+ /// A device occupying a slot on the root complex bus.
+@@ -291,6 +294,8 @@ pub fn build(self) -> Result<GenericPcieRootComplex, InvalidRootComplexError> {
+             devices,
+             reserved_device_numbers,
+             bus_cfg_handler: PciBusCfgAccessHandler::new(),
++            legacy_address:0,
++            legacy_data_reads:0,
+         })
+     }
+ }
+@@ -563,6 +568,9 @@ async fn reset(&mut self) {
+ }
+ 
+ impl ChipsetDevice for GenericPcieRootComplex {
++    fn supports_pio(&mut self) -> Option<&mut dyn PortIoIntercept> {
++        if self.start_bus==0 {Some(self)} else {None}
++    }
+     fn supports_mmio(&mut self) -> Option<&mut dyn MmioIntercept> {
+         Some(self)
+     }
+@@ -572,6 +580,54 @@ fn supports_poll_device(&mut self) -> Option<&mut dyn PollDevice> {
+     }
+ }
+ 
++// x86 firmware and kernels may probe CF8/CFC before switching to ECAM.
++// Both paths must route to the same devices and configuration registers.
++impl PortIoIntercept for GenericPcieRootComplex {
++    fn io_read(&mut self,port:u16,data:&mut[u8])->IoResult {
++        if !matches!(data.len(),1|2|4) || (port as usize&3)+data.len()>4 {
++            return IoResult::Err(IoError::InvalidAccessSize);
++        }
++        if (0xcf8..=0xcfb).contains(&port) {
++            let offset=usize::from(port-0xcf8);
++            data.copy_from_slice(&self.legacy_address.to_le_bytes()[offset..offset+data.len()]);
++            return IoResult::Ok;
++        }
++        if !(0xcfc..=0xcff).contains(&port) {return IoResult::Err(IoError::InvalidRegister);}
++        self.legacy_data_reads+=1;
++        if self.legacy_address & (1<<31)==0 || (self.legacy_address>>16)&0xff>u32::from(self.end_bus) {
++            data.fill(0xff);return IoResult::Ok;
++        }
++        let offset=(u64::from(self.legacy_address&0x00ffff00)<<4)
++            | u64::from(self.legacy_address&0xfc) | u64::from(port-0xcfc);
++        let Some(base)=self.ecam.addr() else {data.fill(0xff);return IoResult::Ok;};
++        let result=self.mmio_read(base+offset,data);
++        if self.legacy_address&0xfc==0x0c && self.legacy_data_reads<1000 {
++            tracing::info!(port,address=self.legacy_address,?data,?result,"NativeMac header type read");
++        }
++        result
++    }
++    fn io_write(&mut self,port:u16,data:&[u8])->IoResult {
++        if !matches!(data.len(),1|2|4) || (port as usize&3)+data.len()>4 {
++            return IoResult::Err(IoError::InvalidAccessSize);
++        }
++        if (0xcf8..=0xcfb).contains(&port) {
++            let mut bytes=self.legacy_address.to_le_bytes();let offset=usize::from(port-0xcf8);
++            bytes[offset..offset+data.len()].copy_from_slice(data);
++            self.legacy_address=u32::from_le_bytes(bytes)&0x80fffffc;
++            return IoResult::Ok;
++        }
++        if !(0xcfc..=0xcff).contains(&port) {return IoResult::Err(IoError::InvalidRegister);}
++        if self.legacy_address&(1<<31)==0 || (self.legacy_address>>16)&0xff>u32::from(self.end_bus) {return IoResult::Ok;}
++        let offset=(u64::from(self.legacy_address&0x00ffff00)<<4)
++            | u64::from(self.legacy_address&0xfc) | u64::from(port-0xcfc);
++        let Some(base)=self.ecam.addr() else {return IoResult::Ok;};
++        self.mmio_write(base+offset,data)
++    }
++    fn get_static_regions(&mut self)->&[(&str,RangeInclusive<u16>)] {
++        if self.start_bus==0 {&[("pcie-cf8",0xcf8..=0xcfb),("pcie-cfc",0xcfc..=0xcff)]} else {&[]}
++    }
++}
++
+ impl PollDevice for GenericPcieRootComplex {
+     fn poll_device(&mut self, cx: &mut std::task::Context<'_>) {
+         self.bus_cfg_handler.poll(cx);
+@@ -1184,6 +1240,25 @@ fn test_remove_pcie_device_from_root_port() {
+         assert!(port.port.link.is_none());
+     }
+ 
++    #[test]
++    fn legacy_configuration_reads_and_writes_share_ecam_state() {
++        let mut rc=instantiate_root_complex(0,255,1);
++        let mut legacy=[0u8;4];
++        assert!(matches!(rc.io_read(0xcfc,&mut legacy),IoResult::Ok));
++        assert_eq!(legacy,[0xff;4]);
++        assert!(matches!(rc.io_write(0xcf8,&0x80000000u32.to_le_bytes()),IoResult::Ok));
++        assert!(matches!(rc.io_read(0xcfc,&mut legacy),IoResult::Ok));
++        let mut ecam=[0u8;4];
++        assert!(matches!(rc.mmio_read(0,&mut ecam),IoResult::Ok));
++        assert_eq!(legacy,ecam);
++        assert_ne!(legacy,[0xff;4]);
++        assert!(matches!(rc.io_write(0xcf8,&0x80000018u32.to_le_bytes()),IoResult::Ok));
++        assert!(matches!(rc.io_write(0xcfc,&[0,1,1,0]),IoResult::Ok));
++        assert!(matches!(rc.mmio_read(0x18,&mut ecam),IoResult::Ok));
++        assert_eq!(&ecam[..3],&[0,1,1]);
++        assert!(matches!(rc.io_read(0xcff,&mut [0;2]),IoResult::Err(_)));
++    }
++
+     #[test]
+     fn test_remove_pcie_device_rejects_invalid_root_port() {
+         let mut rc = instantiate_root_complex(0, 255, 1);
+diff --git a/vm/devices/storage/disk_file/Cargo.toml b/vm/devices/storage/disk_file/Cargo.toml
+index 327581d..fca7e43 100644
+--- a/vm/devices/storage/disk_file/Cargo.toml
++++ b/vm/devices/storage/disk_file/Cargo.toml
+@@ -16,11 +16,13 @@ vm_resource.workspace = true
+ inspect = { workspace = true, features = ["filepath"] }
+ blocking.workspace = true
+ thiserror.workspace = true
++serde_json.workspace = true
+ 
+ [dev-dependencies]
+ pal_async.workspace = true
+ storage_tests.workspace = true
+ tempfile.workspace = true
++fatfs = "0.3.6"
+ 
+ [lints]
+ workspace = true
+diff --git a/vm/devices/storage/disk_file/src/lib.rs b/vm/devices/storage/disk_file/src/lib.rs
+index 8f12424..84e7de9 100644
+--- a/vm/devices/storage/disk_file/src/lib.rs
++++ b/vm/devices/storage/disk_file/src/lib.rs
+@@ -5,6 +5,9 @@
+ #![forbid(unsafe_code)]
+ 
+ mod readwriteat;
++mod vfat {
++    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../../../native/MediaFat/vfat.rs"));
++}
+ 
+ use self::readwriteat::ReadWriteAt;
+ use blocking::unblock;
+@@ -56,6 +59,8 @@ pub struct FileDisk {
+     file: Arc<fs::File>,
+     metadata: Metadata,
+     sector_shift: u32,
++    #[inspect(skip)]
++    virtual_fat: Option<Arc<vfat::VirtualFatDisk>>,
+ }
+ 
+ #[derive(Debug, Inspect)]
+@@ -68,13 +73,19 @@ pub struct Metadata {
+ 
+ impl FileDisk {
+     pub fn open(file: fs::File, read_only: bool) -> Result<Self, std::io::Error> {
++        let virtual_fat = vfat::VirtualFatDisk::try_open(&file)?.map(Arc::new);
++        if virtual_fat.is_some() && !read_only {
++            return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Virtual FAT media must be opened read-only"));
++        }
+         let metadata = Metadata {
+-            disk_size: file.metadata()?.len(),
++            disk_size: match &virtual_fat { Some(disk) => disk.size_bytes(), None => file.metadata()?.len() },
+             sector_size: 512,
+             physical_sector_size: 4096,
+             read_only,
+         };
+-        Ok(Self::with_metadata(file, metadata))
++        let mut disk = Self::with_metadata(file, metadata);
++        disk.virtual_fat = virtual_fat;
++        Ok(disk)
+     }
+ 
+     /// Opens the disk using the specified metadata.
+@@ -90,6 +101,7 @@ pub fn with_metadata(file: fs::File, metadata: Metadata) -> Self {
+             file: Arc::new(file),
+             metadata,
+             sector_shift,
++            virtual_fat: None,
+         }
+     }
+ 
+@@ -105,9 +117,13 @@ pub async fn read(&self, buffers: &RequestBuffers<'_>, sector: u64) -> Result<()
+         }
+         let mut buffer = vec![0; buffers.len()];
+         let file = self.file.clone();
++        let virtual_fat = self.virtual_fat.clone();
+         let offset = sector << self.sector_shift;
+         let buffer = unblock(move || -> Result<_, std::io::Error> {
+-            file.read_at(&mut buffer, offset)?;
++            match virtual_fat {
++                Some(disk) => disk.read_at(&mut buffer, offset)?,
++                None => { file.read_at(&mut buffer, offset)?; },
++            }
+             Ok(buffer)
+         })
+         .await
+@@ -122,6 +138,7 @@ pub async fn write(
+         sector: u64,
+         _fua: bool,
+     ) -> Result<(), DiskError> {
++        if self.metadata.read_only { return Err(DiskError::ReadOnly); }
+         if ((sector << self.sector_shift) + buffers.len() as u64) > self.metadata.disk_size {
+             return Err(DiskError::IllegalBlock);
+         }
+@@ -136,6 +153,7 @@ pub async fn write(
+     }
+ 
+     pub async fn flush(&self) -> Result<(), DiskError> {
++        if self.virtual_fat.is_some() { return Ok(()); }
+         let file = self.file.clone();
+         unblock(move || file.sync_all())
+             .await
+@@ -146,7 +164,7 @@ pub async fn flush(&self) -> Result<(), DiskError> {
+ 
+ impl DiskIo for FileDisk {
+     fn disk_type(&self) -> &str {
+-        "file"
++        if self.virtual_fat.is_some() { "virtual-fat32" } else { "file" }
+     }
+ 
+     fn sector_count(&self) -> u64 {
+diff --git a/vm/devices/uidevices/src/mouse/mod.rs b/vm/devices/uidevices/src/mouse/mod.rs
+index 93bbc41..47bbc89 100644
+--- a/vm/devices/uidevices/src/mouse/mod.rs
++++ b/vm/devices/uidevices/src/mouse/mod.rs
+@@ -69,7 +69,7 @@ enum Request {
+     num_descriptors: 1,
+     descriptor_list: protocol::HidDescriptorList {
+         report_type: 0x22,
+-        report_length: 67,
++        report_length: protocol::REPORT_DESCRIPTOR.len() as u16,
+     },
+ };
+ 
+@@ -308,7 +308,7 @@ async fn process(&mut self, mouse: &mut Mouse) -> Result<(), Error> {
+                 }
+                 ChannelState::SendDeviceInfo { version } => {
+                     let mut aligned_report_descriptor = [0u8; 128];
+-                    aligned_report_descriptor[..67].copy_from_slice(&protocol::REPORT_DESCRIPTOR);
++                    aligned_report_descriptor[..protocol::REPORT_DESCRIPTOR.len()].copy_from_slice(&protocol::REPORT_DESCRIPTOR);
+                     let device_info_packet = protocol::MessageDeviceInfo {
+                         device_attributes: HID_DEVICE_ATTRIBUTES,
+                         descriptor_info: HID_DESCRIPTOR,
+@@ -383,9 +383,9 @@ async fn post_mouse_packet(
+         }
+     }
+ 
+-    //b/c we want to use the ScrollType enum to move the z in a + or - direction, we cast it into an i16
+-    if scrolled as i16 != 0 {
+-        mouse_packet.z = scrolled as i16;
++    //b/c we want to use the ScrollType enum to move the z in a + or - direction, we cast it into an i8
++    if scrolled as i8 != 0 {
++        mouse_packet.z = scrolled as i8;
+     }
+     send_packet(
+         channel,
+diff --git a/vm/devices/uidevices/src/mouse/protocol.rs b/vm/devices/uidevices/src/mouse/protocol.rs
+index 90ad1c3..8874341 100644
+--- a/vm/devices/uidevices/src/mouse/protocol.rs
++++ b/vm/devices/uidevices/src/mouse/protocol.rs
+@@ -134,7 +134,7 @@ pub struct MessageInputReport {
+ 
+ const_assert_eq!(7, size_of::<MessageInputReport>());
+ 
+-pub const REPORT_DESCRIPTOR: [u8; 67] = [
++pub const REPORT_DESCRIPTOR: [u8; 73] = [
+     0x05, 0x01, // USAGE_PAGE (Generic Desktop)
+     0x09, 0x02, // USAGE (Mouse)
+     0xA1, 0x01, // COLLECTION (Application)
+@@ -163,12 +163,15 @@ pub struct MessageInputReport {
+     //         2 Axes absolute data.
+     0x05, 0x01, //     USAGE_PAGE (Generic Desktop)
+     0x09, 0x38, //     USAGE (Wheel)
+-    0x16, 0x01, 0x80, //     Logical Minimum (-32767)
+-    0x26, 0xFF, 0x7F, //     Logical Maximum (32767)
+-    0x75, 0x10, //     Report Size (16)
++    0x16, 0x81, 0xFF, //     Logical Minimum (-127)
++    0x26, 0x7F, 0x00, //     Logical Maximum (127)
++    0x75, 0x08, //     Report Size (8)
+     0x95, 0x01, //     Report Count (1)
+     0x81, 0x06, //     Input (Data, Variable, Relative) ;
+-    //         1 Axes relative data.
++    //         Signed wheel notch, followed by an unused byte.
++    0x75, 0x08, //     Report Size (8)
++    0x95, 0x01, //     Report Count (1)
++    0x81, 0x01, //     Input (Constant)
+     0xC0, //   END_COLLECTION
+     0xC0, // END_COLLECTION
+ ];
+@@ -189,7 +192,7 @@ pub enum MouseButton {
+ 
+ #[derive(Copy, Clone, Debug)]
+ pub enum ScrollType {
+-    //we use -1, 1, because we want to increment the z-value (i16) in the corresponding direction
++    //we use -1, 1, because we want to increment the z-value (i8) in the corresponding direction
+     Down = -1,
+     NoChange = 0,
+     Up = 1,
+@@ -228,7 +231,36 @@ pub struct MousePacket {
+ 
+     pub x: u16,
+     pub y: u16,
+-    pub z: i16,
++    pub z: i8,
++    pub reserved: u8,
+ }
+ 
+ const_assert_eq!(7, size_of::<MousePacket>());
++
++#[cfg(test)]
++mod native_mac_tests {
++    use super::*;
++    #[test]
++    fn wheel_hid_layout_matches_signed_notches_and_packet_length() {
++        let mut offset=0; let mut size=0; let mut count=0; let mut usage=0;
++        let mut wheel=None; let mut i=0;
++        while i<REPORT_DESCRIPTOR.len() {
++            let tag=REPORT_DESCRIPTOR[i]; i+=1;
++            let n=match tag&3 {3=>4,n=>n as usize};
++            let mut value=0u32;
++            for byte in 0..n {value|=u32::from(REPORT_DESCRIPTOR[i+byte])<<(byte*8);}
++            i+=n;
++            match tag&0xfc {
++                0x74=>size=value,0x94=>count=value,0x08=>usage=value,
++                0x80=>{if usage==0x38 && value&1==0 {wheel=Some((offset,size,count,value));} offset+=size*count;usage=0;},
++                _=>{}
++            }
++        }
++        assert_eq!(wheel,Some((40,8,1,6)));
++        assert_eq!(offset,56);
++        for notch in [-1i8,1] {
++            let report=MousePacket{button_data:HID_MOUSE_BUTTON_LEFT,x:0x1234,y:0x5678,z:notch,reserved:0};
++            assert_eq!(report.as_bytes(),&[1,0x34,0x12,0x78,0x56,notch as u8,0]);
++        }
++    }
++}
+diff --git a/vmm_core/virt/src/x86/topology.rs b/vmm_core/virt/src/x86/topology.rs
+index ebe60d1..57dce7f 100644
+--- a/vmm_core/virt/src/x86/topology.rs
++++ b/vmm_core/virt/src/x86/topology.rs
+@@ -67,6 +67,13 @@ pub fn topology_cpuid<'a>(
+         ]),
+     );
+ 
++    // CPUID.1 EDX.HTT denotes multiple logical processors per package,
++    // including multiple single-threaded cores. Keeping WHP's default bit
++    // with a guest-specific package count can contradict that count.
++    leaves.push(CpuidLeaf::new(1, [0, 0, 0,
++        if topology.reserved_vps_per_socket() > 1 { 1 << 28 } else { 0 }
++    ]).masked([0, 0, 0, 1 << 28]));
++
+     // Set leaf 04h for Intel processors.
+     if vendor.is_intel_compatible() {
+         cache_parameters_cpuid(topology, cpuid, leaves);
+diff --git a/vmm_core/virt_whp/src/vp.rs b/vmm_core/virt_whp/src/vp.rs
+index 7866f34..cfeaed4 100644
+--- a/vmm_core/virt_whp/src/vp.rs
++++ b/vmm_core/virt_whp/src/vp.rs
+@@ -1056,6 +1056,13 @@ async fn handle_io_port(
+                 )
+                 .await;
+ 
++                if info.PortNumber==0xcfc && !info.AccessInfo.IsWrite() {
++                    static LOGGED:std::sync::atomic::AtomicU32=std::sync::atomic::AtomicU32::new(0);
++                    if LOGGED.fetch_add(1,std::sync::atomic::Ordering::Relaxed)<16 {
++                        tracing::info!(rip=exit.vp_context.Rip,length=exit.vp_context.InstructionLength(),rax,
++                            bytes=?info.InstructionBytes,"NativeMac PCI IO diagnostic");
++                    }
++                }
+                 let rip = exit
+                     .vp_context
+                     .Rip

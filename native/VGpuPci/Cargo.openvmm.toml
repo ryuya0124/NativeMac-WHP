@@ -1,0 +1,24 @@
+[package]
+name = "nativemac_vgpu"
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "../../../../../native/VGpuPci/device.rs"
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+chipset_device.workspace = true
+guestmem.workspace = true
+inspect.workspace = true
+input_core.workspace = true
+mesh.workspace = true
+pci_core.workspace = true
+pci_resources.workspace = true
+sparse_mmap.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+vm_resource.workspace = true
+vmcore.workspace = true
+libloading = "0.8.9"

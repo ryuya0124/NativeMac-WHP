@@ -1,0 +1,30 @@
+{
+  "openvmm": {
+    "repository": "https://github.com/microsoft/openvmm.git",
+    "commit": "1c093df84eb4277244fe0d70a7d4c39db5dafc88",
+    "patch": "patches/openvmm-nativemac.patch"
+  },
+  "reims": {
+    "repository": "https://github.com/tqmane/reims-vgpu.git",
+    "commit": "7f37f7654e441dee0f468954a96d8f94cb7e2ff4",
+    "patch": "patches/reims-msvc.patch",
+    "crate": "reims-vgpu-c",
+    "features": ["vulkan"],
+    "qemuFrontendUsed": false
+  },
+  "amdVanilla": {
+    "repository": "https://github.com/AMD-OSX/AMD_Vanilla.git",
+    "commit": "eaf52ef292abf4ebec899df6d48626569ba50cc6"
+  },
+  "macHyperVSupport": {
+    "repository": "https://github.com/acidanthera/MacHyperVSupport.git",
+    "commit": "cafcd34daea5e58633112a1e63cef1f07bbc8404",
+    "patch": "patches/machyperv-native-pci.patch",
+    "target": "MacHyperVSupportMonterey",
+    "architecture": "x86_64",
+    "macKernelSdkCommit": "3f750085caa17ec3a7880f11c11bf4f48cd6a164"
+  },
+  "firmware": { "openCore": "1.0.8 DEBUG", "hyperVEfiBase": "0.4.0 DEBUG", "iasl": "20250807", "clang": "22.1.8" },
+  "appleRecovery": { "version": "26.6.2", "build": "25G83", "originalDmgBytes": 960530321 },
+  "appleInstaller": { "originalPackageBytes": 18384624402, "requiresOriginalPkgDmgFooter": true }
+}

@@ -1,0 +1,79 @@
+{
+  "verifiedOn": "2026-10-21",
+  "limits": {
+    "memoryGiB": 24,
+    "processors": 8
+  },
+  "lastRecoveryUserlandBoot": {
+    "memoryGiB": 12,
+    "processors": 4,
+    "cpuBackend": "WHP",
+    "qemuUsed": false,
+    "cpuTranslationUsed": false,
+    "diskImageConverted": false,
+    "version": "26.6.2",
+    "build": "25G83",
+    "darwin": "25.6.0",
+    "kernelBooted": true,
+    "launchdStarted": true,
+    "recoveryGuiVerified": true,
+    "guestGpuAccelerated": false,
+    "evidence": "artifacts/recovery-userland-serial.log",
+    "guiEvidence": "artifacts/recovery-live.png",
+    "keyboardVerified": true,
+    "mouseVerified": true,
+    "networkVerified": true,
+    "apfsDiskVerified": true,
+    "commandEvidence": "artifacts/guest-task-results.log"
+  },
+  "hostVulkanLibraryProbe": {
+    "adapter": "NVIDIA GeForce RTX 5080",
+    "deviceCreated": true,
+    "evidence": "artifacts/vgpu-library-probe.json",
+    "provesGuestGpuAcceleration": false
+  },
+  "metalProbe": {
+    "x64GuestBinaryBuilt": true,
+    "m4Reference4096ValuesVerified": true,
+    "x64GuestExecuted": true,
+    "provesWindowsGuestGpuAcceleration": true,
+    "x64Guest4096ValuesVerified": true,
+    "evidence": "artifacts/metal-probe/guest-metal.json"
+  },
+  "lastInstallerBoot": {
+    "memoryGiB": 12,
+    "processors": 8,
+    "frontend": "WinUI 3",
+    "backend": "OpenVMM WHP release",
+    "cpuTranslationUsed": false,
+    "qemuUsed": false,
+    "installationStarted": true,
+    "normalOsBooted": true,
+    "guestGpuAccelerated": false,
+    "evidence": "artifacts/guest-serial.log",
+    "screenEvidence": "artifacts/installer-live.png"
+  },
+  "lastNormalOsBoot": {
+    "version": "26.6.2",
+    "build": "25G83",
+    "architecture": "x86_64",
+    "memoryGiB": 12,
+    "processors": 8,
+    "frontend": "WinUI 3",
+    "cpuBackend": "OpenVMM WHP release",
+    "qemuUsed": false,
+    "cpuTranslationUsed": false,
+    "diskImageConverted": false,
+    "setupAssistantVisible": true,
+    "guestGpuAccelerated": true,
+    "gpuBackend": "Reims Vulkan",
+    "hostGpu": "NVIDIA GeForce RTX 5080",
+    "evidence": "artifacts/normal-os-verified-serial.log",
+    "screenEvidence": "artifacts/normal-os-gpu-verified.png"
+  },
+  "knownLimitations": [
+    "An iconservicesagent task can fault with an empty GPU resource entry. The setup screen and Metal compute test have succeeded; broad application compatibility is not verified.",
+    "Guest display uses a separate GPU window.",
+    "Wheel HID fix passes protocol tests; live verification pending."
+  ]
+}

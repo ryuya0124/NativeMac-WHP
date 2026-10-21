@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "memoryGiB": 12,
+  "processors": 8,
+  "limits": {
+    "maxMemoryGiB": 24,
+    "maxProcessors": 8
+  },
+  "bootValidation": {
+    "memoryGiB": 12,
+    "processors": 8
+  },
+  "hypervisor": "whp",
+  "allowCpuTranslation": false,
+  "allowSoftwareGpu": false
+}

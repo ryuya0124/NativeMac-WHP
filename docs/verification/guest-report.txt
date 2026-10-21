@@ -1,0 +1,31 @@
+NATIVEMAC_GUEST_METAL_RESULT
+Wed Oct 21 05:58:01 PDT 2026
+Darwin iMac.local 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:11:49 PDT 2026; root:xnu-12377.161.14~5/RELEASE_X86_64 x86_64
+ProductName:		macOS
+ProductVersion:		26.6.2
+BuildVersion:		25G83
+{
+  "device" : "Apple Paravirtual device",
+  "computedValues" : 4096,
+  "verified" : true,
+  "gpuStartTime" : 14.624535781000001,
+  "gpuEndTime" : 14.633912601,
+  "metalAvailable" : true,
+  "registryID" : 4294968151,
+  "hasUnifiedMemory" : false,
+  "error" : ""
+}
+2026-10-21 05:58:02.015 system_profiler[387:2196] Device PreExisted [0000000100000357] Apple Paravirtual device
+Graphics/Displays:
+
+    Apple Paravirtualized Graphics Device:
+
+      Chipset Model: Apple Paravirtualized Graphics Device
+      Type: GPU
+      Bus: PCIe
+      PCIe Lane Width: x16
+      VRAM (Total): 64 MB
+      Vendor: Apple (0x106b)
+      Device ID: 0xeeee
+      Revision ID: 0x0000
+      Metal Support: Metal 2
