@@ -306,6 +306,71 @@
         "previousMonolithicSeconds": 60.61,
         "identicalGuestPageSequenceProven": false
       }
-    }
+    },
+    "apiPreflight": {
+      "clearCompleted": true,
+      "objectSamplerRespondsToSelector": true,
+      "objectSamplerNilBindingAccepted": false,
+      "meshSamplerRespondsToSelector": true,
+      "meshSamplerNilBindingAccepted": false,
+      "m4ReferenceNilBindingsAccepted": true
+    },
+    "largeBufferProbe": {
+      "passed": true,
+      "rounds": 3,
+      "releases": 3,
+      "valuesChecked": 29360128,
+      "mappingErrors": 0,
+      "seconds": 0.602108
+    },
+    "desktopChecks": {
+      "observedUnlocks": 4,
+      "gpuReadbackAfterUnlocks": true,
+      "rfbTitleBarDragPassed": true,
+      "nativeGpuWindowDragPassed": true,
+      "nativeGpuWindowWheelScrollPassed": true,
+      "nativeInputCaptureReleasedAfterTest": true,
+      "appSwitchesWithFollowingGpuCheck": [
+        "Calculator",
+        "System Settings",
+        "Books",
+        "Music"
+      ],
+      "commercialBenchmarkCompleted": false,
+      "explicitLockUnlockCycles": 3,
+      "postContinuousUnlockGpuVerified": true,
+      "postContinuousTitleBarDragPassed": true
+    },
+    "continuousObservation": {
+      "status": "passed",
+      "requiredSeconds": 1800,
+      "renderSeconds": 1800.004,
+      "wrapperElapsedSeconds": 1805,
+      "completedFrames": 184144,
+      "meanCompletedFramesPerSecond": 102.3,
+      "mixedDesktopAppWorkload": true,
+      "maxFrameGapMilliseconds": 338.56,
+      "renderErrors": 0,
+      "gpuPixelReadbackPassed": true,
+      "memoryChecks": 29,
+      "gpuValuesChecked": 851443712,
+      "bufferReleases": 87,
+      "mappingErrors": 0,
+      "sceneExit": 0,
+      "wrapperFailed": 0,
+      "script": "scripts/Guest-Stability.sh",
+      "qualifiedForThisObservation": true
+    },
+    "backendExecutableSha256": "7575d41e8b9022e144ab506c73f5d35126d08474785cf61b89748ab72771ac9d",
+    "optionalApiExperiments": {
+      "availabilityQueryCorrection": "did not avoid GravityMark object sampler exception",
+      "processLocalMac2Restriction": "did not avoid exception; not installed globally",
+      "gpuDrawCommandsReplacedOrSkipped": false
+    },
+    "desktopObservationQualified": true,
+    "qualificationScope": "FHD desktop and authored hardware rendering/memory workloads; commercial benchmark, general Metal compatibility and upstream merge gates remain unqualified",
+    "newGpuHangCount": 0,
+    "newKernelPanicCount": 0,
+    "postTestGuestGpuValuesVerified": 4096
   }
 }

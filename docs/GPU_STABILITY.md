@@ -124,3 +124,26 @@ The current fresh-alias candidate and benchmark limits are recorded in
 experiment was rejected. Do not restore it as the qualified runtime. Keep planned
 repair restarts marked in the maintenance file. A first desktop appearance or a
 passing host memory test does not satisfy the acceptance criteria.
+
+
+## Bounded continuous guest observation
+
+`scripts/Guest-Stability.sh` renders the authored FHD scene for up to 1800
+seconds and runs the checked 16/32/64-MiB no-copy GPU probe about once per
+minute. Both workloads must use hardware Metal. It posts minute checkpoints
+and a final exit/result to the existing temporary LAN lab channel; it never
+submits a commercial benchmark score. A rendering timeout, failed value probe
+or failed report prevents the wrapper from passing.
+
+Deploy the SHA-checked `scene-probe-x64`, `buffer-lifetime-x64` under
+`$HOME/NativeMacLab/probes`, and `task-runner-x64` under `$HOME/NativeMacLab`.
+Set `NATIVEMAC_LAB_BASE` to the current temporary channel base, then run
+`bash Guest-Stability.sh 1800` in the guest. When launched through the bounded
+foreground agent, start this wrapper with `nohup` in the background. Do not
+write the channel secret into tracked source. The script uses a bounded
+`caffeinate` assertion, not persistent sleep or lock-policy changes.
+
+Check actual changing frames, application responsiveness, host presents and
+new worker/serial errors alongside the script's results. A scripted pass does
+not establish support for the missing object/mesh sampler API; GravityMark's
+application failure remains a separate compatibility limit.

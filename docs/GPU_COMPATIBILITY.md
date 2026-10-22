@@ -90,5 +90,10 @@ GravityMark reached its Metal benchmark in 4.362 seconds, then exited 134:
 `setObjectSamplerState:atIndex:`. There is still no commercial benchmark score.
 The desktop recovered visibly after this application failure. Optional Metal
 entry points and feature claims are under investigation; no draws are skipped
-or reported as successful. Three unlock cycles and a continuous 30-minute
-observation remain required. See `docs/verification/banked-gpu-ram.json`.
+or reported as successful. Three explicit lock/unlock cycles now pass, including one after the full
+30-minute observation. It completed 184144 real FHD render frames and 29
+checked no-copy memory rounds (851443712 GPU values, 87 releases), with zero
+render/mapping errors, GPU hangs or kernel panics. The maximum observed frame
+gap was 338.56 ms during app/input interactions. A final post-unlock GPU
+check verified 4096 values and the desktop title-bar drag responded. These
+results qualify this bounded desktop observation, not general Metal compatibility. See `docs/verification/banked-gpu-ram.json`.

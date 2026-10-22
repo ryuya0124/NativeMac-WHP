@@ -1,8 +1,8 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 
-// Observe advertised families and optional entry points without submitting
-// commands to missing methods or treating an unsupported draw as successful.
+// Observe advertised families and optional entry points. Probe legal nil
+// bindings under an exception boundary; never submit an unsupported draw.
 int main(void) {
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
@@ -58,6 +58,7 @@ int main(void) {
         NSData *data = [NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingSortedKeys error:nil];
         fwrite(data.bytes, 1, data.length, stdout);
         putchar('\n');
+        // This status covers the clear. Individual API refusals remain in JSON.
         return command.status == MTLCommandBufferStatusCompleted ? 0 : 3;
     }
 }

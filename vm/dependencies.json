@@ -8,7 +8,7 @@
       "applyAfter": "patches/openvmm-nativemac.patch",
       "sectionBytes": 67108864,
       "scope": "Windows NativeMac Reims PCI shared RAM only",
-      "status": "experimental; 55 tests, cold boot and checked FHD scene pass; GravityMark mapping stalls removed in this trial, then app exits 134 on missing object sampler API; long stability pending",
+      "status": "55 unit tests, cold boot, 3 lock/unlock cycles and 30-minute FHD hardware-render/memory-churn observation pass; GravityMark exits on missing object sampler API; general compatibility remains unqualified",
       "ramHandleRestartSupported": false
     }
   },
