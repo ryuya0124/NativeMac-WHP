@@ -11,7 +11,8 @@ $probes = @(
     @{ Source = 'TextureReadbackProbe.m'; Output = 'texture-readback-regions-x64' },
     @{ Source = 'SegmentedBlitProbe.m'; Output = 'segmented-blit-probe-x64' },
     @{ Source = 'SceneProbe.m'; Output = 'scene-probe-x64'; Frameworks = '-framework AppKit -framework QuartzCore' },
-    @{ Source = 'DisplayModeProbe.m'; Output = 'display-mode-probe-x64'; Frameworks = '-framework ApplicationServices -framework AppKit' }
+    @{ Source = 'DisplayModeProbe.m'; Output = 'display-mode-probe-x64'; Frameworks = '-framework ApplicationServices -framework AppKit' },
+    @{ Source = 'MPSDeviceProbe.m'; Output = 'mps-device-probe-x64'; Frameworks = '-framework MetalPerformanceShaders -framework MetalPerformanceShadersGraph' }
 )
 function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments

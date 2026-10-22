@@ -1,0 +1,27 @@
+{
+  "verifiedOn": "2026-10-22",
+  "repository": "https://github.com/MochiLog/MochiLog",
+  "commit": "eb1503924d9e9b8ae874010c96443cdf78823682",
+  "sourceArchiveSha256": "ddaffce006b5f46a3e3149230d2400866401f1d23a883edeaec89f30475ea60f",
+  "host": "Intel x86_64 macOS 26.6.2 (25G83) WHP VM",
+  "xcode": "26.5 (17F42)",
+  "memoryGiB": 12,
+  "processors": 8,
+  "command": "xcodebuild -project MochiLog.xcodeproj -scheme MochiLog -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath Build/VM-Debug CODE_SIGNING_ALLOWED=NO build",
+  "startedAt": "2026-10-22T19:01:26+09:00",
+  "finishedAt": "2026-10-22T19:02:34+09:00",
+  "exit": 0,
+  "result": "BUILD SUCCEEDED",
+  "sourceModified": false,
+  "products": [
+    { "target": "MochiLog.app", "platform": "iOS Simulator 26.5", "architectures": ["x86_64", "arm64"] },
+    { "target": "MochiLog Watch App.app", "platform": "watchOS Simulator 26.5", "architectures": ["x86_64", "arm64"] }
+  ],
+  "warnings": [
+    "DonationView.swift:41:43: non-Sendable AppDistributor.current sent to main actor-isolated context; would be an error in Swift 6 language mode",
+    "App Intents metadata extraction skipped for targets without an AppIntents.framework dependency"
+  ],
+  "applicationLaunched": false,
+  "simulatorLaunched": false,
+  "codeSigningPerformed": false
+}

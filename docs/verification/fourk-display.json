@@ -175,5 +175,43 @@
       "execFaultCount": 0,
       "kernelPanicCount": 0
     }
+  },
+  "macOSSettingsUI": {
+    "verifiedOn": "2026-10-22",
+    "method": "Direct clicks in System Settings Displays; probe read-only between changes",
+    "observedModes": [
+      {
+        "currentWidth": 1920,
+        "currentHeight": 1080,
+        "currentPixelWidth": 3840,
+        "currentPixelHeight": 2160
+      },
+      {
+        "currentWidth": 3840,
+        "currentHeight": 2160,
+        "currentPixelWidth": 3840,
+        "currentPixelHeight": 2160
+      },
+      {
+        "currentWidth": 2560,
+        "currentHeight": 1440,
+        "currentPixelWidth": 2560,
+        "currentPixelHeight": 1440
+      },
+      {
+        "currentWidth": 1920,
+        "currentHeight": 1080,
+        "currentPixelWidth": 3840,
+        "currentPixelHeight": 2160
+      }
+    ],
+    "finalMode": {
+      "currentWidth": 1920,
+      "currentHeight": 1080,
+      "currentPixelWidth": 3840,
+      "currentPixelHeight": 2160
+    },
+    "probeReportsLogicalAndPixelDimensions": true,
+    "rebootPersistenceVerified": false
   }
 }

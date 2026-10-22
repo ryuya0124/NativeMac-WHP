@@ -1,0 +1,54 @@
+{
+  "verifiedOn": "2026-10-22",
+  "version": "7.1.0",
+  "download": "https://geekbench-cdn.b-cdn.net/Geekbench-7.1.0-Mac.zip",
+  "archiveSha256": "9361240d2cf448d5f0833d8b86aa323b9ff5d2a8f73f3cd81b321271fe4a18a8",
+  "guest": {
+    "os": "macOS 26.6.2 (25G83), x86_64",
+    "cpu": "AMD Ryzen 7 9800X3D",
+    "processors": 8,
+    "memoryGiB": 12,
+    "hostGPU": "NVIDIA GeForce RTX 5080",
+    "cpuInstructionTranslation": false,
+    "qemu": false
+  },
+  "kernelSource": "0471bc25dffab380631e8cb888784ebbd233fff2",
+  "metadataRepair": "PCI display model remains Apple Paravirtualized Graphics Device, now NUL-terminated OSData instead of OSString",
+  "stockSignedApplication": true,
+  "processLocalAdapter": false,
+  "userAuthorizedPublicUploads": true,
+  "systemInformationExit": 0,
+  "cpu": {
+    "command": "geekbench7 --cpu",
+    "exit": 0,
+    "singleCore": 2287,
+    "multiCore": 10415,
+    "result": "https://browser.geekbench.com/v7/cpu/692080"
+  },
+  "metal": {
+    "command": "geekbench7 --gpu Metal --gpu-platform-id 0 --gpu-device-id 0",
+    "status": "failed_before_first_workload_completed",
+    "exit": 255,
+    "selectedDevice": "Apple Paravirtual device",
+    "workload": "Background Blur",
+    "failure": "MPSNDArray initialization assertion: device may not be nil",
+    "score": null,
+    "result": null
+  },
+  "postFailureChecks": {
+    "metalComputeValues": 4096,
+    "metalComputeVerified": true,
+    "mpsDeviceProbe": {
+      "metalDeviceAvailable": true,
+      "mpsSupportsDevice": true,
+      "graphDeviceAvailable": true,
+      "graphMetalDeviceAvailable": true,
+      "graphMetalDeviceMatches": true,
+      "ndArrayAvailable": true,
+      "ndArrayDeviceAvailable": true,
+      "exit": 0,
+      "scope": "Device/Graph wrapper and scalar NDArray initialization only; no graph GPU execution qualification"
+    }
+  },
+  "generalGPUCompatibilityQualified": false
+}

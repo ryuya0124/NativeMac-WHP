@@ -1,4 +1,38 @@
-# Active segmented-submission checkpoint (2026-10-22)
+# Current checkpoint (2026-10-22 19:07 JST)
+
+Monitoring automation was deleted at the user's request. Do not recreate it.
+User prefers Apple sign-in directly inside the Intel VM and handles that
+authentication. Xcode 26.5 (17F42) is now installed in the VM with iOS/watchOS
+Simulator SDKs 26.5; no external Xcode download is needed.
+
+Kernel snapshot `0471bc25dffab380631e8cb888784ebbd233fff2` is built and
+cold-booted, following the qualified segmented-submission repair. PCI display
+`model` now preserves its exact name as NUL-terminated OSData. This fixes the
+stock Geekbench 7.1.0 pre-workload system-information crash. CPU completes
+and uploads (explicitly user-authorized): single 2287, multi 10415,
+https://browser.geekbench.com/v7/cpu/692080. Never publish result-claim keys.
+Stock Metal still exits 255 at Background Blur with an MPSNDArray nil-device
+assertion; no GPU score. Authored ordinary compute then verifies 4096 values.
+MPSDeviceProbe initializes the matching Graph device and scalar NDArray, so
+do not call all MPS unsupported or its workload failure fixed.
+
+Current session: 12 GiB / 8 CPUs, maximum 4K, refresh budget 60 Hz. macOS
+Settings → Displays was tested through 1920×1080 HiDPI / 3840×2160 1× /
+2560×1440 1× / back to 1920×1080 HiDPI; probe and host confirm output.
+The final physical output is 3840×2160 with readable 1920×1080 scaling.
+RAM/CPU defaults are unchanged. Reboot persistence of UI mode choice is not
+qualified. Private channel and persistent guest agent remain temporary;
+read fresh session PIDs and do not print its tokens/full result log.
+
+MochiLog unchanged pinned `eb1503924d9e9b8ae874010c96443cdf78823682`
+builds inside this x86-64 VM: `BUILD SUCCEEDED`, exit 0, phone/watch
+simulator apps each x86-64+arm64, signing disabled, no app/simulator launch.
+One Sendable source warning plus optional App Intents metadata warnings.
+See the aggregate JSON evidence for CPU, display, source provenance and
+MochiLog. Only authored patches/source and aggregate evidence may go public;
+guest screens/logs, third-party binaries and credentials stay ignored.
+
+# Earlier segmented-submission checkpoint (2026-10-22)
 
 The user authorized public GitHub and unattended work. Keep FHD / 12 GiB / 8 CPUs,
 WHP, nonisolated GPU tasks, and the scoped sampler/readback adapter only.

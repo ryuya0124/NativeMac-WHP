@@ -201,3 +201,49 @@ score 3058, 167.2 seconds, exit 0, with changing populated scenes observed
 this single-run comparison gains 5.78% in reported fps. The same heap
 fallback and adapter limitations apply. No game compatibility improvement
 is established by these measurements.
+
+## PCI display metadata compatibility (2026-10-22)
+
+Stock Geekbench 7.1.0 originally aborted before a CPU workload with an
+`NSInvalidArgumentException`: a PCI display `model` property was an OSString
+where its consumer requested bytes. The scoped kernel patch preserves the
+exact `Apple Paravirtualized Graphics Device` name as NUL-terminated OSData
+on PCI 106b:eeee. It leaves existing data values, CPU identity, Metal features
+and workloads unchanged. Cold boot exposes the corrected data property and
+stock `--sysinfo` now exits 0; CPU benchmark execution reaches its workloads.
+Stock CPU workloads complete and upload successfully: single-core 2287,
+multi-core 10415. Metal selects the paravirtual device but exits 255 on its
+first Background Blur workload with an MPSNDArray nil-device assertion; no
+GPU score exists. A separate authored device probe finds a valid Metal
+device, MPS support, a matching MPSGraph device, and successful scalar
+NDArray initialization, so this does not establish that all MPS is absent.
+It does not qualify graph execution or fix the workload failure. Ordinary
+Metal compute still checks all 4096 values after the benchmark. See
+[`geekbench7.json`](verification/geekbench7.json) for the public CPU result.
+
+Source revision: `0471bc25dffab380631e8cb888784ebbd233fff2`, following the
+segmented-submission patch. The source snapshot tests (3), native/x86-64 ABI
+checks, warning-free x86-64 kernel build and strict signature/provenance
+verification pass. The active kernel binary SHA-256 is
+`684999c66e36e303054cbd656f17062886beba8b99c5d3c3ac2b0903a4801684`.
+This guest-only metadata change does not reach the Rust library or C API;
+their full test suite is not rerun for it. General GPU compatibility remains
+incomplete.
+
+The macOS Displays settings list was also exercised directly: 1920×1080
+HiDPI (3840×2160 pixels), 3840×2160 at 1×, 2560×1440 at 1×, then back to
+1920×1080 HiDPI. CoreGraphics pixel and logical dimensions follow the UI
+choices. `DisplayModeProbe.m` now reports both dimensions, avoiding a
+misleading assumption that a larger UI necessarily reduced pixel output.
+The VM is left at 4K output with readable 1920×1080 HiDPI scaling.
+
+## Intel VM Xcode build (2026-10-22)
+
+MochiLog `eb1503924d9e9b8ae874010c96443cdf78823682` builds inside this
+x86-64 VM with Xcode 26.5 (17F42), iOS/watchOS Simulator 26.5 SDKs,
+and code signing disabled. The unchanged project produces both phone and
+watch simulator apps with x86-64/arm64 slices. `BUILD SUCCEEDED`, exit 0,
+in a 68-second observed wall-clock window including dependency resolution.
+There is an AppDistributor Sendable warning and skipped optional App Intents
+metadata extraction. This verifies compilation only; neither simulator nor
+app was launched. See [`mochilog-vm-build.json`](verification/mochilog-vm-build.json).

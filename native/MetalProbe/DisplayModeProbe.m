@@ -36,6 +36,8 @@ int main(int argc, const char **argv) {
         }
         CGDisplayModeRef current = CGDisplayCopyDisplayMode(display);
         NSDictionary *report = @{@"stage":@"display-modes", @"setStatus":@(status),
+            @"currentWidth":@(current ? CGDisplayModeGetWidth(current) : 0),
+            @"currentHeight":@(current ? CGDisplayModeGetHeight(current) : 0),
             @"currentPixelWidth":@(current ? CGDisplayModeGetPixelWidth(current) : 0),
             @"currentPixelHeight":@(current ? CGDisplayModeGetPixelHeight(current) : 0),
             @"currentRefreshHz":@(current ? CGDisplayModeGetRefreshRate(current) : 0),

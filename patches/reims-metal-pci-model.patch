@@ -1,0 +1,27 @@
+diff --git a/guest/metal-compat/ReimsMetalCompat.cpp b/guest/metal-compat/ReimsMetalCompat.cpp
+index dfd3af7..b0d33ac 100644
+--- a/guest/metal-compat/ReimsMetalCompat.cpp
++++ b/guest/metal-compat/ReimsMetalCompat.cpp
+@@ -1265,6 +1265,22 @@ bool matched(void *, void *, IOService *service, IONotifier *) {
+         if (pci) {
+             selected = pci->configRead16(kIOPCIConfigVendorID) == 0x106b &&
+                        pci->configRead16(kIOPCIConfigDeviceID) == 0xeeee;
++            if (selected) {
++                // PCI model names conventionally contain NUL-terminated bytes.
++                // AppleParavirt publishes an OSString; clients that read PCI
++                // display model data cannot consume it. Preserve the name.
++                auto model = OSDynamicCast(OSString, pci->getProperty("model"));
++                if (model) {
++                    auto bytes = OSData::withBytes(model->getCStringNoCopy(), model->getLength() + 1);
++                    if (bytes) {
++                        if (!pci->setProperty("model", bytes))
++                            SYSLOG("init", "could not publish PCI model bytes");
++                        else
++                            SYSLOG("init", "published PCI model as NUL-terminated data");
++                        bytes->release();
++                    }
++                }
++            }
+             break;
+         }
+     }
