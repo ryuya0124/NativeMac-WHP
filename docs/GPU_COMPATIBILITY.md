@@ -176,3 +176,28 @@ observed output is black. Disabling texture compression produces visible sky
 with malformed/incomplete geometry. No game performance number from these
 trials is accepted. This is an application compatibility failure, even though
 the profile exits normally and the desktop recovers.
+
+
+### Compositor refresh budget
+
+The launcher now sets the guest's refresh rate explicitly (60 Hz by default,
+configurable with `-DisplayRefreshHz 30..240` or `displayRefreshHz` in
+`vm/defaults.json`). This avoids inheriting a high-refresh host's maximum
+without changing the guest's RAM, CPU count, render dimensions or scene.
+The environment override is local to that launch and restored on exit.
+
+At a 3840×2160 desktop and drawable, the same 30-second authored scene
+completed 59.55 fps at the previous 160-Hz mode and 74.17 fps at the new
+60-Hz mode, both with zero errors and checked GPU pixel readback. AppKit
+reports a maximum of 60 fps for the new guest screen; CoreGraphics reports
+a zero nominal refresh rate for its modes. The 24.55% throughput difference
+is one run per setting across cold boots, not a universal GPU speedup or
+physical monitor delivery above 60 Hz.
+
+
+The matching 4K GravityMark workload also completes at 60 Hz: 18.3 fps,
+score 3058, 167.2 seconds, exit 0, with changing populated scenes observed
+(visible-object sample 34,490). Relative to the 160-Hz run's 17.3 fps / 2895,
+this single-run comparison gains 5.78% in reported fps. The same heap
+fallback and adapter limitations apply. No game compatibility improvement
+is established by these measurements.

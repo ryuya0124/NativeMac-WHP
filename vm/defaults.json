@@ -15,5 +15,6 @@
   "allowSoftwareGpu": false,
   "gpuTransport": "compat",
   "rejectAstcTextures": true,
-  "displayResolution": "1920x1080"
+  "displayResolution": "1920x1080",
+  "displayRefreshHz": 60
 }

@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
 
 // Enumerate real guest modes; an optional width/height changes this session only.
@@ -36,7 +37,9 @@ int main(int argc, const char **argv) {
         CGDisplayModeRef current = CGDisplayCopyDisplayMode(display);
         NSDictionary *report = @{@"stage":@"display-modes", @"setStatus":@(status),
             @"currentPixelWidth":@(current ? CGDisplayModeGetPixelWidth(current) : 0),
-            @"currentPixelHeight":@(current ? CGDisplayModeGetPixelHeight(current) : 0), @"modes":list};
+            @"currentPixelHeight":@(current ? CGDisplayModeGetPixelHeight(current) : 0),
+            @"currentRefreshHz":@(current ? CGDisplayModeGetRefreshRate(current) : 0),
+            @"screenMaximumFramesPerSecond":@([NSScreen mainScreen].maximumFramesPerSecond), @"modes":list};
         NSData *data = [NSJSONSerialization dataWithJSONObject:report options:0 error:nil];
         fwrite(data.bytes, 1, data.length, stdout); puts("");
         if (current) CFRelease(current);

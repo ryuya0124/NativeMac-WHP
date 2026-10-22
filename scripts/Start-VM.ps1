@@ -5,11 +5,16 @@ param(
     [switch]$Gpu,
     [switch]$SerialConsole,
     [ValidateSet('legacy','compat')][string]$MetalTransport,
-    [ValidateSet('1920x1080','2560x1440','3840x2160')][string]$DisplayResolution
+    [ValidateSet('1920x1080','2560x1440','3840x2160')][string]$DisplayResolution,
+    [ValidateRange(30,240)][int]$DisplayRefreshHz
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $defaults = Get-Content (Join-Path $projectRoot 'vm/defaults.json') -Raw | ConvertFrom-Json
+if (!$DisplayRefreshHz) {
+    $DisplayRefreshHz = if ($defaults.displayRefreshHz) { [int]$defaults.displayRefreshHz } else { 60 }
+}
+if ($DisplayRefreshHz -lt 30 -or $DisplayRefreshHz -gt 240) { throw 'Display refresh rate must be 30..240 Hz.' }
 if (!$DisplayResolution) {
     $DisplayResolution = if ($defaults.displayResolution) { [string]$defaults.displayResolution } else { '1920x1080' }
 }
@@ -73,13 +78,18 @@ if ($Gpu) {
     $options += @('--pcie-root-complex','rc0,low_mmio=256M,high_mmio=4K',
         '--pcie-root-port','rc0:gpu0,addr=1','--pcie-ecam-below-4gb','--reims-gpu',$library,'--vnc','--net','consomme')
 }
-Write-Host "Starting WHP VM: RAM ${MemoryGiB} GiB, ${Processors} cores, $DisplayResolution; limits 256 GiB / 64 cores."
+Write-Host "Starting WHP VM: RAM ${MemoryGiB} GiB, ${Processors} cores, $DisplayResolution at $DisplayRefreshHz Hz; limits 256 GiB / 64 cores."
 # The OpenVMM worker inherits this per-launch setting. No machine environment is changed.
 $previousResolution = $env:NATIVEMAC_DISPLAY_RESOLUTION
+$previousRefresh = $env:REIMS_VGPU_WINDOW_REFRESH
 try {
     $env:NATIVEMAC_DISPLAY_RESOLUTION = $DisplayResolution
+    $env:REIMS_VGPU_WINDOW_REFRESH = [string]$DisplayRefreshHz
     & $exe @options
-} finally { $env:NATIVEMAC_DISPLAY_RESOLUTION = $previousResolution }
+} finally {
+    $env:NATIVEMAC_DISPLAY_RESOLUTION = $previousResolution
+    $env:REIMS_VGPU_WINDOW_REFRESH = $previousRefresh
+}
 if ($LASTEXITCODE -ne 0) { throw "VM exited with code $LASTEXITCODE" }
 } finally {
     if ($ownsMutex) { $vmMutex.ReleaseMutex() }

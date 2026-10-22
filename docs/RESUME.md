@@ -97,3 +97,24 @@ Metal3/4 are false. Querying respondsToSelector alone is insufficient. Do not
 turn missing bindings/draws into successful no-ops. GravityMark -help is invalid
 and opens an error UI; the bounded task runner terminated that diagnostic at
 60 seconds. No successful command-line help output exists.
+
+
+## Current 4K and refresh checkpoint (2026-10-22)
+
+The repository is public at https://github.com/ryuya0124/NativeMac-WHP.
+Commit `4ddf137` qualifies a bounded 4K desktop and a populated 4K GravityMark
+run: 17.3 fps, score 2895, 167.2 s, exit 0. A 30-second authored 4K scene
+passes with checked GPU pixel readback. The session-only display configuration
+helper fixes the earlier temporary-mode rollback; a fresh login can still
+choose a smaller mode until the helper selects 3840×2160. Defaults remain
+FHD / 12 GiB / 8 processors. A per-launch refresh budget is being recorded in
+`docs/verification/fourk-display.json`; no instruction translation is used.
+
+SuperTuxKart 1.5 is not playable: its software fallback is rejected; disabling
+MoltenVK heaps and argument buffers permits a Vulkan profile to finish but
+produces black output, and uncompressed textures show sky with malformed
+geometry. No game score is accepted. The GPU is not fully compatible.
+
+The user explicitly stopped the recurring `macos-vm` monitor; it was deleted.
+Do not recreate it unless requested. Private lab transport and snapshots remain
+under ignored artifacts. Never add those or third-party game assets to Git.

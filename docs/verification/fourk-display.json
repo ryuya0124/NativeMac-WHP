@@ -115,5 +115,65 @@
     "uncompressedTexturesAttempt": "Exit 0, visible sky with malformed/incomplete geometry; no playable scene, rejected.",
     "gameplayQualified": false,
     "performanceScoreAccepted": false
+  },
+  "refreshAdjustment": {
+    "oldHostMaximumHz": 160,
+    "newRequestedHz": 60,
+    "rebooted": true,
+    "sameGuestAllocation": true,
+    "sameDesktopAndDrawable": "3840x2160",
+    "baselineCompletedFPS": 59.55,
+    "newResult": {
+      "stage": "scene-final",
+      "elapsed": 30.01,
+      "completed": 2226,
+      "meanFps": 74.17,
+      "errors": 0,
+      "readbackPassed": true
+    },
+    "newPixelReadback": {
+      "stage": "render-readback",
+      "bgra": [
+        177,
+        117,
+        86,
+        255
+      ],
+      "passed": true
+    },
+    "singleRunGainPercent": 24.55,
+    "limit": "One run per setting across cold boots. This is completed throughput of the authored diagnostic, not physical monitor delivery or a universal GPU speedup.",
+    "appKitMaximumFramesPerSecond": 60,
+    "coreGraphicsNominalRefreshHz": 0,
+    "gravityMark": {
+      "drawable": "3840x2160",
+      "fullscreen": true,
+      "sameWorkloadAs160Hz": true,
+      "fps": 18.3,
+      "score": 3058,
+      "seconds": 167.2,
+      "exitCode": 0,
+      "observedPopulatedScene": true,
+      "observedVisibleObjectSamples": [
+        34490
+      ],
+      "bindingCalls": 299572,
+      "readbackCopiesIncludingPreflight": 1,
+      "baselineFPS": 17.3,
+      "baselineScore": 2895,
+      "singleRunFPSGainPercent": 5.78,
+      "limit": "One full run per setting, across cold boots. General compatibility and long stability remain unqualified."
+    },
+    "postBenchmark": {
+      "desktopPixelWidth": 3840,
+      "desktopPixelHeight": 2160,
+      "appKitMaximumFramesPerSecond": 60,
+      "computeCheckedValues": 4096,
+      "computeExitCode": 0,
+      "hostFatalCount": 0,
+      "gpuHangCount": 0,
+      "execFaultCount": 0,
+      "kernelPanicCount": 0
+    }
   }
 }
