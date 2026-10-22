@@ -116,5 +116,13 @@
     "sourceRevision": "4518f0219cc1d0b87179269742461d523a392710",
     "status": "experimental; private-allocation scope boots to desktop and GPU compute passes; pageout panic after unlock remains unresolved",
     "usesCpuRendering": false
+  },
+  "optionalStageBindings": {
+    "source": "native/MetalCompat/DeferredStageBindings.m",
+    "buildScript": "scripts/Build-GuestMetalCompat.ps1",
+    "launcher": "native/MetalCompat/Run-With-DeferredBindings.sh",
+    "verification": "docs/verification/deferred-stage-bindings.json",
+    "deployment": "opt-in process only; not enabled in VM or desktop by default",
+    "status": "setter exceptions resolved and direct/indirect pixel checks pass; GravityMark completes with black scene, score rejected; mesh execution unsupported"
   }
 }

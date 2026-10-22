@@ -1,0 +1,108 @@
+{
+  "verifiedOn": "2026-10-22",
+  "experimental": true,
+  "generalMetalQualified": false,
+  "deployment": "opt-in selected process; no global or desktop injection",
+  "memoryGiB": 12,
+  "processors": 8,
+  "resolution": "1920x1080",
+  "source": "native/MetalCompat/DeferredStageBindings.m",
+  "probe": "native/MetalProbe/DeferredBindingsProbe.m",
+  "buildScript": "scripts/Build-GuestMetalCompat.ps1",
+  "warningFreeX64Build": true,
+  "featureQueriesChanged": false,
+  "bindingTables": [
+    "samplers",
+    "LOD clamps",
+    "textures",
+    "buffers",
+    "buffer offsets",
+    "copied inline bytes",
+    "object threadgroup memory lengths"
+  ],
+  "meshDrawExecutionImplemented": false,
+  "meshDrawsSilentlySkipped": false,
+  "guestProbe": {
+    "direct": {
+      "passed": true,
+      "checkedPixels": 16,
+      "bindingCalls": 24,
+      "explicitMeshRefusals": 3
+    },
+    "cpuIndirect": {
+      "passed": true,
+      "checkedPixels": 16,
+      "argumentsCorrect": true
+    },
+    "gpuIndirect": {
+      "passed": true,
+      "checkedPixels": 16,
+      "argumentsCorrect": true
+    },
+    "stateIsolation": true,
+    "nilClearing": true,
+    "inlineBytesCopied": true,
+    "invalidResourceRangesRefused": true,
+    "optInWrapperPassed": true
+  },
+  "m4Reference": {
+    "sameX64ProbePassed": true,
+    "nativeMethodsPreservedWithAdapterLoaded": true,
+    "directAndIndirectPixelsChecked": true,
+    "sameGravityMarkParametersProducePopulatedScene": true,
+    "hostScoreIsNotGuestScore": true
+  },
+  "gravityMark": {
+    "version": "1.89",
+    "asteroids": 20000,
+    "raster": 0,
+    "meshlet": 0,
+    "raytracing": 0,
+    "processCompleted": true,
+    "exitCode": 0,
+    "elapsedReportedSeconds": 167.0,
+    "deferredBindingCalls": 1150268,
+    "meshDrawRefusals": 0,
+    "sceneObservedBlack": true,
+    "visibleObjectsObserved": 0,
+    "qualified": false,
+    "score": null,
+    "reportedScoreRejected": true,
+    "rejectionReason": "Scene correctness failed despite successful process exit"
+  },
+  "postTrial": {
+    "authoredFhdSceneSeconds": 25.002,
+    "completedFrames": 2565,
+    "diagnosticMeanCompletedFramesPerSecond": 102.59,
+    "renderErrors": 0,
+    "gpuPixelReadbackPassed": true,
+    "checkedLargeBufferValues": 29360128,
+    "largeBufferReleases": 3,
+    "mappingErrors": 0,
+    "finalComputeValuesChecked": 4096,
+    "desktopTitleBarDragResponded": true,
+    "nativeInputCaptureReleased": true
+  },
+  "rejectedDiagnostic": "Hiding Apple families aborted a cube-array feature assertion; not deployed",
+  "unresolvedObservation": "Dedicated shared-texture CPU getBytes regression fails in guest (0/16) while GPU blit matches 16/16; identical M4 probe matches both. Cause remains unproven.",
+  "remainingLimits": [
+    "GravityMark black scene / zero visible objects",
+    "mesh draw execution",
+    "GPU heap creation",
+    "general Metal and upstream merge qualification"
+  ],
+  "sharedTextureCpuReadbackRegression": {
+    "argument": "--shared-cpu-readback",
+    "guestExitCode": 4,
+    "guestCpuPixelsMatched": 0,
+    "guestGpuBlitPixelsMatched": 16,
+    "m4CpuPixelsMatched": 16,
+    "m4GpuBlitPixelsMatched": 16,
+    "resolved": false,
+    "causeProven": false
+  },
+  "sourceSha256": {
+    "native/MetalCompat/DeferredStageBindings.m": "9fb002f81d72309708138afedb61f78f2e5235e5efc2fe935827f49436948d2f",
+    "native/MetalProbe/DeferredBindingsProbe.m": "c1483e6ca630a9e089b12c59d08d129a693c664f729c609ebf19afa729981ba3"
+  }
+}

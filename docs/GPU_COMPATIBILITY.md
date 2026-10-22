@@ -19,6 +19,20 @@ Each newly reached refusal needs an authored regression and a guest retest. A be
 
 The pinned translator has an upstream API inventory in `docs/METAL-COVERAGE.md` and typed refusal catalogue in `docs/REFUSALS.md`. Its inventory covers the macOS 27 SDK's API items, including metadata and platform-owned services; it is not a percentage of GPU instructions supported by this macOS 26 VM. Use it to select tests, then record actual guest execution here.
 
+Latest optional API progress: the authored, opt-in binding adapter retains
+object/mesh resource settings used by GravityMark's traditional draw path. It
+does not change feature queries or implement mesh execution; mesh draws throw
+explicitly. Direct, CPU-indirect and GPU-indirect authored render tests all pass
+16 exact GPU-readback pixels, including independence of fragment state from
+deferred object/mesh state. GravityMark now completes without the setter
+exception, but shows a black scene and zero visible objects. Its apparent score
+is rejected. The identical x64 benchmark/parameters show a populated scene on
+M4. The general scene-output cause remains unproven, and hiding Apple families
+only triggers a guest cube-array feature assertion. These process-local tests
+do not qualify the benchmark, heap creation, mesh rendering or general Metal.
+See [adapter scope](../native/MetalCompat/README.md) and
+[aggregate checks](verification/deferred-stage-bindings.json).
+
 Broader CPU validation: 3,204 translator unit tests passed, 10 soak tests were ignored, and one test failed because LLVM fixture assembly tools were absent. This is not a green complete suite; missing tools are being supplied. Translator and AIR Clippy checks passed for all targets/all features with warnings denied after two test-only lint fixes. No real-GPU execution is implied by these CPU checks.
 
 A fixture rerun with LLVM and SPIR-V tools executed 1,309 engine tests: 1,308 passed and one found mutually exclusive primitive-skip flags retained in an unreachable ray-query branch. A structural repair preserves the existing all-culled miss path and supplies valid flags to that branch. Its full ray-tracing engine suite and exhaustive settings interpreter check passed after repair. These are CPU/validation results, not proof of guest ray-tracing support. The Access failure was captured locally and reproduced offline under a 20-second / 500-MiB job boundary (0.015 seconds, 4.004 MiB peak job memory). Analysis found that a bounded dynamic handle-array index loses its bounds and opens a mixed sampler/texture/data private cell. A structural repair passed the authored mixed-cell positive/negative test across four profiles, alongside 33 existing pointer-cell tests. The same authored input refuses before the repair and passes afterward. The captured failing input now translates and passes SPIR-V validation in 0.047 seconds at 7.691 MiB peak job memory under the same boundary. These offline checks use a committed reference RTX profile; actual guest GPU execution is still pending.
