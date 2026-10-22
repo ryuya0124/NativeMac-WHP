@@ -1,0 +1,15 @@
+diff --git a/benchmark.m b/benchmark.m
+index fa807e9..726f252 100644
+--- a/benchmark.m
++++ b/benchmark.m
+@@ -75,8 +75,8 @@ static matrix_float4x4 matrix_perspective(float fovRadians, float aspect, float
+     vector_float4 columns[4] = {
+         { xs,  0,  0,                0 },
+         { 0,  ys,  0,                0 },
+-        { 0,   0, zs, nearZ * zs },
+-        { 0,   0, -1,                0 }
++        { 0,   0, zs,               -1 },
++        { 0,   0, nearZ * zs,        0 }
+     };
+     
+     return (matrix_float4x4){ columns[0], columns[1], columns[2], columns[3] };

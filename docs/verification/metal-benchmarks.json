@@ -1,0 +1,124 @@
+{
+  "verifiedOn": "2026-10-22",
+  "experimental": true,
+  "generalMetalQualified": false,
+  "guest": {
+    "macOS": "26.6.2 (25G83), x86_64",
+    "memoryGiB": 12,
+    "processors": 8,
+    "desktopResolution": "1920x1080",
+    "hostGPU": "RTX 5080",
+    "cpuTranslation": false,
+    "qemu": false,
+    "processIsolation": false
+  },
+  "sharedTextureReadback": {
+    "source": "native/MetalCompat/SharedTextureReadback.m",
+    "deployment": "opt-in selected process, measured activation, main-process preflight only",
+    "beforeCpuPixels": 0,
+    "beforeGpuPixels": 16,
+    "afterCpuPixels": 16,
+    "afterGpuPixels": 16,
+    "directCpuIndirectGpuIndirectAndSharedReadback": "all four pass, exit 0",
+    "regionProbe": "native/MetalProbe/TextureReadbackProbe.m",
+    "regionCases": 84,
+    "checkedBytes": 23500,
+    "mismatchedBytes": 0,
+    "checks": [
+      "seven formats",
+      "2D and 2D arrays",
+      "three mip levels",
+      "three array slices",
+      "subregions",
+      "row padding and surrounding sentinels"
+    ],
+    "sameX64RegionProbeOnM4": "84 cases, 23500 bytes, zero mismatches",
+    "scope": "raw GPU blit followed by CPU copy; compressed/depth/unknown formats and other texture kinds remain native"
+  },
+  "gravityMark": {
+    "version": "1.89",
+    "resolution": "1920x1080",
+    "asteroids": 20000,
+    "temporal": 1,
+    "raster": 0,
+    "meshlet": 0,
+    "raytracing": 0,
+    "adapter": "binding tables plus measured shared-texture readback adapter",
+    "exitCode": 0,
+    "reportedSeconds": 167.1,
+    "reportedFPS": 22.7,
+    "reportedScore": 3792,
+    "observedPopulatedScene": true,
+    "observedVisibleObjectSamples": [
+      34448,
+      26056
+    ],
+    "deferredBindingCalls": 371504,
+    "meshDrawRequests": 0,
+    "readbackCopiesIncludingPreflight": 1,
+    "causalityLimit": "Two populated-scene completions, but identical-adapter and activation repeats can be black. Only constructor preflight copies were counted. Neither readback interception nor foregrounding explains or fixes this reliably.",
+    "bindingOnlyConfirmation": "black scene and zero visible objects reproduced; reject its score",
+    "remaining": [
+      "heap allocation requests return nil and the benchmark falls back",
+      "pixel equivalence to native Metal is unaudited",
+      "mesh execution unsupported"
+    ],
+    "repeatableQualified": false,
+    "sameAdapterRepeat": "exit 0 but black scene / zero visible objects; reject reported 101.9 fps / score 17017",
+    "additionalPopulatedRun": {
+      "activation": "open existing app at 2 seconds",
+      "score": 3849,
+      "fps": 23.0,
+      "seconds": 167.1,
+      "exitCode": 0,
+      "deferredBindingCalls": 377090
+    },
+    "activationRepeat": "exit 0 but black/visible=0 again; reject 98.4 fps / score16441; foregrounding alone is not a fix"
+  },
+  "additionalBenchmark": {
+    "repository": "https://github.com/ctsilva/triangle-rendering-benchmarks",
+    "commit": "37a702cf264bbd6764dfc5f717a5bd5bfeff4921",
+    "sourceCorrection": "patches/triangle-benchmark-projection.patch",
+    "correctionReason": "Column-major perspective matrix had its -1 and nearZ*zs entries transposed. At camera-space z=-2.5, old clip z/w is about 6; corrected is about 0.961, inside Metal's [0,1] depth range.",
+    "unmodifiedScoresRejected": true,
+    "gpuAdapterInjected": false,
+    "drawableResolution": "800x600",
+    "requestedGeometryParameter": 100000,
+    "secondsPerMode": 30,
+    "vsync": false,
+    "results": [
+      {
+        "mode": "triangles",
+        "trianglesPerFrame": 200978,
+        "fps": 159.8,
+        "wallMillionTrianglesPerSecond": 32,
+        "exitCode": 0
+      },
+      {
+        "mode": "strips",
+        "trianglesPerFrame": 400961,
+        "fps": 159.6,
+        "wallMillionTrianglesPerSecond": 64,
+        "exitCode": 0
+      },
+      {
+        "mode": "triangles visible repeat",
+        "trianglesPerFrame": 200978,
+        "fps": 160.0,
+        "wallMillionTrianglesPerSecond": 32,
+        "exitCode": 0
+      }
+    ],
+    "bothModesObservedDrawing": true,
+    "limits": "Source-corrected benchmark, not an untouched upstream score. Resolution differs from GravityMark; do not compare their fps as equivalent workloads. Frame scheduling is near 160 fps, not proof of GPU saturation. Native M4 GUI reference timed out before drawing; no M4 reference score is claimed."
+  },
+  "rejectedIsolationTrial": {
+    "enabledInProduct": false,
+    "firstFailure": "MTLCopyAllDevices Vulkan failure -13",
+    "existingDeviceLookupTest": "passed on RTX 5080",
+    "nextFailure": "gpu_task.unsupported.backing_for_id during cold boot",
+    "baselineRestored": true,
+    "argumentBufferSupportQualified": false
+  },
+  "privateArtifactsCommitted": false
+}

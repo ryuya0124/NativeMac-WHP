@@ -8,7 +8,7 @@ CPUはWHPで実行し、QEMU実行ファイル・QEMUコア・CPU命令の動的
 
 2026-10-22のFHD検証では、共有RAMを64 MiBずつの独立したWindowsセクションに分け、画面停止時に起きていた長いGPUメモリ割り当て待ちを改善しました。30分で184,144フレームを描画し、約8.51億個のGPU計算結果が一致しました。3回のロック・解除、ドラッグ、ホイール、4アプリの起動・切替も確認しました。GPUハングとカーネルパニックは0件です。[検証の条件と限界](docs/verification/banked-gpu-ram.json)を参照してください。
 
-軽量のFHD 3D診断は平均151.46完了フレーム/秒でした。その後、Object／Mesh用の設定APIを保持する[プロセス限定の互換層](native/MetalCompat/README.md)を追加しました。直接描画、CPU・GPUで引数を作る間接描画はピクセル比較を通過しています。GravityMarkはAPI例外を通過して完走しましたが、3Dシーンが黒く表示オブジェクト数が0のため、スコアを採用していません。[条件と未解決事項](docs/verification/deferred-stage-bindings.json)を参照してください。全Metal機能や全アプリの互換性を保証する結果ではありません。
+軽量のFHD 3D診断は平均151.46完了フレーム/秒でした。[プロセス限定の互換層](native/MetalCompat/README.md)を使用したGravityMark 1.89は、FHD・2万小惑星の実際の描画を確認して完走しました（167.1秒、22.7fps、スコア3792）。別のMetal三角形ベンチマークも、ベンチマーク側の投影行列を修正して両モードを完走しました（800×600、約160fps）。同じ新版でも再実行時に黒画面が再発し、原因と再現条件は調査中です。安定して繰り返せる状態には達していません。全Metal機能や全アプリの互換性を保証する結果ではありません。[条件と限界](docs/verification/metal-benchmarks.json)を参照してください。
 
 実装・検証できたもの：
 
@@ -102,4 +102,4 @@ ReimsのWindows開発ブランチにもTahoeの動作報告がありますが、
 
 依存ファイルの配置は[BUILDING.md](docs/BUILDING.md)、外部ソースの出典は[THIRD_PARTY.md](THIRD_PARTY.md)を参照してください。
 
-FHDの3D検証ではGravityMark 1.89を実行し、LLVMビット反転のデコード不足を修正しました。次の計算シェーダーのメモリアクセス処理で停止しており、3Dベンチの完走・スコアは未取得です。検証済み経路と残る不足は[GPU互換性一覧](docs/GPU_COMPATIBILITY.md)に記録しています。
+FHDの3D検証では、LLVMビット反転・メモリアクセス処理と長い共有メモリ割り当て待ちを修正し、プロセス限定の互換層を使ったGravityMarkの描画・完走を確認しました。ヒープ作成・Mesh実行などの不足と検証の範囲は[GPU互換性一覧](docs/GPU_COMPATIBILITY.md)に記録しています。

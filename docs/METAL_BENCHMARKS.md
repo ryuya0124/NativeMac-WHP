@@ -1,0 +1,63 @@
+# Metal benchmark reproduction
+
+These are scoped development checks for the Intel macOS guest. Keep 12 GiB,
+8 CPUs and the FHD desktop. Results and limits are in
+[metal-benchmarks.json](verification/metal-benchmarks.json). Do not upload private
+guest captures, shader inputs, app binaries or logs to this repository.
+
+## GravityMark 1.89
+
+Build the opt-in adapter with `scripts/Build-GuestMetalCompat.ps1`, copy its
+dylib and wrapper into a guest probe folder, and run from the benchmark's
+`Contents/MacOS` directory:
+
+```bash
+/bin/bash "$HOME/NativeMacLab/probes/readback-candidate/Run-With-DeferredBindings.sh" \
+  ./GravityMark -width 1920 -height 1080 -fullscreen 0 -vsync 0 \
+  -temporal 1 -fps 1 -info 1 -sensors 0 -benchmark 1 -asteroids 20000 \
+  -raster 0 -meshlet 0 -raytracing 0 -close 1 -count 1
+```
+
+`-raster 0` selects ordinary rasterization, not compute rasterization. Close
+the app's crash-restoration question before timing; do not mistake this modal
+for a GPU hang. Use a separate bounded process group to clean up a failed run.
+Require normal exit, actual populated scenes and a recovered desktop; a score
+on a black scene is rejected. Heap creation still returns nil and the benchmark
+falls back. Neither a mesh shader nor CPU rendering is substituted.
+
+One combined-adapter run showed populated output; the next identical run
+was black again. The benchmark never invoked the CPU readback replacement.
+The cause is unresolved, and this is not repeatable qualification. Preserve that limitation when
+reporting this experimental result.
+
+## Independent triangle benchmark
+
+Download [ctsilva/triangle-rendering-benchmarks](https://github.com/ctsilva/triangle-rendering-benchmarks)
+into a new scratch directory and check out
+`37a702cf264bbd6764dfc5f717a5bd5bfeff4921`. Apply this repository's
+`patches/triangle-benchmark-projection.patch` there with `git apply`.
+The two changed entries repair a column-major projection matrix that otherwise
+clips all triangles. This is a source-corrected benchmark, not an untouched
+upstream score.
+
+Build on a Mac with Xcode:
+
+```bash
+xcrun clang -O3 -arch x86_64 -mmacosx-version-min=13.0 -fobjc-arc \
+  benchmark.m -framework Cocoa -framework Metal -framework MetalKit \
+  -framework QuartzCore -framework Foundation -o metal-benchmark-projection-x64
+```
+
+Copy only that executable and `Shaders.metal` into the guest's temporary
+benchmark directory. Run each mode from that directory, without the GPU adapter:
+
+```bash
+env SECONDS=30 TRIANGLES=100000 NOVSYNC=1 MODE=triangles ./metal-benchmark-projection-x64
+env SECONDS=30 TRIANGLES=100000 NOVSYNC=1 MODE=strips ./metal-benchmark-projection-x64
+```
+
+The tool self-terminates and prints `RESULT`. Observe actual moving geometry
+in both modes and require exit 0. Its 800x600 drawable differs from GravityMark's
+FHD workload. `TRIANGLES` is an input geometry parameter; the tool's generated
+counts here are 200978 triangles per frame and 400961 for strips. Around
+160 fps is the observed scheduling rate, not evidence of GPU saturation.

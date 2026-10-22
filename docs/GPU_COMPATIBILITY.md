@@ -2,6 +2,27 @@
 
 Tests use macOS 26.6.2 x86_64, WHP, 12 GiB / 8 virtual processors, and RTX 5080 through Reims/Vulkan. CPU execution uses no instruction translation. The active investigation stays at 1920x1080; 4K qualification is deferred until the FHD gaps are addressed.
 
+Latest benchmark checks: the opt-in binding/readback adapter renders a populated
+GravityMark 1.89 scene and completes FHD/20,000 asteroids in 167.1 seconds,
+22.7 fps, score 3792, exit 0. Binding-only still reproduces zero visible objects.
+The identical combined adapter also reproduced black output on its next run,
+so this is one successful observation, not repeatable qualification. Its only
+readback copy belongs to preflight; the underlying cause is unproven. Heap creation still returns
+nil. No pixel-equivalence or general Metal claim follows.
+
+The independent `ctsilva/triangle-rendering-benchmarks` completes both modes
+with visible geometry at 800x600 and approximately 160 fps after correcting
+the benchmark's transposed perspective entries; its untouched blank scores
+are rejected. No GPU adapter is injected into this benchmark. Shared-texture
+readback separately passes 84 cases / 23500 checked bytes, including padded
+subregions, array slices and mips. Isolation remains disabled: its cold boot
+reaches `gpu_task.unsupported.backing_for_id`. See
+[current aggregate evidence](verification/metal-benchmarks.json) and
+[adapter scope](../native/MetalCompat/README.md).
+
+The table and investigation entries below record earlier checkpoints, including
+failures superseded by the current scoped checks above.
+
 | Path | Evidence | Status / limits |
 | --- | --- | --- |
 | Metal compute, shared-buffer readback | 4,096 values compared in the guest, repeated runs | Passed for this probe |
@@ -19,7 +40,7 @@ Each newly reached refusal needs an authored regression and a guest retest. A be
 
 The pinned translator has an upstream API inventory in `docs/METAL-COVERAGE.md` and typed refusal catalogue in `docs/REFUSALS.md`. Its inventory covers the macOS 27 SDK's API items, including metadata and platform-owned services; it is not a percentage of GPU instructions supported by this macOS 26 VM. Use it to select tests, then record actual guest execution here.
 
-Latest optional API progress: the authored, opt-in binding adapter retains
+Earlier optional API checkpoint: the authored, opt-in binding adapter retains
 object/mesh resource settings used by GravityMark's traditional draw path. It
 does not change feature queries or implement mesh execution; mesh draws throw
 explicitly. Direct, CPU-indirect and GPU-indirect authored render tests all pass
