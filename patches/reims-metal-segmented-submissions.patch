@@ -1,0 +1,140 @@
+diff --git a/guest/metal-compat/SubmissionABI.hpp b/guest/metal-compat/SubmissionABI.hpp
+index 4687b3f..4652b03 100644
+--- a/guest/metal-compat/SubmissionABI.hpp
++++ b/guest/metal-compat/SubmissionABI.hpp
+@@ -88,12 +88,20 @@ inline size_t walkSubmission(const uint8_t *source, size_t sourceSize,
+                 const uint8_t *record = header + cursor;
+                 uint32_t begin = read<uint32_t>(record, 8), end = read<uint32_t>(record, 12);
+                 uint32_t resources = read<uint32_t>(record, 24), chunks = read<uint32_t>(record, 28);
+-                if (begin != previousEnd || end <= begin || end > commandSize || (end - begin) % 20 ||
++                if (begin != previousEnd || end <= begin || end > commandSize ||
+                     !resources || resources > (0x3fffffffU - 24) / 88 || chunks != (resources + 5) / 6 ||
+                     chunks > (inputLength - cursor - 32) / 64) return 0;
+-                for (uint32_t at = begin; at < end; at += 20)
+-                    if (read<uint32_t>(commands, at) != 0x10000 || read<uint32_t>(commands, at + 4) != 20)
+-                        return 0;
++                // A serializer command names one or more buffer/used-length pairs.
++                // Large encoders span several buffers; preserve every pair verbatim.
++                for (uint32_t at = begin; at < end;) {
++                    if (end - at < 12) return 0;
++                    uint32_t bytes = read<uint32_t>(commands, at + 4);
++                    uint32_t segments = read<uint32_t>(commands, at + 8);
++                    if (read<uint32_t>(commands, at) != 0x10000 || !segments ||
++                        segments > (UINT32_MAX - 12) / 8 || bytes != 12 + segments * 8 ||
++                        bytes > end - at) return 0;
++                    at += bytes;
++                }
+                 size_t recordSize = 24 + static_cast<size_t>(resources) * 88;
+                 if (outputLength > 0x3fffffffU - recordSize) return 0;
+                 if (output) {
+diff --git a/guest/metal-compat/abi-test.cpp b/guest/metal-compat/abi-test.cpp
+index 36308c7..1c4cea6 100644
+--- a/guest/metal-compat/abi-test.cpp
++++ b/guest/metal-compat/abi-test.cpp
+@@ -41,6 +41,7 @@ static void checkSubmission() {
+     ReimsABI::write<uint32_t>(commands, 4, 0xac);
+     ReimsABI::write<uint32_t>(commands, 0xac, 0x10000);
+     ReimsABI::write<uint32_t>(commands, 0xb0, 20);
++    ReimsABI::write<uint32_t>(commands, 180, 1);
+     for (unsigned i = 0; i < 7; i++) {
+         auto chunk = source + 0x48 + (i / 6) * 64;
+         ReimsABI::write<uint32_t>(chunk, (i % 6) * 4, i + 1);
+@@ -95,6 +96,7 @@ static void checkSubmission() {
+     ReimsABI::write<uint32_t>(multi, 0x24, 0x800000d0);
+     ReimsABI::write<uint32_t>(multiCommands, 0xc0, 0x10000);
+     ReimsABI::write<uint32_t>(multiCommands, 0xc4, 20);
++    ReimsABI::write<uint32_t>(multiCommands, 200, 1);
+     for (unsigned group = 0; group < 2; group++) {
+         auto record = multi + 0x28 + group * 96;
+         ReimsABI::write<uint32_t>(record, 8, 0xac + group * 20);
+@@ -114,6 +116,66 @@ static void checkSubmission() {
+     assert(!ReimsABI::submissionSize(multi, sizeof(multi), multiCommands, sizeof(multiCommands)));
+ }
+ 
++static void checkSegmentedSubmission() {
++    uint8_t source[136] {}, commands[256] {}, copied[256] {}, output[128] {};
++    ReimsABI::write<uint32_t>(commands, 0, 15);
++    ReimsABI::write<uint32_t>(commands, 4, 172);
++    ReimsABI::write<uint32_t>(source, 8, 1);
++    ReimsABI::write<uint32_t>(source, 12, 0x40000001);
++    ReimsABI::write<uint32_t>(source, 20, 172);
++    ReimsABI::write<uint32_t>(source, 32, 1);
++    ReimsABI::write<uint32_t>(source, 36, 0x80000070);
++    ReimsABI::write<uint32_t>(source, 48, 172);
++    ReimsABI::write<uint32_t>(source, 64, 1);
++    ReimsABI::write<uint32_t>(source, 68, 1);
++    ReimsABI::write<uint32_t>(source, 72, 7);
++    ReimsABI::write<uint32_t>(source, 96, 4);
++    ReimsABI::write<uint16_t>(source, 120, 3);
++    ReimsABI::write<uint16_t>(source, 134, 1);
++    auto lookup = [](void *, uint32_t id, uint64_t &length) { length = 4096; return id == 7; };
++    for (uint32_t segments : {1U, 2U, 3U}) {
++        uint32_t bytes = 12 + segments * 8;
++        ReimsABI::write<uint32_t>(commands, 172, 0x10000);
++        ReimsABI::write<uint32_t>(commands, 176, bytes);
++        ReimsABI::write<uint32_t>(commands, 180, segments);
++        for (uint32_t i = 0; i < segments; i++) {
++            ReimsABI::write<uint32_t>(commands, 184 + i * 8, 10 + i);
++            ReimsABI::write<uint32_t>(commands, 188 + i * 8, 64 + i * 4);
++        }
++        // Two commands in one resource group, with a different number of segments.
++        uint32_t next = 172 + bytes, end = next + 20;
++        ReimsABI::write<uint32_t>(commands, next, 0x10000);
++        ReimsABI::write<uint32_t>(commands, next + 4, 20);
++        ReimsABI::write<uint32_t>(commands, next + 8, 1);
++        ReimsABI::write<uint32_t>(commands, next + 12, 20);
++        ReimsABI::write<uint32_t>(commands, next + 16, 80);
++        ReimsABI::write<uint32_t>(source, 52, end);
++        memcpy(copied, commands, sizeof(commands));
++        assert(ReimsABI::submission(source, sizeof(source), commands, end, output,
++            sizeof(output), nullptr, lookup, copied));
++        assert(!memcmp(copied, commands, sizeof(commands)));
++        assert(ReimsABI::read<uint32_t>(output, 24) == 172);
++        assert(ReimsABI::read<uint32_t>(output, 28) == end);
++        for (uint32_t size = 172; size < end; size++)
++            assert(!ReimsABI::submissionSize(source, sizeof(source), commands, size));
++        for (uint32_t wrong : {0U, segments + 1, UINT32_MAX}) {
++            ReimsABI::write<uint32_t>(commands, 180, wrong);
++            assert(!ReimsABI::submissionSize(source, sizeof(source), commands, end));
++        }
++        ReimsABI::write<uint32_t>(commands, 180, segments);
++        for (uint32_t wrong : {0U, 8U, bytes - 4, bytes + 4, UINT32_MAX}) {
++            ReimsABI::write<uint32_t>(commands, 176, wrong);
++            assert(!ReimsABI::submissionSize(source, sizeof(source), commands, end));
++        }
++        ReimsABI::write<uint32_t>(commands, 176, bytes);
++        ReimsABI::write<uint32_t>(commands, next, 0x10001);
++        assert(!ReimsABI::submissionSize(source, sizeof(source), commands, end));
++        ReimsABI::write<uint32_t>(commands, next, 0x10000);
++        ReimsABI::write<uint32_t>(source, 52, end - 1);
++        assert(!ReimsABI::submissionSize(source, sizeof(source), commands, end));
++    }
++}
++
+ static void checkEvents() {
+     uint8_t source[160] {}, commands[216] {}, convertedCommands[216] {}, output[152] {};
+     ReimsABI::write<uint32_t>(source, 8, 1);
+@@ -137,6 +199,7 @@ static void checkEvents() {
+     ReimsABI::write<uint32_t>(commands, 4, 172);
+     ReimsABI::write<uint32_t>(commands, 172, 0x10000);
+     ReimsABI::write<uint32_t>(commands, 176, 20);
++    ReimsABI::write<uint32_t>(commands, 180, 1);
+     ReimsABI::write<uint32_t>(commands, 192, 3);
+     ReimsABI::write<uint32_t>(commands, 196, 24);
+     ReimsABI::write<uint32_t>(commands, 200, 0x1234);
+@@ -183,6 +246,7 @@ static void checkEvents() {
+     ReimsABI::write<uint64_t>(commands, 188, 1);
+     ReimsABI::write<uint32_t>(commands, 196, 0x10000);
+     ReimsABI::write<uint32_t>(commands, 200, 20);
++    ReimsABI::write<uint32_t>(commands, 204, 1);
+     memcpy(convertedCommands, commands, sizeof(commands));
+     assert(ReimsABI::submission(waitSource, sizeof(waitSource), commands, sizeof(commands), output, sizeof(output),
+         nullptr, lookup, convertedCommands));
+@@ -300,6 +364,7 @@ int main() {
+     assert(!ReimsABI::batchSize(2, 64, 128));
+     assert(!ReimsABI::batchSize(UINT64_MAX, 48, UINT64_MAX));
+     checkSubmission();
++    checkSegmentedSubmission();
+     checkEvents();
+     uint8_t dirty[32];
+     assert(ReimsABI::dirtyTexture(7, 0, 0, dirty));

@@ -25,10 +25,42 @@ Require normal exit, actual populated scenes and a recovered desktop; a score
 on a black scene is rejected. Heap creation still returns nil and the benchmark
 falls back. Neither a mesh shader nor CPU rendering is substituted.
 
-One combined-adapter run showed populated output; the next identical run
-was black again. The benchmark never invoked the CPU readback replacement.
-The cause is unresolved, and this is not repeatable qualification. Preserve that limitation when
-reporting this experimental result.
+On the earlier kernel bridge, combined-adapter runs could show populated output
+or a black scene. The benchmark never invoked the CPU readback replacement;
+foreground activation alone did not remove the failure. A later diagnostic
+isolated a synchronous kernel submission refusal, described below. The candidate
+has completed three consecutive populated FHD runs at 23.7–24.0 fps
+(scores 4012, 3957 and 4018), all exit 0. These benchmark results do not qualify general Metal support.
+
+## Large encoder submission regression
+
+The kernel bridge previously assumed every serializer command occupied 20 bytes
+and named a single command buffer. Larger encoders name multiple buffer/used-length
+pairs in a variable-length record. The old check rejected them synchronously with
+`kIOReturnUnsupported`, so a Metal command buffer finished with Internal Error
+before reaching the host GPU. The segmented-submissions patch validates the
+count, size, opcode and containing range, while preserving every pair verbatim.
+Resource-list validation and actual completion delivery remain in place.
+
+`native/MetalProbe/SegmentedBlitProbe.m` grows one encoder with 16384 real fill
+commands and checks all 4096 destination bytes. It fails with Internal Error and
+4096 mismatches on the earlier bridge; the candidate completes with zero
+mismatches. Its x64 M4 reference also passes. Run this probe without a shim:
+
+```bash
+./segmented-blit-probe-x64
+```
+
+The affected CPU-only ABI tests cover one, two and three segments, mixed records,
+byte preservation, truncation, count/size overflow, unknown opcodes and record
+boundaries. Both native and x64 builds pass on the development Mac. The signed
+candidate is built from source snapshot `8a079b086b8b3990c1ad60a56e924a9028c9bb4c`;
+its source manifest is kept with the source-only verification records.
+GravityMark now passes three consecutive populated runs; the second and third
+omit submission tracing, and the third omits extra foreground activation. Both
+triangle modes then complete again without an injected adapter (159.9 and
+160.0 fps). These results do not qualify general Metal support or long-duration
+stability on this new kernel snapshot.
 
 ## Independent triangle benchmark
 

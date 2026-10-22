@@ -1,4 +1,34 @@
-# Latest benchmark checkpoint (2026-10-22 afternoon)
+# Active segmented-submission checkpoint (2026-10-22)
+
+The user authorized public GitHub and unattended work. Keep FHD / 12 GiB / 8 CPUs,
+WHP, nonisolated GPU tasks, and the scoped sampler/readback adapter only.
+
+Kernel source snapshot `8a079b086b8b3990c1ad60a56e924a9028c9bb4c` is built and
+currently booted. It fixes a fixed-20-byte command assumption that refused
+multi-segment serializer submissions before reaching the host GPU. The authored
+16384-command blit failed before the change (Internal Error, 4096 mismatches) and
+passes after (4096 bytes checked, zero mismatches, completed). Native/x64 ABI
+tests and source snapshot tests pass. The unchanged host DLL and translator
+remain the earlier baseline. The rejected isolation cache experiment is not
+merged into the active library.
+
+Three consecutive repaired GravityMark FHD runs draw real populated scenes and
+complete normally: 24.0 / 23.7 / 24.0 fps, scores 4012 / 3957 / 4018, each about
+167 seconds. The second and third omit submission tracing; the third omits extra
+foreground activation. The corrected independent triangle benchmark then passes
+both modes again without a GPU adapter (159.9 / 160.0 fps, 800x600). A direct
+unshimmed 16384-command blit passes after the sequence. Four adapter modes pass,
+plus 84 readback cases / 23500 bytes and 4096-value GPU compute. Three
+post-benchmark lock/unlock cycles return to the desktop, a title-bar drag
+responds, and GPU compute after the last unlock verifies 4096 values. No host
+fatal, exec fault, GPU hang or kernel panic appears in this cold-boot session.
+A new 30-minute continuous observation is not qualified by this session.
+Preserve private
+trace captures in ignored artifacts; publish only authored sources, patches,
+manifest hashes and aggregate verification. General Metal support remains
+unqualified; heaps, mesh execution and argument buffers have unresolved limits.
+
+# Earlier benchmark checkpoint (2026-10-22 afternoon)
 
 Public repository remains user-authorized. Never commit private logs, images, shader inputs, credentials or downloaded app binaries. Keep 12 GiB / 8 CPUs / FHD and nonisolated GPU tasks.
 

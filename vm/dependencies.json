@@ -31,8 +31,8 @@
       "qualification": "in_progress",
       "buildInstructions": "docs/GPU_STABILITY.md",
       "patch": "patches/reims-metal-compat-astc.patch",
-      "testedSnapshotRevision": "81cc109e0b1c9df3ccb3b1771a2d0b3cf9ea6b1e",
-      "manifest": "docs/verification/metal-compat-source-manifest.json",
+      "testedSnapshotRevision": "8a079b086b8b3990c1ad60a56e924a9028c9bb4c",
+      "manifest": "docs/verification/metal-compat-segmented-source-manifest.json",
       "aliasLifetimeRepair": {
         "patch": "patches/reims-metal-compat-alias-lifetime.patch",
         "applyAfter": "patches/reims-metal-compat-astc.patch",
@@ -44,6 +44,13 @@
         "applyAfter": "patches/reims-metal-compat-alias-lifetime.patch",
         "sourceRevision": "81cc109e0b1c9df3ccb3b1771a2d0b3cf9ea6b1e",
         "scope": "explicitly armed client; same owning task only; bounded 512-byte resource input"
+      },
+      "segmentedSubmissions": {
+        "patch": "patches/reims-metal-segmented-submissions.patch",
+        "applyAfter": "patches/reims-metal-resource-diagnostics.patch",
+        "sourceRevision": "8a079b086b8b3990c1ad60a56e924a9028c9bb4c",
+        "scope": "Validate variable-length serializer buffer lists and preserve each segment; no GPU commands omitted",
+        "status": "FHD cold boot and authored blit pass; three consecutive populated GravityMark runs complete normally at 23.7-24.0 fps; general Metal compatibility remains unqualified"
       }
     },
     "contiguousMemoryRuns": {

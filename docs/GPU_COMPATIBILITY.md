@@ -2,13 +2,22 @@
 
 Tests use macOS 26.6.2 x86_64, WHP, 12 GiB / 8 virtual processors, and RTX 5080 through Reims/Vulkan. CPU execution uses no instruction translation. The active investigation stays at 1920x1080; 4K qualification is deferred until the FHD gaps are addressed.
 
-Latest benchmark checks: the opt-in binding/readback adapter renders a populated
-GravityMark 1.89 scene and completes FHD/20,000 asteroids in 167.1 seconds,
-22.7 fps, score 3792, exit 0. Binding-only still reproduces zero visible objects.
-The identical combined adapter also reproduced black output on its next run,
-so this is one successful observation, not repeatable qualification. Its only
-readback copy belongs to preflight; the underlying cause is unproven. Heap creation still returns
-nil. No pixel-equivalence or general Metal claim follows.
+The kernel bridge's fixed-size serializer check rejected large encoders before
+submission to the host GPU. Snapshot `8a079b0` validates variable-length segment
+lists and preserves every command buffer. The authored 16384-command GPU blit
+now completes with all 4096 bytes correct; before the repair it was refused with
+Internal Error and all 4096 bytes wrong. Native/x64 ABI checks pass, and the
+candidate cold boots to the FHD desktop.
+
+Three consecutive repaired GravityMark runs show populated scenes and finish
+FHD/20,000 asteroids normally (24.0 fps / score 4012, 23.7 fps / score 3957,
+and 24.0 fps / score 4018). The second and third runs have no submission tracing;
+the third also has no extra foreground activation. Earlier black/zero-visible scores remain rejected.
+Three post-benchmark lock/unlock cycles, a desktop title-bar drag and checked
+4096-value GPU compute also pass. No new host fatal, exec fault, GPU hang or
+kernel panic appears in this session. A new 30-minute continuous observation
+has not been qualified. Heap creation still returns nil; pixel equivalence and general Metal support
+are not qualified.
 
 The independent `ctsilva/triangle-rendering-benchmarks` completes both modes
 with visible geometry at 800x600 and approximately 160 fps after correcting

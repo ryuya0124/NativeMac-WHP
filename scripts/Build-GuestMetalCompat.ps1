@@ -8,7 +8,8 @@ $remote = '/tmp/nativemac-metal-' + [guid]::NewGuid().ToString('N')
 $probes = @(
     @{ Source = 'DeferredBindingsProbe.m'; Output = 'deferred-bindings-probe-x64' },
     @{ Source = 'ArgumentBufferProbe.m'; Output = 'argument-buffer-probe-x64' },
-    @{ Source = 'TextureReadbackProbe.m'; Output = 'texture-readback-regions-x64' }
+    @{ Source = 'TextureReadbackProbe.m'; Output = 'texture-readback-regions-x64' },
+    @{ Source = 'SegmentedBlitProbe.m'; Output = 'segmented-blit-probe-x64' }
 )
 function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments

@@ -46,34 +46,74 @@
     "adapter": "binding tables plus measured shared-texture readback adapter",
     "exitCode": 0,
     "reportedSeconds": 167.1,
-    "reportedFPS": 22.7,
-    "reportedScore": 3792,
+    "reportedFPS": 24.0,
+    "reportedScore": 4012,
     "observedPopulatedScene": true,
     "observedVisibleObjectSamples": [
-      34448,
-      26056
+      18773,
+      24494
     ],
-    "deferredBindingCalls": 371504,
+    "deferredBindingCalls": 393064,
     "meshDrawRequests": 0,
     "readbackCopiesIncludingPreflight": 1,
-    "causalityLimit": "Two populated-scene completions, but identical-adapter and activation repeats can be black. Only constructor preflight copies were counted. Neither readback interception nor foregrounding explains or fixes this reliably.",
-    "bindingOnlyConfirmation": "black scene and zero visible objects reproduced; reject its score",
+    "causalityLimit": "Authored large-encoder rejection reproduces before the fixed-size parser repair and passes afterward. Three actual populated benchmark completions follow the repair. CPU readback hook only handled its preflight. Pixel equivalence remains unaudited.",
+    "bindingOnlyConfirmation": "Earlier bridge: black scene and zero visible objects reproduced; reject its score",
     "remaining": [
       "heap allocation requests return nil and the benchmark falls back",
       "pixel equivalence to native Metal is unaudited",
       "mesh execution unsupported"
     ],
-    "repeatableQualified": false,
-    "sameAdapterRepeat": "exit 0 but black scene / zero visible objects; reject reported 101.9 fps / score 17017",
+    "repeatableQualified": true,
+    "sameAdapterRepeat": "Earlier bridge: exit 0 but black scene / zero visible objects; reject reported 101.9 fps / score 17017",
     "additionalPopulatedRun": {
       "activation": "open existing app at 2 seconds",
       "score": 3849,
       "fps": 23.0,
       "seconds": 167.1,
       "exitCode": 0,
-      "deferredBindingCalls": 377090
+      "deferredBindingCalls": 377090,
+      "kernelBridge": "before segmented submission repair"
     },
-    "activationRepeat": "exit 0 but black/visible=0 again; reject 98.4 fps / score16441; foregrounding alone is not a fix"
+    "activationRepeat": "Earlier bridge: exit 0 but black/visible=0 again; reject 98.4 fps / score16441; foregrounding alone is not a fix",
+    "earlierBridgeObservations": {
+      "reportedFPS": 22.7,
+      "reportedScore": 3792,
+      "sameAdapterRepeat": "exit 0 but black scene / zero visible objects; reject reported 101.9 fps / score 17017",
+      "activationRepeat": "exit 0 but black/visible=0 again; reject 98.4 fps / score16441; foregrounding alone is not a fix",
+      "causalityLimit": "Two populated-scene completions, but identical-adapter and activation repeats can be black. Only constructor preflight copies were counted. Neither readback interception nor foregrounding explains or fixes this reliably."
+    },
+    "kernelBridgeSource": "8a079b086b8b3990c1ad60a56e924a9028c9bb4c",
+    "segmentedSubmissionRuns": [
+      {
+        "fps": 24.0,
+        "score": 4012,
+        "seconds": 167.1,
+        "exitCode": 0,
+        "observedPopulatedScene": true,
+        "submissionDiagnosticEnabled": true,
+        "deferredBindingCalls": 393064
+      },
+      {
+        "fps": 23.7,
+        "score": 3957,
+        "seconds": 167.2,
+        "exitCode": 0,
+        "observedPopulatedScene": true,
+        "submissionDiagnosticEnabled": false,
+        "deferredBindingCalls": 387674
+      },
+      {
+        "fps": 24.0,
+        "score": 4018,
+        "seconds": 167.2,
+        "exitCode": 0,
+        "observedPopulatedScene": true,
+        "submissionDiagnosticEnabled": false,
+        "extraForegroundActivation": false,
+        "deferredBindingCalls": 393652
+      }
+    ],
+    "qualificationScope": "Three consecutive FHD raster/temporal/20000-asteroid populated completions on this source snapshot, including without submission tracing and without extra foreground activation. No general Metal or long-duration stability claim."
   },
   "additionalBenchmark": {
     "repository": "https://github.com/ctsilva/triangle-rendering-benchmarks",
@@ -110,7 +150,26 @@
       }
     ],
     "bothModesObservedDrawing": true,
-    "limits": "Source-corrected benchmark, not an untouched upstream score. Resolution differs from GravityMark; do not compare their fps as equivalent workloads. Frame scheduling is near 160 fps, not proof of GPU saturation. Native M4 GUI reference timed out before drawing; no M4 reference score is claimed."
+    "limits": "Source-corrected benchmark, not an untouched upstream score. Resolution differs from GravityMark; do not compare their fps as equivalent workloads. Frame scheduling is near 160 fps, not proof of GPU saturation. Native M4 GUI reference timed out before drawing; no M4 reference score is claimed.",
+    "segmentedBridgeRepeat": {
+      "kernelBridgeSource": "8a079b086b8b3990c1ad60a56e924a9028c9bb4c",
+      "results": [
+        {
+          "mode": "triangles",
+          "fps": 159.9,
+          "exitCode": 0,
+          "trianglesPerFrame": 200978
+        },
+        {
+          "mode": "strips",
+          "fps": 160.0,
+          "exitCode": 0,
+          "trianglesPerFrame": 400961
+        }
+      ],
+      "bothModesObservedDrawing": true,
+      "gpuAdapterInjected": false
+    }
   },
   "rejectedIsolationTrial": {
     "enabledInProduct": false,
@@ -120,5 +179,59 @@
     "baselineRestored": true,
     "argumentBufferSupportQualified": false
   },
-  "privateArtifactsCommitted": false
+  "privateArtifactsCommitted": false,
+  "segmentedSubmissions": {
+    "sourceRevision": "8a079b086b8b3990c1ad60a56e924a9028c9bb4c",
+    "patch": "patches/reims-metal-segmented-submissions.patch",
+    "sourceManifest": "docs/verification/metal-compat-segmented-source-manifest.json",
+    "cpuABI": "all assertions pass, native arm64 and x86_64",
+    "malformedInputs": "truncation, count overflow, mismatched record size, invalid opcode and range boundaries refused",
+    "probe": {
+      "source": "native/MetalProbe/SegmentedBlitProbe.m",
+      "commands": 16384,
+      "checkedBytes": 4096,
+      "before": {
+        "exitCode": 1,
+        "status": 5,
+        "mismatches": 4096,
+        "submissionReturn": "kIOReturnUnsupported"
+      },
+      "after": {
+        "exitCode": 0,
+        "status": 4,
+        "mismatches": 0,
+        "submissionReturn": "kIOReturnSuccess"
+      },
+      "nativeM4x64Reference": "exit 0; status 4; zero mismatches",
+      "afterWithoutShim": {
+        "exitCode": 0,
+        "status": 4,
+        "mismatches": 0
+      }
+    },
+    "coldBoot": "FHD desktop and first login pass",
+    "omittedGPUCommands": false,
+    "syntheticCompletions": false,
+    "postBenchmark": {
+      "lockUnlockCycles": 3,
+      "desktopTitleBarDrag": "responds after final unlock",
+      "gpuComputeValues": 4096,
+      "gpuComputeVerified": true,
+      "adapterModes": [
+        "direct",
+        "cpu-indirect",
+        "gpu-indirect",
+        "shared-cpu-readback"
+      ],
+      "adapterModesPassed": true,
+      "textureReadbackCases": 84,
+      "textureReadbackBytes": 23500,
+      "textureReadbackErrors": 0,
+      "hostFatalCount": 0,
+      "execFaultedCount": 0,
+      "gpuHangCount": 0,
+      "kernelPanicCount": 0,
+      "newSnapshot30MinuteObservationQualified": false
+    }
+  }
 }
