@@ -1,6 +1,6 @@
 # FHD GPU compatibility checks
 
-Tests use macOS 26.6.2 x86_64, WHP, 12 GiB / 8 virtual processors, and RTX 5080 through Reims/Vulkan. CPU execution uses no instruction translation. The active investigation stays at 1920x1080; 4K qualification is deferred until the FHD gaps are addressed.
+Tests use macOS 26.6.2 x86_64, WHP, 12 GiB / 8 virtual processors, and RTX 5080 through Reims/Vulkan. CPU execution uses no instruction translation. FHD remains the default. A bounded 4K desktop and populated GravityMark run now pass; general Metal and game compatibility remain incomplete.
 
 The kernel bridge's fixed-size serializer check rejected large encoders before
 submission to the host GPU. Snapshot `8a079b0` validates variable-length segment
@@ -141,3 +141,38 @@ render/mapping errors, GPU hangs or kernel panics. The maximum observed frame
 gap was 338.56 ms during app/input interactions. A final post-unlock GPU
 check verified 4096 values and the desktop title-bar drag responded. These
 results qualify this bounded desktop observation, not general Metal compatibility. See `docs/verification/banked-gpu-ram.json`.
+
+
+## 4K display qualification (2026-10-22)
+
+The 3840×2160 maximum-mode launch cold-boots and unlocks. macOS initially
+chooses 2560×1600. A temporary `CGDisplaySetDisplayMode` selection reverts after
+about one second; `DisplayModeProbe.m` now commits an explicit session display
+configuration instead. Both CoreGraphics and the host GPU callback then retain
+3840×2160. This changes the current login session only. It does not change the
+default launch resolution or promise a persisted mode after the next login.
+
+The same authored 441-cube workload renders actual 3840×2160 drawables, checks
+a GPU pixel and completes 30 seconds with zero command errors. With a
+2560×1600 desktop it reports 103.30 completed fps; with a 3840×2160 desktop
+it reports 59.55. These are different desktop workloads, not a measured
+optimization gain, a commercial score, or physical monitor delivery rates.
+
+GravityMark 1.89 at 3840×2160 fullscreen, 20,000 asteroids, temporal=1,
+raster=0, meshlet=0 and raytracing=0 completes in 167.2 seconds: 17.3 fps,
+score 2895, exit 0. Changing populated scenes are observed, with visible-object
+samples 18,202 and 9,497. The process-scoped binding/readback adapter remains
+required. Heap allocation is still refused and the application falls back;
+full pixel equivalence, general Metal compatibility and long 4K stability
+remain unqualified. See [aggregate evidence](verification/fourk-display.json).
+
+
+SuperTuxKart 1.5 is not qualified. Its signed x86_64 application initially
+falls back silently to Apple's software OpenGL renderer after Vulkan
+attachment allocation fails; that trial is rejected. MoltenVK's official
+`MVK_CONFIG_USE_MTLHEAP=0` and `MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0`
+settings allow Vulkan initialization and a timed profile to finish, but the
+observed output is black. Disabling texture compression produces visible sky
+with malformed/incomplete geometry. No game performance number from these
+trials is accepted. This is an application compatibility failure, even though
+the profile exits normally and the desktop recovers.

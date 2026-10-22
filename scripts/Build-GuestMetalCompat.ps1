@@ -9,7 +9,9 @@ $probes = @(
     @{ Source = 'DeferredBindingsProbe.m'; Output = 'deferred-bindings-probe-x64' },
     @{ Source = 'ArgumentBufferProbe.m'; Output = 'argument-buffer-probe-x64' },
     @{ Source = 'TextureReadbackProbe.m'; Output = 'texture-readback-regions-x64' },
-    @{ Source = 'SegmentedBlitProbe.m'; Output = 'segmented-blit-probe-x64' }
+    @{ Source = 'SegmentedBlitProbe.m'; Output = 'segmented-blit-probe-x64' },
+    @{ Source = 'SceneProbe.m'; Output = 'scene-probe-x64'; Frameworks = '-framework AppKit -framework QuartzCore' },
+    @{ Source = 'DisplayModeProbe.m'; Output = 'display-mode-probe-x64'; Frameworks = '-framework ApplicationServices' }
 )
 function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
@@ -24,7 +26,7 @@ try {
     Invoke-Checked 'scp' @("${MacHost}:$remote/deferred-stage-bindings.dylib",(Join-Path $output 'deferred-stage-bindings.dylib'))
     foreach ($probe in $probes) {
         Invoke-Checked 'scp' @((Join-Path $root "native/MetalProbe/$($probe.Source)"),"${MacHost}:$remote/$($probe.Source)")
-        Invoke-Checked 'ssh' @('-o','BatchMode=yes',$MacHost,"xcrun clang $flags $remote/$($probe.Source) -o $remote/$($probe.Output)")
+        Invoke-Checked 'ssh' @('-o','BatchMode=yes',$MacHost,"xcrun clang $flags $($probe.Frameworks) $remote/$($probe.Source) -o $remote/$($probe.Output)")
         Invoke-Checked 'scp' @("${MacHost}:$remote/$($probe.Output)",(Join-Path $output $probe.Output))
     }
     Copy-Item -LiteralPath (Join-Path $root 'native/MetalCompat/Run-With-DeferredBindings.sh') -Destination $output

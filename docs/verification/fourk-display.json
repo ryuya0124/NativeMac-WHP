@@ -1,0 +1,119 @@
+{
+  "verifiedOn": "2026-10-22",
+  "guest": {
+    "os": "macOS 26.6.2 (25G83), x86_64",
+    "memoryGiB": 12,
+    "processors": 8,
+    "hostGPU": "RTX 5080",
+    "cpuTranslation": false,
+    "qemu": false
+  },
+  "desktop": {
+    "requestedMaximum": "3840x2160",
+    "firstBootSelection": "2560x1600",
+    "temporaryCGDisplaySetDisplayMode": "selected 3840x2160 then reverted to 2560x1600",
+    "sessionConfiguration": "CGCompleteDisplayConfiguration(kCGConfigureForSession)",
+    "selectedPixelWidth": 3840,
+    "selectedPixelHeight": 2160,
+    "verifiedAfterSeconds": 8,
+    "hostReportedWidth": 3840,
+    "hostReportedHeight": 2160,
+    "advertisedRefreshHz": 160
+  },
+  "authoredScene": [
+    {
+      "desktop": "2560x1600",
+      "drawable": "3840x2160",
+      "instances": 441,
+      "trianglesPerFrame": 5292,
+      "result": {
+        "stage": "scene-final",
+        "elapsed": 30.0,
+        "completed": 3099,
+        "meanFps": 103.3,
+        "errors": 0,
+        "readbackPassed": true
+      },
+      "pixelReadback": {
+        "stage": "render-readback",
+        "bgra": [
+          205,
+          111,
+          60,
+          255
+        ],
+        "passed": true
+      }
+    },
+    {
+      "desktop": "3840x2160",
+      "drawable": "3840x2160",
+      "instances": 441,
+      "trianglesPerFrame": 5292,
+      "result": {
+        "stage": "scene-final",
+        "elapsed": 30.006,
+        "completed": 1787,
+        "meanFps": 59.55,
+        "errors": 0,
+        "readbackPassed": true
+      },
+      "pixelReadback": {
+        "stage": "render-readback",
+        "bgra": [
+          160,
+          121,
+          102,
+          255
+        ],
+        "passed": true
+      }
+    }
+  ],
+  "limits": [
+    "Single center-pixel GPU readback verifies populated rendering, not full image equivalence.",
+    "Results count completed GPU commands, not physical monitor frames.",
+    "A 30-second run does not qualify long-duration stability.",
+    "Unsupported heaps, mesh execution and general Metal compatibility remain unresolved."
+  ],
+  "gravityMark": {
+    "version": "1.89",
+    "drawable": "3840x2160",
+    "fullscreen": true,
+    "asteroids": 20000,
+    "temporal": 1,
+    "raster": 0,
+    "meshlet": 0,
+    "raytracing": 0,
+    "adapter": "process-scoped deferred stage bindings and measured shared-texture readback",
+    "score": 2895,
+    "fps": 17.3,
+    "seconds": 167.2,
+    "exitCode": 0,
+    "observedPopulatedScene": true,
+    "observedVisibleObjectSamples": [
+      18202,
+      9497
+    ],
+    "bindingCalls": 283598,
+    "readbackCopiesIncludingPreflight": 1,
+    "heapAllocations": "refused; application fallback remains active"
+  },
+  "superTuxKart": {
+    "version": "1.5",
+    "source": "https://github.com/supertuxkart/stk-code/releases/tag/1.5",
+    "configuration": {
+      "renderDriver": "Vulkan/MoltenVK 1.3.0",
+      "MVK_CONFIG_USE_MTLHEAP": 0,
+      "MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS": 0,
+      "track": "lighthouse",
+      "karts": 12,
+      "profileSeconds": 60
+    },
+    "initialAttempt": "Vulkan attachment allocation failed and silently fell back to Apple Software Renderer; rejected.",
+    "noHeapAttempt": "Vulkan initialization and timed profile complete, but observed black output; rejected.",
+    "uncompressedTexturesAttempt": "Exit 0, visible sky with malformed/incomplete geometry; no playable scene, rejected.",
+    "gameplayQualified": false,
+    "performanceScoreAccepted": false
+  }
+}

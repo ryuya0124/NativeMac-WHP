@@ -29,6 +29,10 @@ int main(int argc, const char **argv) {
     @autoreleasepool {
         double duration = argc > 1 ? strtod(argv[1], NULL) : 30;
         if (!isfinite(duration) || duration < 1 || duration > 1800) return 64;
+        unsigned width = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1920;
+        unsigned height = argc > 3 ? (unsigned)strtoul(argv[3], NULL, 10) : 1080;
+        if (!((width == 1920 && height == 1080) ||
+              (width == 3840 && height == 2160))) return 64;
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
@@ -67,23 +71,23 @@ int main(int argc, const char **argv) {
         }
         [texture replaceRegion:MTLRegionMake2D(0,0,64,64) mipmapLevel:0 withBytes:pixels bytesPerRow:256];
         MTLTextureDescriptor *dt = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
-            width:1920 height:1080 mipmapped:NO];
+            width:width height:height mipmapped:NO];
         dt.storageMode=MTLStorageModePrivate; dt.usage=MTLTextureUsageRenderTarget;
         id<MTLTexture> depth = [device newTextureWithDescriptor:dt];
         if (!vb || !ib || !witness || !texture || !depth || !depthState) return 4;
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(40,80,960,540)
             styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
         window.releasedWhenClosed=NO;
-        window.title=@"NativeMac Metal 3D: 441 textured cubes / FHD";
+        window.title=[NSString stringWithFormat:@"NativeMac Metal 3D: 441 textured cubes / %u x %u",width,height];
         CAMetalLayer *layer=[CAMetalLayer layer];
         layer.device=device; layer.pixelFormat=MTLPixelFormatBGRA8Unorm;
         layer.framebufferOnly=NO; layer.displaySyncEnabled=NO; layer.allowsNextDrawableTimeout=YES;
         window.contentView.wantsLayer=YES; window.contentView.layer=layer;
-        layer.drawableSize=CGSizeMake(1920,1080);
+        layer.drawableSize=CGSizeMake(width,height);
         [window makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
         double start=CACurrentMediaTime(), previous=start, report=start, worst=0;
         unsigned completed=0, failures=0; BOOL checked=NO;
-        printf("{\"stage\":\"scene-start\",\"width\":1920,\"height\":1080,\"instances\":441,\"trianglesPerFrame\":5292}\n"); fflush(stdout);
+        printf("{\"stage\":\"scene-start\",\"width\":%u,\"height\":%u,\"instances\":441,\"trianglesPerFrame\":5292}\n",width,height); fflush(stdout);
         while (window.visible && CACurrentMediaTime()-start<duration) {
             @autoreleasepool {
                 NSEvent *event;
@@ -92,7 +96,7 @@ int main(int argc, const char **argv) {
                 [NSApp updateWindows];
                 id<CAMetalDrawable> drawable=[layer nextDrawable];
                 if (!drawable) { failures++; break; }
-                if (drawable.texture.width!=1920 || drawable.texture.height!=1080) {
+                if (drawable.texture.width!=width || drawable.texture.height!=height) {
                     fprintf(stderr,"unexpected drawable size: %lux%lu\n",(unsigned long)drawable.texture.width,(unsigned long)drawable.texture.height);
                     failures++; break;
                 }
@@ -106,7 +110,7 @@ int main(int argc, const char **argv) {
                 id<MTLCommandBuffer> command=[queue commandBuffer];
                 id<MTLRenderCommandEncoder> encoder=[command renderCommandEncoderWithDescriptor:pass];
                 if (!command || !encoder) { failures++; break; }
-                const float uniforms[4]={(float)(CACurrentMediaTime()-start),1920.0f/1080.0f,21,0};
+                const float uniforms[4]={(float)(CACurrentMediaTime()-start),(float)width/(float)height,21,0};
                 [encoder setRenderPipelineState:pipeline]; [encoder setDepthStencilState:depthState];
                 [encoder setVertexBuffer:vb offset:0 atIndex:0];
                 [encoder setVertexBytes:uniforms length:sizeof(uniforms) atIndex:1];
@@ -116,7 +120,7 @@ int main(int argc, const char **argv) {
                 [encoder endEncoding];
                 if (!checked) {
                     id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];
-                    [blit copyFromTexture:drawable.texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(960,540,0)
+                    [blit copyFromTexture:drawable.texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(width/2,height/2,0)
                         sourceSize:MTLSizeMake(1,1,1) toBuffer:witness destinationOffset:0 destinationBytesPerRow:256 destinationBytesPerImage:256];
                     [blit endEncoding];
                 }

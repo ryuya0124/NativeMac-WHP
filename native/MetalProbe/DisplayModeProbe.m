@@ -23,7 +23,15 @@ int main(int argc, const char **argv) {
         CGError status = kCGErrorSuccess;
         if (argc == 3) {
             if (!selected) { CFRelease(modes); return 3; }
-            status = CGDisplaySetDisplayMode(display, selected, NULL);
+            CGDisplayConfigRef configuration = NULL;
+            status = CGBeginDisplayConfiguration(&configuration);
+            if (status == kCGErrorSuccess) {
+                status = CGConfigureDisplayWithDisplayMode(configuration, display, selected, NULL);
+                if (status == kCGErrorSuccess)
+                    status = CGCompleteDisplayConfiguration(configuration, kCGConfigureForSession);
+                else
+                    CGCancelDisplayConfiguration(configuration);
+            }
         }
         CGDisplayModeRef current = CGDisplayCopyDisplayMode(display);
         NSDictionary *report = @{@"stage":@"display-modes", @"setStatus":@(status),
