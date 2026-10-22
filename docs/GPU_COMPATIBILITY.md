@@ -49,7 +49,7 @@ into placeholders. It keeps real shared file backing, source protections,
 source-page identity and runtime remap/lifetime reporting. Invalid core plans
 keep their original partial-operation and refusal ordering. Five native Windows
 VM tests pass, including a fragmented 64-MiB / 16,384-page alias checked in both
-write directions and after releasing the source. The same guest then passed all three 16/32/64-MiB no-copy rounds: 29,360,128 checked GPU values and three completed deallocators in 8.520331 seconds. A new Terminal window opened after the probes. A 300-second GravityMark trial and continuous stability qualification remain pending.
+write directions and after releasing the source. The same guest then passed all three 16/32/64-MiB no-copy rounds: 29,360,128 checked GPU values and three completed deallocators in 8.520331 seconds. A new Terminal window opened after the probes. The subsequent GravityMark run timed out at 300 seconds, leaving the display stalled; continuous stability was not qualified.
 
 [3DMark for macOS requires Apple Silicon](https://support.benchmarks.ul.com/support/solutions/articles/44002642889-3dmark-for-macos-system-requirements),
 so it cannot measure this Intel guest. The installed x86_64 GravityMark Metal
@@ -61,3 +61,34 @@ reference build passes. The Windows guest at `1c805df` completed 2,142 frames in
 15.001 seconds (142.79 completed frames/s), with zero errors and a checked GPU
 pixel readback. This small scene does not qualify GravityMark or general desktop
 stability.
+
+
+## Shared-section banking trial (2026-10-22)
+
+An external process duplicated the actual VM's anonymous 12-GiB RAM section
+and mapped aliases without reading or writing guest bytes. It also stalled:
+4096 views took 22.62352 seconds. Independent native-WHP/NVIDIA-import/Reims-window
+controls did not reproduce the delay. This associates the slowdown with the
+actual section state; it does not establish its underlying kernel/driver cause.
+
+The OpenVMM trial uses separate shared sections of at most 64 MiB for the
+Windows NativeMac Reims PCI device. It preserves GPAs, RAM capacity, CPU count
+and FHD. Existing restored handles, private memory and hugepages are excluded.
+All 55 memory-manager unit tests pass, including cross-bank read/write and
+actual alias checks. Cold boot and initial unlock pass. RAM-handle restart
+reconstruction is unavailable for multi-backing RAM; cold startup is supported.
+
+The guest completed 2273 authored FHD scene frames in 15.007 seconds (151.46
+completed frames/s), with zero errors and checked pixel readback. GravityMark's
+15 timed large alias batches all completed; the slowest, 268472320 bytes across
+65545 views, took 0.1658868 seconds. A 44740608-byte/10923-view batch took
+0.051694 seconds, versus 60.61 seconds in the previous monolithic trial. These
+are corresponding sizes and counts, not proven identical physical page sequences.
+
+GravityMark reached its Metal benchmark in 4.362 seconds, then exited 134:
+`AppleParavirtRenderCommandEncoder` does not implement
+`setObjectSamplerState:atIndex:`. There is still no commercial benchmark score.
+The desktop recovered visibly after this application failure. Optional Metal
+entry points and feature claims are under investigation; no draws are skipped
+or reported as successful. Three unlock cycles and a continuous 30-minute
+observation remain required. See `docs/verification/banked-gpu-ram.json`.

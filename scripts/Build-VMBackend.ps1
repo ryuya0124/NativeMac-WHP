@@ -19,6 +19,16 @@ if ($LASTEXITCODE -ne 0) {
     & git -C $backend apply $patch
     if ($LASTEXITCODE -ne 0) { throw 'OpenVMM patch failed' }
 }
+if ($pins.openvmm.bankedSharedRam) {
+    $bankPatch = Join-Path $projectRoot $pins.openvmm.bankedSharedRam.patch
+    & git -C $backend apply --reverse --check $bankPatch 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        & git -C $backend apply --check $bankPatch
+        if ($LASTEXITCODE -ne 0) { throw 'Banked RAM patch does not match; local changes were preserved.' }
+        & git -C $backend apply $bankPatch
+        if ($LASTEXITCODE -ne 0) { throw 'Banked RAM patch failed' }
+    }
+}
 $gpuCrate = Join-Path $backend 'vm/devices/nativemac_vgpu'
 New-Item -ItemType Directory -Path $gpuCrate -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot 'native/VGpuPci/Cargo.openvmm.toml') -Destination (Join-Path $gpuCrate 'Cargo.toml')

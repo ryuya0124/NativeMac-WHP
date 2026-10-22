@@ -219,8 +219,93 @@
     "largeBufferValuesChecked": 29360128,
     "largeBufferReleases": 3,
     "postProbeTerminalWindowVerified": true,
-    "gravityMarkStatus": "300-second bounded trial running; no score yet",
+    "gravityMarkStatus": "failed: timed out after 300 seconds; no score; display stalls in host section alias mapping",
     "continuousStabilityQualified": false,
     "verification": "docs/verification/fresh-alias.json"
+  },
+  "currentBankedRamTrial": {
+    "experimental": true,
+    "guestQualified": false,
+    "sectionBytes": 67108864,
+    "memoryGiB": 12,
+    "processors": 8,
+    "resolution": "1920x1080",
+    "scope": "Windows NativeMac Reims PCI shared RAM",
+    "memoryManagerTests": {
+      "passed": 55,
+      "failed": 0,
+      "ignored": 0,
+      "serial": true
+    },
+    "patchChainMatchesPinnedSource": true,
+    "patchSha256": "6c94c7afd3b4792578afdd95f23e2728ab73da15c88eafdb2aa4b3111e133c44",
+    "ramHandleRestartSupported": false,
+    "diagnosticEvidence": {
+      "actualSectionBytes": 12884901888,
+      "actualSectionExternalViews": 4096,
+      "actualSectionExternalSeconds": 22.62352,
+      "guestBytesReadOrWrittenByExternalProbe": 0,
+      "nativeControlViews": 16384,
+      "nativeControlApproxSeconds": 0.1,
+      "controlIncluded": [
+        "native WHP vCPU touching RAM",
+        "NVIDIA external host-memory import and checked GPU copy",
+        "Reims display window",
+        "injected overlay modules"
+      ]
+    },
+    "gravityMark": {
+      "completed": false,
+      "score": null,
+      "version": "1.89",
+      "asteroids": 20000,
+      "readySeconds": 4.362,
+      "exitCode": 134,
+      "failure": "NSInvalidArgumentException: AppleParavirtRenderCommandEncoder setObjectSamplerState:atIndex: is unimplemented",
+      "postFailureDesktopCaptureChanged": true
+    },
+    "coldBootPassed": true,
+    "initialUnlockPassed": true,
+    "authoredScene": {
+      "elapsedSeconds": 15.007,
+      "completedFrames": 2273,
+      "meanCompletedFramesPerSecond": 151.46,
+      "errors": 0,
+      "gpuPixelReadbackPassed": true,
+      "commercialBenchmarkScore": false
+    },
+    "releaseBuildPassed": true,
+    "timedAliasBatches": {
+      "completed": 15,
+      "slowest": [
+        {
+          "bytes": 268472320,
+          "views": 65545,
+          "seconds": 0.1658868
+        },
+        {
+          "bytes": 268435456,
+          "views": 65536,
+          "seconds": 0.16207480000000002
+        },
+        {
+          "bytes": 221065216,
+          "views": 53910,
+          "seconds": 0.1344813
+        },
+        {
+          "bytes": 221065216,
+          "views": 53851,
+          "seconds": 0.1224336
+        }
+      ],
+      "representative": {
+        "bytes": 44740608,
+        "views": 10923,
+        "seconds": 0.051694,
+        "previousMonolithicSeconds": 60.61,
+        "identicalGuestPageSequenceProven": false
+      }
+    }
   }
 }

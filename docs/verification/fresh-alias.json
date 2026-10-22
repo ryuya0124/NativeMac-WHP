@@ -29,5 +29,16 @@
     "elapsedSeconds": 8.520331,
     "passed": true
   },
-  "postProbeNewTerminalWindowVerified": true
+  "postProbeNewTerminalWindowVerified": true,
+  "gravityMark": {
+    "version": "1.89",
+    "architecture": "x86_64",
+    "resolution": "1920x1080",
+    "asteroids": 20000,
+    "timeoutSeconds": 300,
+    "exitCode": 143,
+    "completed": false,
+    "score": null,
+    "hostWait": "NtMapViewOfSectionEx via MapViewOfFile3"
+  }
 }

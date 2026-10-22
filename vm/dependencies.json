@@ -2,7 +2,15 @@
   "openvmm": {
     "repository": "https://github.com/microsoft/openvmm.git",
     "commit": "1c093df84eb4277244fe0d70a7d4c39db5dafc88",
-    "patch": "patches/openvmm-nativemac.patch"
+    "patch": "patches/openvmm-nativemac.patch",
+    "bankedSharedRam": {
+      "patch": "patches/openvmm-banked-gpu-ram.patch",
+      "applyAfter": "patches/openvmm-nativemac.patch",
+      "sectionBytes": 67108864,
+      "scope": "Windows NativeMac Reims PCI shared RAM only",
+      "status": "experimental; 55 tests, cold boot and checked FHD scene pass; GravityMark mapping stalls removed in this trial, then app exits 134 on missing object sampler API; long stability pending",
+      "ramHandleRestartSupported": false
+    }
   },
   "reims": {
     "repository": "https://github.com/tqmane/reims-vgpu.git",
@@ -50,8 +58,14 @@
       "patch": "patches/reims-fresh-shared-aliases.patch",
       "applyAfter": "patches/reims-contiguous-memory-runs.patch",
       "sourceRevision": "1c805df7d6f777a48d905298e2c8289191022aef",
-      "status": "experimental; cold boot, 2142 FHD indexed/textured scene frames and 29360128 large-buffer GPU values pass; commercial benchmark and continuous stability pending",
+      "status": "experimental; authored FHD scene and large-buffer GPU checks pass; GravityMark times out after 300 seconds, display stalls in Windows section alias mapping",
       "usesCpuRendering": false
+    },
+    "sharedViewTiming": {
+      "patch": "patches/reims-shared-view-timing.patch",
+      "applyAfter": "patches/reims-fresh-shared-aliases.patch",
+      "sourceRevision": "18fca9c",
+      "scope": "first 64 shared alias installs of at least 32 MiB; no guest addresses or shader inputs"
     }
   },
   "amdVanilla": {

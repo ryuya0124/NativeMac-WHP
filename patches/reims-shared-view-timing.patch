@@ -1,0 +1,28 @@
+diff --git a/crates/reims-vgpu-vulkan/src/os/windows/vm.rs b/crates/reims-vgpu-vulkan/src/os/windows/vm.rs
+index 9080a61..f8296f5 100644
+--- a/crates/reims-vgpu-vulkan/src/os/windows/vm.rs
++++ b/crates/reims-vgpu-vulkan/src/os/windows/vm.rs
+@@ -178,6 +178,13 @@ fn coalesce(first: u64, length: u64) {
+ fn install(first: u64, length: u64, pieces: &[Piece]) -> Result<(), KernReturn> {
+     let mut mapped = 0usize;
+     let mut splits = 0usize;
++    let started = std::time::Instant::now();
++    static PLANS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
++    let diagnostic = length >= 32 * 1024 * 1024
++        && PLANS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 64;
++    if diagnostic {
++        log::info!("section install begin: {length} bytes, {} views", pieces.len());
++    }
+     let result = (|| {
+         for (i, piece) in pieces.iter().enumerate() {
+             if i + 1 < pieces.len() {
+@@ -186,6 +193,9 @@ fn install(first: u64, length: u64, pieces: &[Piece]) -> Result<(), KernReturn>
+             }
+             map(first + piece.at, piece.length, &piece.backing, piece.prot)?;
+             mapped += 1;
++            if diagnostic && (mapped % 4096 == 0 || mapped == pieces.len()) {
++                log::info!("section install progress: {mapped}/{} views, {length} bytes, {:?}", pieces.len(), started.elapsed());
++            }
+         }
+         Ok(())
+     })();

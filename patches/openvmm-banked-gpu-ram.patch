@@ -1,0 +1,179 @@
+diff --git a/openvmm/membacking/src/memory_manager/mod.rs b/openvmm/membacking/src/memory_manager/mod.rs
+index bc2f97b..60b1260 100644
+--- a/openvmm/membacking/src/memory_manager/mod.rs
++++ b/openvmm/membacking/src/memory_manager/mod.rs
+@@ -283,6 +283,41 @@ pub fn host_numa_node(mut self, node: Option<u32>) -> Self {
+         self.host_numa_node = node;
+         self
+     }
++
++    /// Split newly allocated shared RAM into independently backed regions.
++    ///
++    /// This bounds per-section alias bookkeeping on Windows. GPA ranges and
++    /// allocation policy are preserved. Existing, private, and hugepage
++    /// backings retain their original allocation semantics.
++    ///
++    /// # Panics
++    /// Panics if `max_size` is not a power of two of at least 64 KiB.
++    pub fn split_shared(mut self, max_size: u64) -> Vec<Self> {
++        assert!(max_size.is_power_of_two() && max_size >= 64 * 1024);
++        if self.private_memory
++            || self.hugepages
++            || self.existing_mappable.is_some()
++            || self.ranges.is_empty()
++        {
++            return vec![self];
++        }
++
++        let ranges = std::mem::take(&mut self.ranges);
++        let mut requests = Vec::new();
++        for range in ranges {
++            let mut start = range.start();
++            while start < range.end() {
++                let end = start.saturating_add(max_size).min(range.end());
++                requests.push(Self {
++                    ranges: vec![MemoryRange::new(start..end)],
++                    existing_mappable: None,
++                    ..self
++                });
++                start = end;
++            }
++        }
++        requests
++    }
+ }
+ 
+ fn validate_hugepage_size(size: u64) -> Result<usize, MemoryBuildError> {
+@@ -949,6 +984,95 @@ async fn build_and_get_memory(
+         (mgr, gm)
+     }
+ 
++    #[test]
++    fn test_split_shared_preserves_layout_and_policy() {
++        const BANK: u64 = 64 * 1024;
++        let banks = RamBackingRequest::new(vec![
++            MemoryRange::new(0..BANK + 4096),
++            MemoryRange::new(4 * BANK..6 * BANK),
++        ])
++        .prefetch(true)
++        .transparent_hugepages(true)
++        .host_numa_node(Some(2))
++        .split_shared(BANK);
++        let ranges: Vec<_> = banks.iter().flat_map(|b| b.ranges.clone()).collect();
++        assert_eq!(
++            ranges,
++            vec![
++                MemoryRange::new(0..BANK),
++                MemoryRange::new(BANK..BANK + 4096),
++                MemoryRange::new(4 * BANK..5 * BANK),
++                MemoryRange::new(5 * BANK..6 * BANK),
++            ]
++        );
++        assert_eq!(ranges.iter().map(|r| r.len()).sum::<u64>(), 3 * BANK + 4096);
++        for bank in banks {
++            assert!(bank.prefetch && bank.transparent_hugepages);
++            assert_eq!(bank.host_numa_node, Some(2));
++            assert!(!bank.private_memory && !bank.hugepages);
++        }
++    }
++
++    #[test]
++    fn test_split_shared_preserves_special_backings() {
++        const BANK: u64 = 64 * 1024;
++        let ranges = vec![MemoryRange::new(0..4 * BANK)];
++        for request in [
++            RamBackingRequest::new(ranges.clone()).private_memory(true),
++            RamBackingRequest::new(ranges.clone()).hugepages(None),
++            RamBackingRequest::new(ranges.clone()).existing_mappable(
++                sparse_mmap::alloc_shared_memory(4 * BANK as usize, "split-test")
++                    .unwrap()
++                    .into(),
++            ),
++        ] {
++            let banks = request.split_shared(BANK);
++            assert_eq!(banks.len(), 1);
++            assert_eq!(banks[0].ranges, ranges);
++        }
++        assert_eq!(RamBackingRequest::new(vec![]).split_shared(BANK).len(), 1);
++    }
++
++    #[test]
++    #[should_panic]
++    fn test_split_shared_rejects_unaligned_limit() {
++        RamBackingRequest::new(vec![]).split_shared(100000);
++    }
++
++    #[async_test]
++    async fn test_split_shared_cross_bank_io_and_aliases() {
++        const BANK: u64 = 64 * 1024;
++        let mut builder = GuestMemoryBuilder::new();
++        for bank in RamBackingRequest::new(vec![MemoryRange::new(0..3 * BANK)]).split_shared(BANK) {
++            builder = builder.add_backing(bank);
++        }
++        let mgr = builder.build(3 * BANK).await.unwrap();
++        let gm = mgr.client().guest_memory().await.unwrap();
++        let pattern: Vec<u8> = (0..8192).map(|i| (i % 251) as u8).collect();
++        gm.write_at(BANK - 4096, &pattern).unwrap();
++        let mut actual = vec![0; pattern.len()];
++        gm.read_at(BANK - 4096, &mut actual).unwrap();
++        assert_eq!(actual, pattern);
++
++        let regions = gm.sharing().unwrap().get_regions().await.unwrap();
++        assert_eq!(regions.len(), 3);
++        for (i, region) in regions.iter().enumerate() {
++            assert_eq!(region.guest_address, i as u64 * BANK);
++            assert_eq!(region.size, BANK);
++            assert_eq!(region.file_offset, 0);
++            let alias = SparseMapping::new(BANK as usize).unwrap();
++            alias
++                .map_file(0, BANK as usize, region.file.as_ref(), 0, true)
++                .unwrap();
++            alias.write_at(0, &[0xA0 + i as u8]).unwrap();
++            assert_eq!(
++                gm.read_plain::<u8>(region.guest_address).unwrap(),
++                0xA0 + i as u8
++            );
++        }
++        assert!(mgr.shared_memory_backing().is_none());
++    }
++
+     #[async_test]
+     async fn test_hugepages_with_existing_backing_rejected() {
+         const SIZE: u64 = 2 * 1024 * 1024;
+diff --git a/openvmm/openvmm_core/src/worker/dispatch.rs b/openvmm/openvmm_core/src/worker/dispatch.rs
+index e71b3cd..9bcebd5 100644
+--- a/openvmm/openvmm_core/src/worker/dispatch.rs
++++ b/openvmm/openvmm_core/src/worker/dispatch.rs
+@@ -1458,6 +1458,17 @@ pub(crate) async fn new_with_hypervisor<P, H>(
+                 matches!(cfg.load_mode, LoadMode::Pcat { .. }) || cfg.chipset.with_hyperv_vga,
+             );
+ 
++        // NativeMac maps guest pages into GPU aliases. Keeping all RAM in a
++        // single Windows section makes repeated small views increasingly slow.
++        // Separate backing sections preserve the guest layout while bounding
++        // each section's view bookkeeping. RAM-handle restart is unavailable
++        // for this multi-backing configuration, as for multi-node RAM.
++        let bank_gpu_ram = cfg!(windows)
++            && cfg
++                .pcie_devices
++                .iter()
++                .any(|device| device.resource.id() == "nativemac_reims_vgpu");
++
+         for (vnode, ranges) in ranges_by_node.into_iter().enumerate() {
+             if ranges.is_empty() {
+                 continue;
+@@ -1486,7 +1497,13 @@ pub(crate) async fn new_with_hypervisor<P, H>(
+                 backing = backing.existing_mappable(mappable);
+             }
+ 
+-            memory_builder = memory_builder.add_backing(backing);
++            if bank_gpu_ram {
++                for bank in backing.split_shared(64 * 1024 * 1024) {
++                    memory_builder = memory_builder.add_backing(bank);
++                }
++            } else {
++                memory_builder = memory_builder.add_backing(backing);
++            }
+         }
+ 
+         #[cfg(all(windows, feature = "virt_whp"))]
