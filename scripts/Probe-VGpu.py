@@ -10,6 +10,8 @@ import pathlib
 parser = argparse.ArgumentParser()
 parser.add_argument('library')
 parser.add_argument('--report', default='artifacts/vgpu-library-probe.json')
+parser.add_argument('--identity-only', action='store_true',
+                    help='Return the actual selected renderer name from the pinned backend startup callback')
 args = parser.parse_args()
 
 
@@ -46,9 +48,18 @@ device = c.c_void_p()
 status = library.rvg_device_create(c.byref(config), c.byref(device))
 if device:
     library.rvg_device_release(device)
+prefix = 'device starting on Metal device '
+names = {line['message'][len(prefix):] for line in lines
+         if line['target'] == 'reims_vgpu_core::device' and line['message'].startswith(prefix)}
+name = next(iter(names)) if len(names) == 1 else None
+identity_valid = bool(name and name != '(unnamed)' and 1 <= len(name) <= 63 and
+                      all(32 <= ord(char) <= 126 for char in name))
 report = {'hostVulkanDeviceCreated': status == 0, 'status': status,
           'message': library.rvg_status_message(status).decode(),
+          'hostGPUName': name if identity_valid else None,
+          'identitySource': 'selected GPU of the configured Reims DLL, Windows Vulkan backend startup callback',
           'macOsBooted': False, 'guestGpuAccelerated': False, 'logs': lines}
 pathlib.Path(args.report).write_text(json.dumps(report, indent=2), encoding='utf-8')
-print(json.dumps(report, indent=2))
-raise SystemExit(0 if status == 0 else 1)
+print(json.dumps({key: report[key] for key in ('hostVulkanDeviceCreated','status','hostGPUName','identitySource')}
+                 if args.identity_only else report, indent=2))
+raise SystemExit(0 if status == 0 and (not args.identity_only or identity_valid) else 1)

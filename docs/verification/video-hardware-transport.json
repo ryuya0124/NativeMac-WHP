@@ -1,0 +1,222 @@
+{
+  "verifiedOn": "2026-10-23",
+  "guest": "Intel macOS 26.6.2 VM",
+  "hostGPU": "NVIDIA GeForce RTX 5080",
+  "transport": "loopback SSH forwards; ephemeral guest-owned tunnel",
+  "softwareFallback": false,
+  "videoToolboxRegistered": false,
+  "safariHardwarePlaybackQualified": false,
+  "workerLimitSeconds": 20,
+  "workerLimitMiB": 1024,
+  "checks": [
+    {
+      "codec": "h264",
+      "width": 320,
+      "height": 180,
+      "frames": 12,
+      "encodedBytes": 2195,
+      "decodedBytes": 1036800,
+      "lumaMAE": 0.0,
+      "chromaMAE": 0.0,
+      "encoder": {
+        "Engine": "h264_nvenc",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "12",
+        "Seconds": "0.171",
+        "Peak-MiB": "385.898"
+      },
+      "decoder": {
+        "Engine": "h264_cuvid",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "12",
+        "Seconds": "0.156",
+        "Peak-MiB": "398.711"
+      },
+      "videoToolboxRegistered": false,
+      "passed": true
+    },
+    {
+      "codec": "hevc",
+      "width": 320,
+      "height": 180,
+      "frames": 12,
+      "encodedBytes": 2706,
+      "decodedBytes": 1036800,
+      "lumaMAE": 0.05311631944444444,
+      "chromaMAE": 0.0,
+      "encoder": {
+        "Engine": "hevc_nvenc",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "12",
+        "Seconds": "0.172",
+        "Peak-MiB": "387.453"
+      },
+      "decoder": {
+        "Engine": "hevc_cuvid",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "12",
+        "Seconds": "0.156",
+        "Peak-MiB": "416.57"
+      },
+      "videoToolboxRegistered": false,
+      "passed": true
+    },
+    {
+      "codec": "h264",
+      "width": 854,
+      "height": 480,
+      "frames": 12,
+      "encodedBytes": 4963,
+      "decodedBytes": 7378560,
+      "lumaMAE": 0.0,
+      "chromaMAE": 0.0,
+      "encoder": {
+        "Engine": "h264_nvenc",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "12",
+        "Seconds": "0.157",
+        "Peak-MiB": "410.926"
+      },
+      "decoder": {
+        "Engine": "h264_cuvid",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "12",
+        "Seconds": "0.157",
+        "Peak-MiB": "420.102"
+      },
+      "videoToolboxRegistered": false,
+      "passed": true
+    },
+    {
+      "codec": "hevc",
+      "width": 854,
+      "height": 480,
+      "frames": 12,
+      "encodedBytes": 6845,
+      "decodedBytes": 7378560,
+      "lumaMAE": 0.014566256830601093,
+      "chromaMAE": 0.0,
+      "encoder": {
+        "Engine": "hevc_nvenc",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "12",
+        "Seconds": "0.156",
+        "Peak-MiB": "403.484"
+      },
+      "decoder": {
+        "Engine": "hevc_cuvid",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "12",
+        "Seconds": "0.156",
+        "Peak-MiB": "441.988"
+      },
+      "videoToolboxRegistered": false,
+      "passed": true
+    },
+    {
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "frames": 3,
+      "encodedBytes": 14843,
+      "decodedBytes": 9331200,
+      "lumaMAE": 0.0,
+      "chromaMAE": 0.0,
+      "encoder": {
+        "Engine": "h264_nvenc",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "3",
+        "Seconds": "0.172",
+        "Peak-MiB": "469.598"
+      },
+      "decoder": {
+        "Engine": "h264_cuvid",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "3",
+        "Seconds": "0.172",
+        "Peak-MiB": "502.543"
+      },
+      "videoToolboxRegistered": false,
+      "passed": true
+    },
+    {
+      "codec": "hevc",
+      "width": 1920,
+      "height": 1080,
+      "frames": 3,
+      "encodedBytes": 23142,
+      "decodedBytes": 9331200,
+      "lumaMAE": 0.0010307355967078189,
+      "chromaMAE": 0.0,
+      "encoder": {
+        "Engine": "hevc_nvenc",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "3",
+        "Seconds": "0.187",
+        "Peak-MiB": "464.457"
+      },
+      "decoder": {
+        "Engine": "hevc_cuvid",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "3",
+        "Seconds": "0.156",
+        "Peak-MiB": "541.863"
+      },
+      "videoToolboxRegistered": false,
+      "passed": true
+    },
+    {
+      "codec": "h264",
+      "width": 3840,
+      "height": 2160,
+      "frames": 2,
+      "encodedBytes": 54891,
+      "decodedBytes": 24883200,
+      "lumaMAE": 0.0,
+      "chromaMAE": 0.0,
+      "encoder": {
+        "Engine": "h264_nvenc",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "2",
+        "Seconds": "0.203",
+        "Peak-MiB": "680.297"
+      },
+      "decoder": {
+        "Engine": "h264_cuvid",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "2",
+        "Seconds": "0.219",
+        "Peak-MiB": "761.406"
+      },
+      "videoToolboxRegistered": false,
+      "passed": true
+    },
+    {
+      "codec": "hevc",
+      "width": 3840,
+      "height": 2160,
+      "frames": 2,
+      "encodedBytes": 88132,
+      "decodedBytes": 24883200,
+      "lumaMAE": 0.00025788483796296296,
+      "chromaMAE": 0.0,
+      "encoder": {
+        "Engine": "hevc_nvenc",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "2",
+        "Seconds": "0.188",
+        "Peak-MiB": "643.371"
+      },
+      "decoder": {
+        "Engine": "hevc_cuvid",
+        "GPU": "NVIDIA GeForce RTX 5080",
+        "Frames": "2",
+        "Seconds": "0.188",
+        "Peak-MiB": "819.277"
+      },
+      "videoToolboxRegistered": false,
+      "passed": true
+    }
+  ],
+  "scope": "Authored NV12 batches generated in the guest, NVENC encoded and NVDEC decoded on the host, returned pixels checked in guest. Small batch proof, not continuous playback, throughput measurement or standard application integration."
+}

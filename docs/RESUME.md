@@ -1,4 +1,42 @@
-# Current checkpoint (2026-10-22 19:07 JST)
+# Current checkpoint (2026-10-23)
+
+Stock Geekbench 7.1.0 Metal completes all 11 workloads, exit 0, validation
+errors 0, score 3238: https://browser.geekbench.com/v7/gpu/317315.
+Bridge 42e21ba and translator code 66092df / semantics 1698 qualify that
+result. No other benchmark or stress suite overlapped it; light readouts and
+two brief probe builds did. No app patch, DYLD adapter, CPU renderer or
+GPU-family spoof was used.
+
+The 41-case native Metal comparison completes: VM 37 pass / 4 fail. ICB
+allocation, mixed argument buffer binding and two heap cases remain failures.
+The M4 reference runs OS 27.2 versus guest 26.6.2; retain its original random
+FP16 sum tolerance failure and its Managed-storage not-applicable result.
+JSON source hashes and selected counters are in docs/verification.
+
+VM H.264/HEVC software codec round trips and an authored local WebKit movie
+pass. YouTube still has a fmt.decode error. Host RTX 5080 NVENC and NVDEC
+complete a separate 90-frame H.264 round trip. The guest-to-Windows bounded
+loopback transport in native/VideoBridge also passes checked H.264/HEVC
+batches at 320×180, 854×480, FHD and 4K. VideoToolbox registration, sustained
+playback and Safari hardware codec integration remain required.
+
+GPU naming source 1b9a256 is integrated into backend/reims-stability and is
+the current guest kext. ABI and snapshot tests, signed build and cold boot
+pass. Start-VM.ps1 now obtains the selected Windows renderer name from a
+successful same-DLL probe's startup callback; no fixed model configuration,
+first-adapter lookup or cached-name fallback. The dynamic-path cold boot
+agrees across probe, actual worker, guest IORegistry and System Information;
+4096 GPU values pass. Normal Metal name remains Apple Paravirtual device.
+native/MetalIdentity's explicit-process prototype reads the host property
+and passes the same GPU calculation, preserving registry ID and compiler
+class. It is not installed or selected system-wide. Do not call the complete
+Metal-name task finished or substitute a label for a capability.
+
+Monitoring remains deleted. Keep 12 GiB / 8 CPUs, 4K output with readable
+1920x1080 HiDPI. Do not publish guest captures, private logs, keys, credentials,
+Apple/consumer shader binaries or result claim links.
+
+## Previous checkpoint (2026-10-22 19:07 JST)
 
 Monitoring automation was deleted at the user's request. Do not recreate it.
 User prefers Apple sign-in directly inside the Intel VM and handles that

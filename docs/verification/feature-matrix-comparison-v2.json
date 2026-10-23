@@ -1,0 +1,226 @@
+{
+  "reference": "M4-Mac-mini",
+  "vm": "NativeMac-WHP",
+  "sources": {
+    "FeatureExecutionProbe.m": "9004571211993d9cc0b96aaa77815ceb4e5eaa10aba0bd0f707d40d1d0a1bf2e",
+    "Probe.m": "15399770f00bbb9c172dbb58853cc22cf562e51147678be84c5b3af81bdf293f",
+    "BitReverseProbe.m": "64794bef195a25b39d0390d8b26b379da8c30ad51f3238156238a7b61cbb0725",
+    "TextureReadbackProbe.m": "df6e04bfdecc2386f33e4db31c7175a7cff6cb65263aa200f1147504112c5080",
+    "ArgumentBufferProbe.m": "2512781843284a2d1e9df246692c4ea39d1ca4f0701b05dbaf63a6d6cc6fc750",
+    "HeapProbe.m": "15faded1182127ead9463ddbe98736d962169fd27b79507e604c45a0a4a6b177",
+    "HeapTextureProbe.m": "47885f1af57bdb0a65a390b4a918d9caa5a495f4309e98e7c51297fa1c1d540e",
+    "NoCopyProbe.m": "10f214aa5235b98f2705c3783e6c87fc76752733b43341c1666611bb68e0c1ed",
+    "MPSGraphProbe.m": "1b2017a3cf00bf9c10518a8a8057c01b186989ead2325823f1eaa45a7027a852",
+    "MPSConvolutionProbe.m": "d181bb19fb9391d9a2695c9fa3ff329ef1617042dd68f65e74fbf2f1d567afb3",
+    "MPSOperationsProbe.m": "c6ae8533849a6d8714ff9f5a341b8734dcc40e07f5ca7648c267f9ba7f034876",
+    "MPSCNNProbe.m": "e993e0af5a893e170bbaaa1e8bd0e10d20e6d9a35830d130cadb09842f56a034",
+    "VectorOffsetProbe.m": "f46dcc6800230a729ed5ff3d2fb9b3162725b43cf1fb496d11b2d3ac9c3c804a"
+  },
+  "cases": [
+    {
+      "case": "texture-transfer/r8",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "texture-transfer/rg8",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "texture-transfer/rgba8",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "texture-transfer/bgra8",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "texture-transfer/r32uint",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "texture-transfer/rgba8uint",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "texture-transfer/r32float",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "texture-transfer/rgba16float",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "texture-transfer/rgba32float",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "render/draw",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "render/indirect-draw",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "render/icb",
+      "reference": "pass",
+      "vm": "fail"
+    },
+    {
+      "case": "synchronization/fence",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "synchronization/shared-event",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "binding/basic-compute",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "binding/vector-offsets",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "texture-readback/mips-slices-subregions",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "intrinsic/uint4-reverse-bits",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "binding/mixed-argument-buffer",
+      "reference": "pass",
+      "vm": "fail"
+    },
+    {
+      "case": "buffer/no-copy-subpage-alias",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/vector-constant-add",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/convolution-float32",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/convolution-float16",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "heap/private-buffer",
+      "reference": "pass",
+      "vm": "fail"
+    },
+    {
+      "case": "heap/private-texture",
+      "reference": "pass",
+      "vm": "fail"
+    },
+    {
+      "case": "mps/matmul-float32",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/matmul-float16",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/matmul-transpose-float32",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/matmul-transpose-float16",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/softmax-float32",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/softmax-float16",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/sigmoid-float32",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/sigmoid-float16",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/sum-float32",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/sum-float16",
+      "reference": "fail",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/sum-exact-float32",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/sum-exact-float16",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/cnn-convolution",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/cnn-managed-readback",
+      "reference": "not-applicable",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/convolution-chain",
+      "reference": "pass",
+      "vm": "pass"
+    },
+    {
+      "case": "mps/depthwise-chain",
+      "reference": "pass",
+      "vm": "pass"
+    }
+  ]
+}

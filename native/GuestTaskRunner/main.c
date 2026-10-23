@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
     if (argc < 3) return 64;
     char *end;
     long timeout = strtol(argv[1], &end, 10);
-    if (!argv[1][0] || *end || timeout < 1 || timeout > 600) return 64;
+    if (!argv[1][0] || *end || timeout < 1 || timeout > 3600) return 64;
     signal(SIGINT, cancel);
     signal(SIGTERM, cancel);
     pid_t child = fork();

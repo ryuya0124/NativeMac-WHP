@@ -1,5 +1,43 @@
 # Metal benchmark reproduction
 
+## Geekbench 7.1.0
+
+The original signed application's CLI completes all 11 Metal workloads with
+zero validation errors, score [3238](https://browser.geekbench.com/v7/gpu/317315).
+Run without a process-local adapter:
+
+```bash
+"/path/to/Geekbench 7.app/Contents/Resources/geekbench7" \
+  --gpu Metal --gpu-platform-id 0 --gpu-device-id 0
+```
+
+Free Geekbench publishes the result and machine configuration; publication
+was explicitly authorized for this VM. Never publish result claim links.
+The recorded run uses bridge `42e21ba`, translator code `66092df`, semantics
+1698, 12 GiB / 8 CPUs, and RTX 5080 through Vulkan. No concurrent benchmark
+or stress suite ran; light SSH readouts and two brief identity-probe builds
+occurred during the run. This is not a claim of laboratory-isolated timing.
+[Full measurement scope](verification/geekbench7.json).
+
+## Authored feature matrix
+
+Copy `native/MetalProbe` to each Mac, then run on each host:
+
+```bash
+python3 RunFeatureMatrix.py --label REFERENCE --output reference.json --timeout 40
+python3 RunFeatureMatrix.py --label VM --output vm.json --timeout 40
+python3 RunFeatureMatrix.py --compare reference.json vm.json --output comparison.json
+```
+
+Each invocation builds local native probes and executes them with a bounded
+process group. A timeout stops further cases rather than queuing work behind
+a hung GPU. Reports contain selected correctness counters and source hashes;
+comparison refuses mismatched source hashes. It does not change feature
+claims or inject GPU adapters. The [41-case result](verification/metal-feature-matrix.json)
+includes four VM failures and the reference's unchanged FP16 sum failure.
+
+## Earlier 3D checks
+
 These are scoped development checks for the Intel macOS guest. Keep 12 GiB,
 8 CPUs and the FHD desktop. Results and limits are in
 [metal-benchmarks.json](verification/metal-benchmarks.json). Do not upload private

@@ -1,0 +1,128 @@
+diff --git a/guest/metal-compat/ModelName.hpp b/guest/metal-compat/ModelName.hpp
+new file mode 100644
+index 0000000..c8d7c3e
+--- /dev/null
++++ b/guest/metal-compat/ModelName.hpp
+@@ -0,0 +1,16 @@
++#pragma once
++#include <stddef.h>
++#include <stdint.h>
++
++namespace ReimsABI {
++// A host-provided display label is distinct from hardware IDs and capability
++// answers. Its wire representation is bounded printable ASCII with one NUL.
++inline bool validModelName(const void *data, size_t size) {
++    if (!data || size < 2 || size > 64) return false;
++    auto text = static_cast<const uint8_t *>(data);
++    if (text[size - 1]) return false;
++    for (size_t i = 0; i + 1 < size; i++)
++        if (text[i] < 32 || text[i] > 126) return false;
++    return true;
++}
++}
+diff --git a/guest/metal-compat/README.md b/guest/metal-compat/README.md
+index 4f251a6..6c9b0c9 100644
+--- a/guest/metal-compat/README.md
++++ b/guest/metal-compat/README.md
+@@ -11,6 +11,13 @@ The transport returns actual legacy resource IDs, compiler information and
+ GPU completions. It does not override GPU-family queries or emulate a
+ successful draw. Untranslated requests fail explicitly.
+ 
++The selected PCI endpoint may provide a `reims-gpu-model` property containing
++1–63 printable ASCII characters followed by NUL. The bridge publishes that
++host renderer label as the PCI endpoint's and accelerator's `model` data.
++Absent or malformed labels preserve the driver's original model. This changes
++display metadata only: PCI IDs, GPU families, capability answers, and Metal's
++driver-provided `name` are unchanged.
++
+ ## Build and check
+ 
+ First review and commit changes to this directory, then export a new source
+diff --git a/guest/metal-compat/ReimsMetalCompat.cpp b/guest/metal-compat/ReimsMetalCompat.cpp
+index 21627e1..169d8e8 100644
+--- a/guest/metal-compat/ReimsMetalCompat.cpp
++++ b/guest/metal-compat/ReimsMetalCompat.cpp
+@@ -15,6 +15,7 @@
+ #include "TextureABI.hpp"
+ #include "AliasLifetime.hpp"
+ #include "ResourceDiagnostic.hpp"
++#include "ModelName.hpp"
+ 
+ class ReimsMetalClient;
+ 
+@@ -1462,6 +1463,13 @@ bool matched(void *, void *, IOService *service, IONotifier *) {
+             selected = pci->configRead16(kIOPCIConfigVendorID) == 0x106b &&
+                        pci->configRead16(kIOPCIConfigDeviceID) == 0xeeee;
+             if (selected) {
++                auto hostModel = OSDynamicCast(OSData, pci->getProperty("reims-gpu-model"));
++                if (hostModel && ReimsABI::validModelName(hostModel->getBytesNoCopy(), hostModel->getLength())) {
++                    if (!pci->setProperty("model", hostModel) || !service->setProperty("model", hostModel))
++                        SYSLOG("init", "could not publish host GPU model label");
++                    else
++                        SYSLOG("init", "published host GPU model label");
++                }
+                 // PCI model names conventionally contain NUL-terminated bytes.
+                 // AppleParavirt publishes an OSString; clients that read PCI
+                 // display model data cannot consume it. Preserve the name.
+diff --git a/guest/metal-compat/abi-test.cpp b/guest/metal-compat/abi-test.cpp
+index 8727de3..f575f3a 100644
+--- a/guest/metal-compat/abi-test.cpp
++++ b/guest/metal-compat/abi-test.cpp
+@@ -4,10 +4,18 @@
+ #include "TextureABI.hpp"
+ #include "AliasLifetime.hpp"
+ #include "ResourceDiagnostic.hpp"
++#include "ModelName.hpp"
+ #include <assert.h>
+ #include <initializer_list>
+ 
+ static void checkComputePipelines() {
++    const char hostName[] = "NVIDIA GeForce RTX 5080";
++    assert(ReimsABI::validModelName(hostName, sizeof(hostName)));
++    assert(!ReimsABI::validModelName(hostName, sizeof(hostName) - 1));
++    assert(!ReimsABI::validModelName(nullptr, sizeof(hostName)));
++    assert(!ReimsABI::validModelName("", 1));
++    assert(!ReimsABI::validModelName("a\0b", 4));
++    assert(!ReimsABI::validModelName("a\nb", 4));
+     uint8_t sharedTexture[216] {};
+     ReimsABI::write<uint32_t>(sharedTexture, 0x58, 2);
+     ReimsABI::write<uint32_t>(sharedTexture, 0x60, 104);
+diff --git a/guest/metal-compat/source_snapshot.py b/guest/metal-compat/source_snapshot.py
+index cfce423..14632dc 100644
+--- a/guest/metal-compat/source_snapshot.py
++++ b/guest/metal-compat/source_snapshot.py
+@@ -26,7 +26,11 @@ def export(source, destination):
+     revision = git(source, "rev-parse", "HEAD").decode().strip()
+     if git(repository, "status", "--porcelain", "--untracked-files=all", "--", relative):
+         raise ValueError("Source has uncommitted changes; review and commit before exporting")
+-    archive = git(repository, "archive", "--format=zip", revision + ":" + relative)
++    # A subtree archive no longer sees the root .gitattributes. Disable the
++    # machine's checkout conversion so Windows cannot silently turn committed
++    # LF shell scripts into CRLF while still assigning them the same revision.
++    archive = git(repository, "-c", "core.autocrlf=false", "-c", "core.eol=lf",
++                  "archive", "--format=zip", revision + ":" + relative)
+     with zipfile.ZipFile(io.BytesIO(archive)) as entries:
+         files = {}
+         for entry in entries.infolist():
+diff --git a/guest/metal-compat/test_source_snapshot.py b/guest/metal-compat/test_source_snapshot.py
+index 084d861..b018036 100644
+--- a/guest/metal-compat/test_source_snapshot.py
++++ b/guest/metal-compat/test_source_snapshot.py
+@@ -61,6 +61,17 @@ class SnapshotTests(unittest.TestCase):
+         with self.assertRaises(ValueError):
+             api["verify"](self.output)
+ 
++    def test_checkout_newline_policy_does_not_change_committed_bytes(self):
++        script = self.source / "build.sh"
++        script.write_bytes(b"#!/bin/bash\nset -euo pipefail\necho verified\n")
++        self.run_git("add", "guest/bridge/build.sh")
++        self.run_git("commit", "-qm", "Shell fixture")
++        self.run_git("config", "core.autocrlf", "true")
++        self.run_git("config", "core.eol", "crlf")
++        api["export"](self.source, self.output)
++        self.assertEqual((self.output / "build.sh").read_bytes(),
++                         self.run_git("show", "HEAD:guest/bridge/build.sh"))
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

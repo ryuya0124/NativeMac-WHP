@@ -1,0 +1,709 @@
+diff --git a/guest/metal-compat/ReimsMetalCompat.cpp b/guest/metal-compat/ReimsMetalCompat.cpp
+index b0d33ac..21627e1 100644
+--- a/guest/metal-compat/ReimsMetalCompat.cpp
++++ b/guest/metal-compat/ReimsMetalCompat.cpp
+@@ -59,6 +59,23 @@ struct TextureCreation {
+     bool consumed;
+ };
+ TextureCreation *textureCreations;
++struct HeapCreation {
++    HeapCreation *next;
++    thread_t thread;
++    uint64_t length;
++    uint8_t flags;
++    bool consumed;
++    uint32_t observations;
++};
++HeapCreation *heapCreations;
++struct HeapChildCreation {
++    HeapChildCreation *next;
++    thread_t thread;
++    uint32_t identifier;
++    const void *bytes;
++    bool consumed;
++};
++HeapChildCreation *heapChildCreations;
+ 
+ struct Notification {
+     Notification *next;
+@@ -121,6 +138,8 @@ struct Resource {
+     uint32_t identifier;
+     uint32_t objectIdentifier;
+     uint64_t length;
++    bool heap;
++    bool cpuReadableTexture;
+     MappedRange kernelShared;
+     IOBufferMemoryDescriptor *mirror;
+     IOMemoryMap *userMapping;
+@@ -168,12 +187,17 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+     uint32_t traceClient {0};
+     bool traceThisClient {false};
+     uint32_t resourceStage {0};
++    uint32_t resourceDiagnosticDetail {0};
+     IOReturn resourceError {kIOReturnSuccess};
+     bool resourceDiagnosticEnabled {false};
++    bool diagnosticHeapBuffers {false};
++    bool diagnosticHeapTextures {false};
++    bool diagnosticSyncWrites {false};
++    uint32_t diagnosticNoCopyMode {0};
+     ReimsABI::ResourceDiagnostic resourceDiagnostic {};
+     IOExternalTrap releaseTrap {};
+     IOExternalTrap submitTrap {};
+-    IOExternalTrap childReleaseTrap {}, dirtySetupTrap {}, dirtyFlushTrap {};
++    IOExternalTrap childReleaseTrap {}, dirtySetupTrap {}, dirtyFlushTrap {}, heapBufferTrap {};
+     IOBufferMemoryDescriptor *dirtyMemory {nullptr};
+     IOMemoryMap *dirtyUserMapping {nullptr};
+     MappedRange legacyDirtyHead {}, legacyDirtyTail {}, legacyDirtyEntries {};
+@@ -489,6 +513,45 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+         return status;
+     }
+ 
++    IOReturn createHeapBuffer(void *parent, void *child, void *offset, void *length, void *, void *) {
++        if (current_task() != owner) return kIOReturnNotPermitted;
++        uintptr_t parentID = reinterpret_cast<uintptr_t>(parent), childID = reinterpret_cast<uintptr_t>(child);
++        if (parentID > UINT32_MAX || childID > UINT32_MAX || !originalAddObject)
++            return kIOReturnBadArgument;
++        IOLockLock(stateLock);
++        auto resource = resources;
++        while (resource && resource->identifier != parentID) resource = resource->next;
++        uint8_t input[28] {};
++        IOReturn status = kIOReturnBadArgument;
++        if (!closing && resource && resource->heap && ReimsABI::heapBufferChild(
++            static_cast<uint32_t>(parentID), static_cast<uint32_t>(childID), resource->objectIdentifier,
++            resource->length, reinterpret_cast<uintptr_t>(offset), reinterpret_cast<uintptr_t>(length), input)) {
++            HeapChildCreation creation {nullptr, current_thread(), static_cast<uint32_t>(childID), input + 8, false};
++            IOLockLock(clientsLock);
++            creation.next = heapChildCreations;
++            heapChildCreations = &creation;
++            IOLockUnlock(clientsLock);
++            IOExternalMethodArguments args {};
++            args.structureInput = input;
++            args.structureInputSize = sizeof(input);
++            status = call(legacyShared, 259, &args);
++            IOLockLock(clientsLock);
++            HeapChildCreation **link = &heapChildCreations;
++            while (*link && *link != &creation) link = &(*link)->next;
++            if (*link) *link = creation.next;
++            IOLockUnlock(clientsLock);
++            if (status == kIOReturnSuccess && !creation.consumed) {
++                IOExternalMethodArguments cleanup {};
++                cleanup.structureInput = input;
++                cleanup.structureInputSize = 8;
++                call(legacyShared, 260, &cleanup);
++                status = kIOReturnUnsupported;
++            }
++        }
++        IOLockUnlock(stateLock);
++        return status;
++    }
++
+     IOReturn releaseLegacyResource(uint64_t identifier) {
+         IOExternalMethodArguments args {};
+         args.scalarInput = &identifier;
+@@ -498,6 +561,7 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+ 
+     IOReturn createResource(IOExternalMethodArguments *args) {
+         resourceStage = 1;
++        resourceDiagnosticDetail = 0;
+         uint8_t reply[88] {};
+         if (args->scalarInputCount || args->scalarOutputCount ||
+             args->structureOutputSize != sizeof(reply) || !args->structureOutput ||
+@@ -510,6 +574,14 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+             IOFree(input, inputSize);
+             return kIOReturnBadArgument;
+         }
++        // The legacy allocation address must name its backing page; the second
++        // address keeps the logical byte position and the caller's no-copy alias.
++        uint32_t noCopyMode = 1;
++        IOLockLock(clientsLock);
++        for (auto client = clients; client; client = client->nextClient)
++            if (client->owner == owner && client->diagnosticNoCopyMode) noCopyMode = client->diagnosticNoCopyMode;
++        IOLockUnlock(clientsLock);
++        if (noCopyMode) ReimsABI::normalizeNoCopy(args->structureInput, args->structureInputSize, input, inputSize, noCopyMode);
+         auto resource = IONewZero(Resource, 1);
+         if (!resource) { IOFree(input, inputSize); return kIOReturnNoMemory; }
+         IOExternalMethodArguments forwarded {};
+@@ -517,7 +589,27 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+         forwarded.structureInputSize = args->structureInputSize + 16;
+         forwarded.structureOutput = reply;
+         forwarded.structureOutputSize = sizeof(reply);
++        HeapCreation heapCreation {};
++        bool heapRequest = ReimsABI::heapRequest(args->structureInput, args->structureInputSize);
++        if (heapRequest) {
++            heapCreation.thread = current_thread();
++            heapCreation.length = ReimsABI::read<uint64_t>(args->structureInput, 0x60);
++            heapCreation.flags = ReimsABI::read<uint8_t>(args->structureInput, 0x68);
++            IOLockLock(clientsLock);
++            heapCreation.next = heapCreations;
++            heapCreations = &heapCreation;
++            IOLockUnlock(clientsLock);
++        }
+         IOReturn status = call(legacyShared, 0, &forwarded);
++        if (heapRequest) {
++            IOLockLock(clientsLock);
++            resourceDiagnosticDetail = (heapCreation.observations << 8) |
++                (heapCreation.consumed ? 0x10000U : 0);
++            HeapCreation **link = &heapCreations;
++            while (*link && *link != &heapCreation) link = &(*link)->next;
++            if (*link) *link = heapCreation.next;
++            IOLockUnlock(clientsLock);
++        }
+         IOFree(input, inputSize);
+         resourceError = status;
+         MappedRange clientShared {};
+@@ -548,6 +640,8 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+         if (resourceStage == 3) resourceError = resource->kernelShared.error;
+         if (resourceStage == 4) resourceError = status;
+         clientShared.close();
++        if (status == kIOReturnSuccess && heapRequest && !heapCreation.consumed)
++            status = kIOReturnUnsupported;
+         if (status != kIOReturnSuccess) {
+             resource->kernelShared.close();
+             if (resource->identifier) releaseLegacyResource(resource->identifier);
+@@ -558,6 +652,8 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+         ReimsABI::write<uint64_t>(reply, 0x10, resource->userMapping->getAddress());
+         resource->next = resources;
+         resource->objectIdentifier = ReimsABI::read<uint32_t>(args->structureInput, 0x5c);
++        resource->heap = heapRequest;
++        resource->cpuReadableTexture = ReimsABI::sharedTextureRequest(args->structureInput, args->structureInputSize);
+         resources = resource;
+         memcpy(args->structureOutput, reply, sizeof(reply));
+         resourceStage = 5;
+@@ -657,6 +753,11 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+         memcpy(commandSnapshot, commands->range.bytes(), commands->length);
+         size_t size = ReimsABI::submissionSize(source, metadata->length, commandSnapshot, commands->length);
+         auto translated = size ? static_cast<uint8_t *>(IOMalloc(size)) : nullptr;
++        bool synchronizeWrites = false;
++        IOLockLock(clientsLock);
++        for (auto client = clients; client; client = client->nextClient)
++            if (client->owner == owner) synchronizeWrites |= client->diagnosticSyncWrites;
++        IOLockUnlock(clientsLock);
+         bool valid = translated && ReimsABI::submission(source, metadata->length,
+             commandSnapshot, commands->length, translated, size, this,
+             [](void *context, uint32_t identifier, uint64_t &length) {
+@@ -670,7 +771,13 @@ class EXPORT ReimsMetalClient : public IOUserClient {
+                 client->trace("lookup-missing", 0, kIOReturnUnsupported, 0, identifier,
+                     static_cast<uint32_t>(length), 0);
+                 return false;
+-            }, commandSnapshot);
++            }, commandSnapshot, synchronizeWrites,
++            [](void *context, uint32_t identifier) {
++                auto client = static_cast<ReimsMetalClient *>(context);
++                for (auto resource = client->resources; resource; resource = resource->next)
++                    if (resource->identifier == identifier) return resource->cpuReadableTexture;
++                return false;
++            });
+         if (!valid) {
+             trace("metadata-rejected", size != 0, kIOReturnUnsupported, metadata->length,
+                 ReimsABI::read<uint32_t>(source, 0x20), ReimsABI::read<uint32_t>(source, 0x24),
+@@ -894,10 +1001,11 @@ public:
+         releaseTrap.func = reinterpret_cast<IOTrap>(&ReimsMetalClient::releaseResource);
+         submitTrap.object = this;
+         submitTrap.func = reinterpret_cast<IOTrap>(&ReimsMetalClient::submit);
+-        childReleaseTrap.object = dirtySetupTrap.object = dirtyFlushTrap.object = this;
++        childReleaseTrap.object = dirtySetupTrap.object = dirtyFlushTrap.object = heapBufferTrap.object = this;
+         childReleaseTrap.func = reinterpret_cast<IOTrap>(&ReimsMetalClient::releaseChild);
+         dirtySetupTrap.func = reinterpret_cast<IOTrap>(&ReimsMetalClient::dirtySetup);
+         dirtyFlushTrap.func = reinterpret_cast<IOTrap>(&ReimsMetalClient::dirtyFlush);
++        heapBufferTrap.func = reinterpret_cast<IOTrap>(&ReimsMetalClient::createHeapBuffer);
+         IOReturn status = originalOpen(provider, task, security, 5, properties,
+                                       &legacyDevice);
+         if (status != kIOReturnSuccess) return status;
+@@ -925,12 +1033,18 @@ public:
+                             IOExternalMethodDispatch *, OSObject *, void *) override {
+         IOLockLock(stateLock);
+         IOReturn status = closing ? kIOReturnNotOpen : dispatch(selector, args);
+-        if (selector == 9 && args && args->structureInput && clientsLock) {
++        if (selector < 512 && args && clientsLock) {
++            uint8_t empty = 0;
++            const void *input = args->structureInput ? args->structureInput :
++                args->scalarInput ? static_cast<const void *>(args->scalarInput) : &empty;
++            size_t size = args->structureInput ? args->structureInputSize :
++                static_cast<size_t>(args->scalarInputCount) * sizeof(uint64_t);
++            uint32_t detail = selector == 9 ? resourceStage | resourceDiagnosticDetail : selector;
++            if (!args->structureInput && args->scalarInputCount) detail |= 0x80000000U;
+             IOLockLock(clientsLock);
+             for (auto client = clients; client; client = client->nextClient) {
+                 if (client->owner == owner && client->resourceDiagnosticEnabled)
+-                    client->resourceDiagnostic.record(args->structureInput,
+-                        args->structureInputSize, static_cast<int32_t>(status));
++                    client->resourceDiagnostic.record(input, size, static_cast<int32_t>(status), detail);
+             }
+             IOLockUnlock(clientsLock);
+         }
+@@ -965,6 +1079,34 @@ public:
+     IOReturn dispatch(uint32_t selector, IOExternalMethodArguments *args) {
+         if (!args || args->structureInputDescriptor || args->structureOutputDescriptor ||
+             args->asyncReferenceCount) return kIOReturnUnsupported;
++        if (selector == probeVersionSelector + 9 && !args->scalarInputCount &&
++            !args->structureInputSize && !args->scalarOutputCount && !args->structureOutputSize) {
++            IOLockLock(clientsLock);
++            diagnosticSyncWrites = true;
++            IOLockUnlock(clientsLock);
++            return kIOReturnSuccess;
++        }
++        if (selector == probeVersionSelector + 8 && args->scalarInputCount == 1 && args->scalarInput &&
++            args->scalarInput[0] <= 4 && !args->structureInputSize && !args->scalarOutputCount && !args->structureOutputSize) {
++            IOLockLock(clientsLock);
++            diagnosticNoCopyMode = static_cast<uint32_t>(args->scalarInput[0]);
++            IOLockUnlock(clientsLock);
++            return kIOReturnSuccess;
++        }
++        if (selector == probeVersionSelector + 7 && !args->scalarInputCount &&
++            !args->structureInputSize && !args->scalarOutputCount && !args->structureOutputSize) {
++            IOLockLock(clientsLock);
++            diagnosticHeapBuffers = diagnosticHeapTextures = true;
++            IOLockUnlock(clientsLock);
++            return kIOReturnSuccess;
++        }
++        if (selector == probeVersionSelector + 4 && !args->scalarInputCount &&
++            !args->structureInputSize && !args->scalarOutputCount && !args->structureOutputSize) {
++            IOLockLock(clientsLock);
++            diagnosticHeapBuffers = true;
++            IOLockUnlock(clientsLock);
++            return kIOReturnSuccess;
++        }
+         if (selector == probeVersionSelector + 2 && !args->scalarInputCount &&
+             !args->structureInputSize && !args->scalarOutputCount && !args->structureOutputSize) {
+             IOLockLock(clientsLock);
+@@ -1016,8 +1158,25 @@ public:
+             return kIOReturnSuccess;
+         }
+         if (selector == 265 && !args->scalarInputCount && !args->structureInputSize &&
+-            args->structureOutput && args->structureOutputSize == 284)
+-            return call(legacyShared, 261, args);
++            args->structureOutput && args->structureOutputSize == 284) {
++            IOReturn status = call(legacyShared, 261, args);
++            bool heaps = false;
++            bool textures = false;
++            IOLockLock(clientsLock);
++            for (auto client = clients; client; client = client->nextClient)
++                if (client->owner == owner) {
++                    heaps |= client->diagnosticHeapBuffers;
++                    textures |= client->diagnosticHeapTextures;
++                }
++            IOLockUnlock(clientsLock);
++            // metal2vulkan's heap buffer contract is a 256-byte placement
++            // alignment. Texture qualification needs its separate explicit opt-in;
++            // shared-storage and hazard capabilities remain unchanged.
++            if (status == kIOReturnSuccess && heaps &&
++                !ReimsABI::heapBufferCapabilities(args->structureOutput, args->structureOutputSize, 256, textures))
++                return kIOReturnUnsupported;
++            return status;
++        }
+         if (selector == 266) {
+             if (args->scalarInputCount || args->structureOutputSize ||
+                 args->scalarOutputCount != 1 || !args->scalarOutput ||
+@@ -1120,11 +1279,12 @@ public:
+     }
+ 
+     IOExternalTrap *getTargetAndTrapForIndex(IOService **target, UInt32 index) override {
+-        if (!target || (index > 1 && index != 0x100 && index != 0x101 && index != 0x102)) return nullptr;
++        if (!target || (index > 1 && index != 0x100 && index != 0x101 && index != 0x102 && index != 0x103)) return nullptr;
+         *target = this;
+         if (index == 0x100) return &childReleaseTrap;
+         if (index == 0x101) return &dirtySetupTrap;
+         if (index == 0x102) return &dirtyFlushTrap;
++        if (index == 0x103) return &heapBufferTrap;
+         return index == 0 ? &submitTrap : &releaseTrap;
+     }
+ 
+@@ -1183,6 +1343,29 @@ namespace {
+ OSObject *addObject(OSObject *heap, uint32_t type, uint32_t identifier,
+                     uint32_t length, const void *bytes) {
+     bool refused = false;
++    uint8_t heapRecord[16] {};
++    if (clientsLock) {
++        IOLockLock(clientsLock);
++        auto creation = heapCreations;
++        while (creation && creation->thread != current_thread()) creation = creation->next;
++        if (creation) {
++            creation->observations = 1 | (type == 1 ? 2U : 0) | (length == 16 ? 4U : 0);
++            if (bytes && length == 16) {
++                if (ReimsABI::read<uint64_t>(bytes, 0) == creation->length)
++                    creation->observations |= 8;
++                if (ReimsABI::read<uint8_t>(bytes, 12) & 1)
++                    creation->observations |= 16;
++            }
++            if (!creation->consumed && type == 1 &&
++                ReimsABI::heapObject(bytes, length, creation->length, creation->flags, heapRecord)) {
++                type = 13;
++                bytes = heapRecord;
++                length = sizeof(heapRecord);
++                creation->consumed = true;
++            } else refused = true;
++        }
++        IOLockUnlock(clientsLock);
++    }
+     if (type == 7 && clientsLock) {
+         IOLockLock(clientsLock);
+         auto creation = textureCreations;
+@@ -1196,6 +1379,19 @@ OSObject *addObject(OSObject *heap, uint32_t type, uint32_t identifier,
+         }
+         IOLockUnlock(clientsLock);
+     }
++    if (type == 8 && clientsLock) {
++        IOLockLock(clientsLock);
++        auto creation = heapChildCreations;
++        while (creation && creation->thread != current_thread()) creation = creation->next;
++        if (creation) {
++            if (!creation->consumed && identifier == creation->identifier &&
++                bytes == creation->bytes && length == 20) {
++                type = 14;
++                creation->consumed = true;
++            } else refused = true;
++        }
++        IOLockUnlock(clientsLock);
++    }
+     uint16_t format = 0;
+     if (!refused && rejectAstc &&
+         ReimsABI::texturePixelFormat(type, bytes, length, format) && ReimsABI::astcFormat(format)) {
+diff --git a/guest/metal-compat/ResourceABI.hpp b/guest/metal-compat/ResourceABI.hpp
+index ae6067b..51de3ee 100644
+--- a/guest/metal-compat/ResourceABI.hpp
++++ b/guest/metal-compat/ResourceABI.hpp
+@@ -13,12 +13,101 @@ template <typename T> inline void write(void *data, size_t offset, T value) {
+     memcpy(static_cast<uint8_t *>(data) + offset, &value, sizeof(value));
+ }
+ 
++// HeapBuffers and HeapBufferAlignment occupy keys 14 and 15 (zero-based
++// words 13 and 14) in the legacy capability query. Diagnostic opt-in only.
++inline bool heapBufferCapabilities(void *data, size_t size, uint32_t alignment, bool textures = false) {
++    if (!data || size != 284 || !alignment || (alignment & (alignment - 1)) ||
++        read<uint32_t>(data, 13 * 4) || read<uint32_t>(data, 14 * 4) ||
++        read<uint8_t>(data, 224) != 1 || read<uint8_t>(data, 224 + 15) ||
++        (textures && read<uint32_t>(data, 15 * 4))) return false;
++    write<uint32_t>(data, 13 * 4, 1);
++    write<uint32_t>(data, 14 * 4, alignment);
++    if (textures) write<uint32_t>(data, 15 * 4, 1);
++    // The appended APVFeatures block is independent of the binary version.
++    // Enable only the implemented heap path, preserving every other feature.
++    write<uint8_t>(data, 224 + 15, 1);
++    return true;
++}
++
++// Legacy child ownership prefix followed by the host's packed heap-buffer
++// record. The legacy helper keeps and releases the child with its parent.
++inline bool heapBufferChild(uint32_t parent, uint32_t child, uint32_t heapReference,
++                            uint64_t heapLength, uint64_t offset, uint64_t length,
++                            uint8_t (&output)[28]) {
++    if (!parent || !child || !heapReference || !length || offset > heapLength ||
++        length > heapLength - offset) return false;
++    memset(output, 0, sizeof(output));
++    write<uint32_t>(output, 0, parent);
++    write<uint32_t>(output, 4, child);
++    write<uint32_t>(output, 8, heapReference);
++    write<uint64_t>(output, 12, offset);
++    write<uint64_t>(output, 20, length);
++    return true;
++}
++
+ // A compute request has a 32-byte prefix and a nonempty, word-aligned serializer tail.
+ inline bool computePipelineSize(size_t size) {
+     return size > 32 && (size - 32) % 4 == 0;
+ }
+ 
+ // These record layouts are measured at the 64.4.7/15.0.0 user-client boundary.
++inline bool heapRequest(const void *input, size_t size) {
++    return input && size == 112 && read<uint32_t>(input, 0) == 0 &&
++        read<uint32_t>(input, 0x30) == 0 && read<uint32_t>(input, 0x58) == 9 &&
++        read<uint64_t>(input, 0x48) != 0 &&
++        read<uint64_t>(input, 0x48) == read<uint64_t>(input, 0x60) &&
++        (read<uint64_t>(input, 0x68) & ~7ULL) == 0 &&
++        (read<uint64_t>(input, 0x68) & 1) != 0;
++}
++
++// Measured ordinary texture request: each extra mip adds 36 bytes before
++// the fixed tail. Its options encode the storage mode in bits 20-21.
++// Shared, non-IOSurface textures need their GPU
++// writes paged back before completion is reported to the CPU.
++inline bool sharedTextureRequest(const void *input, size_t size) {
++    return input && size >= 216 && (size - 216) % 36 == 0 &&
++        size - 112 <= UINT32_MAX && read<uint32_t>(input, 0) == 0 &&
++        read<uint32_t>(input, 0x30) == 0 && read<uint32_t>(input, 0x58) == 2 &&
++        read<uint32_t>(input, 0x60) == size - 112 &&
++        (read<uint32_t>(input, size - 12) & (3U << 20)) == 0;
++}
++
++// Mode 1 keeps the logical address and length while aligning the backing
++// address. Modes 2-4 remain explicit diagnostic variants of this boundary.
++inline bool normalizeNoCopy(const void *input, size_t size, uint8_t *legacy,
++                            size_t capacity, uint32_t mode) {
++    if (!input || !legacy || size != 112 || capacity < 128 || !mode || mode > 4 ||
++        read<uint32_t>(input, 0) != 0x80 || read<uint32_t>(input, 0x30) != 1 ||
++        read<uint32_t>(input, 0x58) != 1 || read<uint64_t>(input, 0x68) != 0) return false;
++    uint64_t address = read<uint64_t>(input, 0x38), length = read<uint64_t>(input, 0x48);
++    uint64_t offset = address & 4095;
++    if (!offset || address != read<uint64_t>(input, 0x40) || !length ||
++        length != read<uint64_t>(input, 0x60) || length > UINT64_MAX - offset - 4095) return false;
++    uint64_t base = address - offset, span = (length + offset + 4095) & ~4095ULL;
++    if (mode != 4) write<uint64_t>(legacy, 0x40, base);
++    if (mode == 2 || mode == 4) write<uint64_t>(legacy, 0x48, base);
++    if (mode == 2 || mode == 3) {
++        write<uint64_t>(legacy, 0x18, span);
++        write<uint64_t>(legacy, 0x58, span);
++        write<uint64_t>(legacy, 0x70, span);
++    }
++    return true;
++}
++
++// Keep the driver's page-backed memory management, but serialize an actual host
++// heap (page, length, heap flags) instead of its ordinary buffer record.
++inline bool heapObject(const void *buffer, size_t size, uint64_t expectedLength,
++                       uint8_t flags, uint8_t (&heap)[16]) {
++    if (!buffer || size != 16 || !expectedLength || !(flags & 1) || (flags & ~7) ||
++        read<uint64_t>(buffer, 0) != expectedLength ||
++        !(read<uint8_t>(buffer, 12) & 1)) return false;
++    memset(heap, 0, sizeof(heap));
++    write<uint32_t>(heap, 0, read<uint32_t>(buffer, 8));
++    write<uint64_t>(heap, 4, expectedLength);
++    write<uint8_t>(heap, 12, flags);
++    return true;
++}
++
+ inline bool resource(const void *input, size_t size, uint8_t *legacy, size_t capacity) {
+     if (!input || !legacy || size < 112 || capacity < 16 || size > capacity - 16) return false;
+     const auto source = static_cast<const uint8_t *>(input);
+@@ -28,10 +117,11 @@ inline bool resource(const void *input, size_t size, uint8_t *legacy, size_t cap
+     bool texture = size >= 216 && kind == 0 && field30 == 0 && field58 == 2 &&
+         read<uint32_t>(source, 0x60) == size - 112;
+     bool surface = size == 160 && kind == 0x82 && field30 == 0 && field58 == 6;
++    bool heap = heapRequest(input, size);
+     bool buffer = size == 112 &&
+         ((kind == 0x80 && field30 == 1 && field58 == 1) ||
+          (kind == 0 && field30 <= 1 && (field58 == 0 || field58 == 1 || field58 == 5)));
+-    if (!buffer && !texture && !surface) return false;
++    if (!buffer && !texture && !surface && !heap) return false;
+     memset(legacy, 0, size + 16);
+     memcpy(legacy, source, 16);
+     memcpy(legacy + 0x18, source + 0x48, 8);
+@@ -42,6 +132,13 @@ inline bool resource(const void *input, size_t size, uint8_t *legacy, size_t cap
+     if (texture) memcpy(legacy + 0x18, source + 0x98, 8);
+     if (field58 == 0) write<uint64_t>(legacy, 0x18, 1);
+     if (field58 == 5 || surface) write<uint32_t>(legacy, 0x68, field58 - 1);
++    if (heap) {
++        // The legacy backing allocation needs the same field_20 as a private
++        // buffer. The newer heap request leaves this word unset.
++        write<uint32_t>(legacy, 0x20, 0x01000101);
++        write<uint32_t>(legacy, 0x68, 1);
++        write<uint64_t>(legacy, 0x78, 1);
++    }
+     return true;
+ }
+ template <size_t N> inline bool resource(const void *input, size_t size, uint8_t (&legacy)[N]) {
+diff --git a/guest/metal-compat/ResourceDiagnostic.hpp b/guest/metal-compat/ResourceDiagnostic.hpp
+index 40d54ff..25a3043 100644
+--- a/guest/metal-compat/ResourceDiagnostic.hpp
++++ b/guest/metal-compat/ResourceDiagnostic.hpp
+@@ -12,12 +12,12 @@ struct ResourceDiagnostic {
+     uint32_t reserved;
+     uint8_t bytes[512];
+ 
+-    void record(const void *input, size_t length, int32_t result) {
++    void record(const void *input, size_t length, int32_t result, uint32_t detail = 0) {
+         if (!input || length > sizeof(bytes)) return;
+         ++sequence;
+         size = static_cast<uint32_t>(length);
+         status = result;
+-        reserved = 0;
++        reserved = detail;
+         memset(bytes, 0, sizeof(bytes));
+         memcpy(bytes, input, length);
+     }
+diff --git a/guest/metal-compat/SubmissionABI.hpp b/guest/metal-compat/SubmissionABI.hpp
+index 4652b03..cbae398 100644
+--- a/guest/metal-compat/SubmissionABI.hpp
++++ b/guest/metal-compat/SubmissionABI.hpp
+@@ -3,6 +3,7 @@
+ 
+ namespace ReimsABI {
+ using ResourceLookup = bool (*)(void *, uint32_t, uint64_t &);
++using ResourceSynchronization = bool (*)(void *, uint32_t);
+ 
+ inline size_t batchSize(uint64_t count, uint64_t entrySize, uint64_t bytes) {
+     if (!count || entrySize != 48 || count > (UINT32_MAX - 8) / 24 ||
+@@ -15,7 +16,8 @@ inline size_t batchSize(uint64_t count, uint64_t entrySize, uint64_t bytes) {
+ inline size_t walkSubmission(const uint8_t *source, size_t sourceSize,
+                             const uint8_t *commands, size_t commandSize,
+                             uint8_t *output, uint8_t *legacyCommands,
+-                            void *context, ResourceLookup lookup) {
++                            void *context, ResourceLookup lookup, bool synchronizeWrites = false,
++                            ResourceSynchronization synchronize = nullptr) {
+     if (!source || !commands || sourceSize < 24 || commandSize < 0xac ||
+         read<uint32_t>(commands, 0) != 15 || read<uint32_t>(commands, 4) != 0xac)
+         return 0;
+@@ -124,7 +126,8 @@ inline size_t walkSubmission(const uint8_t *source, size_t sourceSize,
+                         uint8_t *entry = destination + 24 + i * 88;
+                         write<uint32_t>(entry, 0, id);
+                         write<uint64_t>(entry, 0x18, length);
+-                        write<uint32_t>(entry, 0x48, access);
++                        write<uint32_t>(entry, 0x48, access |
++                            (((access & 2) && (synchronizeWrites || (synchronize && synchronize(context, id)))) ? 4U : 0U));
+                         write<uint32_t>(entry, 0x54, 0x1ffff);
+                     }
+                 }
+@@ -154,11 +157,12 @@ inline size_t submissionSize(const uint8_t *source, size_t sourceSize,
+ inline bool submission(const uint8_t *source, size_t sourceSize,
+                        const uint8_t *commands, size_t commandSize,
+                        uint8_t *output, size_t outputSize, void *context, ResourceLookup lookup,
+-                       uint8_t *legacyCommands = nullptr) {
++                       uint8_t *legacyCommands = nullptr, bool synchronizeWrites = false,
++                       ResourceSynchronization synchronize = nullptr) {
+     size_t size = submissionSize(source, sourceSize, commands, commandSize);
+     if (!size || !output || outputSize < size || !lookup) return false;
+     memset(output, 0, size);
+     return walkSubmission(source, sourceSize, commands, commandSize,
+-        output, legacyCommands, context, lookup) == size;
++        output, legacyCommands, context, lookup, synchronizeWrites, synchronize) == size;
+ }
+ }
+diff --git a/guest/metal-compat/abi-test.cpp b/guest/metal-compat/abi-test.cpp
+index 1c4cea6..8727de3 100644
+--- a/guest/metal-compat/abi-test.cpp
++++ b/guest/metal-compat/abi-test.cpp
+@@ -8,6 +8,85 @@
+ #include <initializer_list>
+ 
+ static void checkComputePipelines() {
++    uint8_t sharedTexture[216] {};
++    ReimsABI::write<uint32_t>(sharedTexture, 0x58, 2);
++    ReimsABI::write<uint32_t>(sharedTexture, 0x60, 104);
++    assert(ReimsABI::sharedTextureRequest(sharedTexture, sizeof(sharedTexture)));
++    assert(!ReimsABI::sharedTextureRequest(sharedTexture, sizeof(sharedTexture)-1));
++    for (uint32_t mode : {1U, 2U, 3U}) {
++        ReimsABI::write<uint32_t>(sharedTexture, 0xcc, mode << 20);
++        assert(!ReimsABI::sharedTextureRequest(sharedTexture, sizeof(sharedTexture)));
++    }
++    ReimsABI::write<uint32_t>(sharedTexture, 0xcc, 0);
++    ReimsABI::write<uint32_t>(sharedTexture, 0, 0x82);
++    assert(!ReimsABI::sharedTextureRequest(sharedTexture, sizeof(sharedTexture)));
++    uint8_t mipmappedTexture[288] {};
++    ReimsABI::write<uint32_t>(mipmappedTexture, 0x58, 2);
++    ReimsABI::write<uint32_t>(mipmappedTexture, 0x60, sizeof(mipmappedTexture)-112);
++    assert(ReimsABI::sharedTextureRequest(mipmappedTexture, sizeof(mipmappedTexture)));
++    ReimsABI::write<uint32_t>(mipmappedTexture, sizeof(mipmappedTexture)-12, 2U << 20);
++    assert(!ReimsABI::sharedTextureRequest(mipmappedTexture, sizeof(mipmappedTexture)));
++    assert(!ReimsABI::sharedTextureRequest(mipmappedTexture, sizeof(mipmappedTexture)-1));
++    uint8_t noCopy[112] {}, noCopyLegacy[128] {};
++    ReimsABI::write<uint32_t>(noCopy, 0, 0x80);
++    ReimsABI::write<uint32_t>(noCopy, 0x30, 1);
++    ReimsABI::write<uint32_t>(noCopy, 0x58, 1);
++    ReimsABI::write<uint64_t>(noCopy, 0x38, 0x1010);
++    ReimsABI::write<uint64_t>(noCopy, 0x40, 0x1010);
++    ReimsABI::write<uint64_t>(noCopy, 0x48, 256);
++    ReimsABI::write<uint64_t>(noCopy, 0x60, 256);
++    assert(ReimsABI::resource(noCopy, sizeof(noCopy), noCopyLegacy));
++    assert(ReimsABI::normalizeNoCopy(noCopy, sizeof(noCopy), noCopyLegacy, sizeof(noCopyLegacy), 3));
++    assert(ReimsABI::read<uint64_t>(noCopyLegacy, 0x40) == 0x1000);
++    assert(ReimsABI::read<uint64_t>(noCopyLegacy, 0x48) == 0x1010);
++    assert(ReimsABI::read<uint64_t>(noCopyLegacy, 0x18) == 4096);
++    for (uint64_t offset : {16ULL, 256ULL, 1536ULL, 4080ULL}) {
++        for (uint64_t length : {256ULL, 4096ULL, 8192ULL}) {
++            ReimsABI::write<uint64_t>(noCopy, 0x38, 0x1000 + offset);
++            ReimsABI::write<uint64_t>(noCopy, 0x40, 0x1000 + offset);
++            ReimsABI::write<uint64_t>(noCopy, 0x48, length);
++            ReimsABI::write<uint64_t>(noCopy, 0x60, length);
++            assert(ReimsABI::resource(noCopy, sizeof(noCopy), noCopyLegacy));
++            assert(ReimsABI::normalizeNoCopy(noCopy, sizeof(noCopy), noCopyLegacy, sizeof(noCopyLegacy), 1));
++            assert(ReimsABI::read<uint64_t>(noCopyLegacy, 0x40) == 0x1000);
++            assert(ReimsABI::read<uint64_t>(noCopyLegacy, 0x48) == 0x1000 + offset);
++            assert(ReimsABI::read<uint64_t>(noCopyLegacy, 0x18) == length);
++            assert(ReimsABI::read<uint64_t>(noCopyLegacy, 0x58) == length);
++            assert(ReimsABI::read<uint64_t>(noCopyLegacy, 0x70) == length);
++        }
++    }
++    assert(!ReimsABI::normalizeNoCopy(noCopy, sizeof(noCopy)-1, noCopyLegacy, sizeof(noCopyLegacy), 3));
++    assert(!ReimsABI::normalizeNoCopy(noCopy, sizeof(noCopy), noCopyLegacy, sizeof(noCopyLegacy)-1, 3));
++    assert(!ReimsABI::normalizeNoCopy(noCopy, sizeof(noCopy), noCopyLegacy, sizeof(noCopyLegacy), 5));
++    ReimsABI::write<uint64_t>(noCopy, 0x48, UINT64_MAX);
++    ReimsABI::write<uint64_t>(noCopy, 0x60, UINT64_MAX);
++    assert(!ReimsABI::normalizeNoCopy(noCopy, sizeof(noCopy), noCopyLegacy, sizeof(noCopyLegacy), 3));
++    uint8_t child[28] {};
++    assert(ReimsABI::heapBufferChild(7, 9, 3, 8192, 256, 4096, child));
++    assert(ReimsABI::read<uint32_t>(child, 0) == 7 && ReimsABI::read<uint32_t>(child, 4) == 9);
++    assert(ReimsABI::read<uint32_t>(child, 8) == 3 && ReimsABI::read<uint64_t>(child, 12) == 256);
++    assert(ReimsABI::read<uint64_t>(child, 20) == 4096);
++    assert(!ReimsABI::heapBufferChild(7, 9, 3, 8192, 4097, 4096, child));
++    assert(!ReimsABI::heapBufferChild(7, 9, 3, 8192, UINT64_MAX, 1, child));
++    assert(!ReimsABI::heapBufferChild(7, 9, 3, UINT64_MAX, 1, UINT64_MAX, child));
++    assert(!ReimsABI::heapBufferChild(0, 9, 3, 8192, 0, 4096, child));
++    assert(!ReimsABI::heapBufferChild(7, 0, 3, 8192, 0, 4096, child));
++    assert(!ReimsABI::heapBufferChild(7, 9, 0, 8192, 0, 4096, child));
++    assert(!ReimsABI::heapBufferChild(7, 9, 3, 8192, 0, 0, child));
++    uint32_t heapCaps[71] {};
++    ReimsABI::write<uint8_t>(heapCaps, 224, 1);
++    heapCaps[15] = 7;
++    assert(!ReimsABI::heapBufferCapabilities(heapCaps, sizeof(heapCaps) - 1, 256));
++    assert(!ReimsABI::heapBufferCapabilities(heapCaps, sizeof(heapCaps), 0));
++    assert(!ReimsABI::heapBufferCapabilities(heapCaps, sizeof(heapCaps), 255));
++    assert(ReimsABI::heapBufferCapabilities(heapCaps, sizeof(heapCaps), 256));
++    assert(heapCaps[13] == 1 && heapCaps[14] == 256 && heapCaps[15] == 7);
++    assert(ReimsABI::read<uint8_t>(heapCaps, 239) == 1);
++    assert(!ReimsABI::heapBufferCapabilities(heapCaps, sizeof(heapCaps), 256));
++    memset(heapCaps, 0, sizeof(heapCaps));
++    ReimsABI::write<uint8_t>(heapCaps, 224, 1);
++    assert(ReimsABI::heapBufferCapabilities(heapCaps, sizeof(heapCaps), 256, true));
++    assert(heapCaps[13] == 1 && heapCaps[14] == 256 && heapCaps[15] == 1);
+     ReimsABI::ResourceDiagnostic diagnostic {};
+     uint8_t diagnosticInput[513];
+     memset(diagnosticInput, 0xa5, sizeof(diagnosticInput));
+@@ -54,6 +133,16 @@ static void checkSubmission() {
+     assert(ReimsABI::read<uint32_t>(output, 0x20) == 7);
+     assert(ReimsABI::read<uint64_t>(output, 0x28 + 6 * 0x58 + 0x18) == 7168);
+     assert(ReimsABI::read<uint32_t>(output, 0x28 + 6 * 0x58 + 0x48) == 5);
++    assert(ReimsABI::submission(source, sizeof(source), commands, sizeof(commands), output,
++        sizeof(output), nullptr, lookup, nullptr, false,
++        [](void *, uint32_t id) { return id == 1; }));
++    assert(ReimsABI::read<uint32_t>(output, 0x28 + 0x48) == 7);
++    assert(ReimsABI::read<uint32_t>(output, 0x28 + 0x58 + 0x48) == 3);
++    assert(ReimsABI::read<uint32_t>(output, 0x28 + 6 * 0x58 + 0x48) == 5);
++    assert(ReimsABI::submission(source, sizeof(source), commands, sizeof(commands), output,
++        sizeof(output), nullptr, lookup, nullptr, true));
++    assert(ReimsABI::read<uint32_t>(output, 0x28 + 0x48) == 7);
++    assert(ReimsABI::read<uint32_t>(output, 0x28 + 6 * 0x58 + 0x48) == 5);
+     ReimsABI::write<uint16_t>(source, 0x48 + 60, 0xa5a5);
+     ReimsABI::write<uint16_t>(source, 0x48 + 64 + 60, 0x5a5a);
+     assert(ReimsABI::submission(source, sizeof(source), commands, sizeof(commands), output, sizeof(output), nullptr, lookup));
+@@ -406,6 +495,42 @@ int main() {
+     ReimsABI::write<uint32_t>(input, 0x58, 5);
+     assert(ReimsABI::resource(input, 112, output));
+     assert(ReimsABI::read<uint32_t>(output, 0x68) == 4);
++    ReimsABI::write<uint32_t>(input, 0x58, 9);
++    ReimsABI::write<uint64_t>(input, 0x60, 4096);
++    for (uint64_t flags : {1ULL, 3ULL, 5ULL, 7ULL}) {
++        ReimsABI::write<uint64_t>(input, 0x68, flags);
++        assert(ReimsABI::resource(input, 112, output));
++        assert(ReimsABI::read<uint32_t>(output, 0x68) == 1);
++        assert(ReimsABI::read<uint32_t>(output, 0x20) == 0x01000101);
++        assert(ReimsABI::read<uint64_t>(output, 0x70) == 4096);
++        assert(ReimsABI::read<uint64_t>(output, 0x78) == 1);
++    }
++    ReimsABI::write<uint64_t>(input, 0x68, 0);
++    assert(!ReimsABI::resource(input, 112, output));
++    ReimsABI::write<uint64_t>(input, 0x68, 8);
++    assert(!ReimsABI::resource(input, 112, output));
++    ReimsABI::write<uint64_t>(input, 0x68, 1);
++    ReimsABI::write<uint64_t>(input, 0x60, 8192);
++    assert(!ReimsABI::resource(input, 112, output));
++    ReimsABI::write<uint64_t>(input, 0x60, 4096);
++    assert(!ReimsABI::resource(input, 111, output));
++    assert(!ReimsABI::resource(input, 113, output));
++    ReimsABI::write<uint64_t>(input, 0x68, 0);
++    uint8_t bufferRecord[16] {}, heapRecord[16] {};
++    ReimsABI::write<uint64_t>(bufferRecord, 0, 8192);
++    ReimsABI::write<uint32_t>(bufferRecord, 8, 0x12345);
++    bufferRecord[12] = 1;
++    assert(ReimsABI::heapObject(bufferRecord, sizeof(bufferRecord), 8192, 3, heapRecord));
++    assert(ReimsABI::read<uint32_t>(heapRecord, 0) == 0x12345);
++    assert(ReimsABI::read<uint64_t>(heapRecord, 4) == 8192 && heapRecord[12] == 3);
++    assert(heapRecord[13] == 0 && heapRecord[14] == 0 && heapRecord[15] == 0);
++    assert(!ReimsABI::heapObject(bufferRecord, 15, 8192, 1, heapRecord));
++    assert(!ReimsABI::heapObject(bufferRecord, 17, 8192, 1, heapRecord));
++    assert(!ReimsABI::heapObject(bufferRecord, 16, 4096, 1, heapRecord));
++    assert(!ReimsABI::heapObject(bufferRecord, 16, 8192, 0, heapRecord));
++    assert(!ReimsABI::heapObject(bufferRecord, 16, 8192, 8, heapRecord));
++    bufferRecord[12] = 0;
++    assert(!ReimsABI::heapObject(bufferRecord, 16, 8192, 1, heapRecord));
+     ReimsABI::write<uint32_t>(input, 0x58, 2);
+     ReimsABI::write<uint32_t>(input, 0x60, 104);
+     ReimsABI::write<uint64_t>(input, 0x98, 256);

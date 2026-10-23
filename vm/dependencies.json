@@ -31,8 +31,8 @@
       "qualification": "in_progress",
       "buildInstructions": "docs/GPU_STABILITY.md",
       "patch": "patches/reims-metal-compat-astc.patch",
-      "testedSnapshotRevision": "0471bc25dffab380631e8cb888784ebbd233fff2",
-      "manifest": "docs/verification/metal-compat-pci-model-source-manifest.json",
+      "testedSnapshotRevision": "1b9a256573aa84b3aaaac5935dcdf0289e8256da",
+      "manifest": "docs/verification/metal-compat-host-model-source-manifest.json",
       "aliasLifetimeRepair": {
         "patch": "patches/reims-metal-compat-alias-lifetime.patch",
         "applyAfter": "patches/reims-metal-compat-astc.patch",
@@ -58,6 +58,20 @@
         "sourceRevision": "8a079b086b8b3990c1ad60a56e924a9028c9bb4c",
         "scope": "Validate variable-length serializer buffer lists and preserve each segment; no GPU commands omitted",
         "status": "FHD cold boot and authored blit pass; three consecutive populated GravityMark runs complete normally at 23.7-24.0 fps; general Metal compatibility remains unqualified"
+      },
+      "mpsMemoryRepair": {
+        "patch": "patches/reims-metal-mps-memory.patch",
+        "applyAfter": "patches/reims-metal-pci-model.patch",
+        "sourceRevision": "42e21ba06a83973b46581f7844ab39f7659f2956",
+        "scope": "Preserve subpage NoCopy aliases and copy completed GPU writes back to Shared texture CPU storage, including mipmapped records",
+        "status": "Stock signed Geekbench 7.1.0 Metal completes all 11 workloads, score 3238, no reported validation errors; other GPU feature gaps remain"
+      },
+      "hostModelMetadata": {
+        "patch": "patches/reims-metal-host-model.patch",
+        "applyAfter": "patches/reims-metal-mps-memory.patch",
+        "sourceRevision": "1b9a256573aa84b3aaaac5935dcdf0289e8256da",
+        "scope": "Validated Windows-selected renderer name to PCI/accelerator model metadata; no PCI IDs, feature claims or default Metal driver name changes",
+        "status": "Dynamic Windows renderer discovery, cold boot, matching guest IORegistry model and 4096 GPU values pass; system-wide Metal name integration remains unqualified"
       }
     },
     "contiguousMemoryRuns": {
@@ -138,5 +152,15 @@
     "verification": "docs/verification/deferred-stage-bindings.json",
     "deployment": "opt-in process only; not enabled in VM or desktop by default",
     "status": "setter exceptions resolved and direct/indirect pixel checks pass; GravityMark completes with black scene, score rejected; mesh execution unsupported"
+  },
+  "metal2vulkanVectorBindingRepair": {
+    "patch": "patches/metal2vulkan-vector-binding-offsets.patch",
+    "applyAfter": "patches/metal2vulkan-bounded-pointer-cells.patch",
+    "sourceRevision": "e839093",
+    "codeRevision": "66092df",
+    "semanticsVersion": 1698,
+    "scope": "Respect 4/8/12-byte descriptor-relative vector offsets, keep aligned uvec4 fast path, and bound expanded vector copy unrolling",
+    "status": "512 guest GPU vector values plus guard bytes pass; 41-case matrix completes with 37 passes and 4 declared failures",
+    "usesCpuRendering": false
   }
 }

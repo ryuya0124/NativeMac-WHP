@@ -1,0 +1,100 @@
+{
+  "source": "e839093",
+  "semanticsVersion": 1698,
+  "runtimeVersion": 1183,
+  "mainSuite": {
+    "passed": 4565,
+    "failed": 0,
+    "skipped": 22
+  },
+  "validationSuite": {
+    "passedInitial": 1302,
+    "failedInitial": 1,
+    "skipped": 4,
+    "failedTest": "candidate::engine::artifact::tests::the_runtime_sources_are_the_committed_ones",
+    "repair": "Baseline and current committed runtime inputs have identical SHA256 818b0691f35e2259f537bf9c1cca9abfc5ba6b05011273a9ce118e0d2f0aa0e5; refresh stale pin without changing runtime behavior",
+    "repairedTestPassed": true
+  },
+  "fmt": true,
+  "clippyAllFeatures": true,
+  "rustdocWarningsDenied": true,
+  "doctests": true,
+  "clippyConfigurations": [
+    "no-default-features",
+    "serde",
+    "ash",
+    "cli"
+  ],
+  "goldenReview": {
+    "identities": 2267,
+    "changedRows": 599,
+    "newRows": 0,
+    "removedRows": 0,
+    "hashCellsChanged": 11315,
+    "outcomeCellsChanged": 0
+  },
+  "limitations": [
+    "CPU regression gates and valid SPIR-V do not prove GPU feature execution"
+  ],
+  "boundedReleaseTranslation": {
+    "wallLimitSeconds": 20,
+    "jobLimitMiB": 500,
+    "checks": [
+      {
+        "authoredFixture": "tns",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.125,
+        "peakMiB": 13.855,
+        "spirvValidation": [
+          "vulkan1.2",
+          "vulkan1.4"
+        ]
+      },
+      {
+        "authoredFixture": "rt6",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.047,
+        "peakMiB": 13.945,
+        "spirvValidation": [
+          "vulkan1.2",
+          "vulkan1.4"
+        ]
+      },
+      {
+        "authoredFixture": "zwd",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.047,
+        "peakMiB": 13.992,
+        "spirvValidation": [
+          "vulkan1.2",
+          "vulkan1.4"
+        ]
+      },
+      {
+        "authoredFixture": "msf",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.047,
+        "peakMiB": 13.996,
+        "spirvValidation": [
+          "vulkan1.2",
+          "vulkan1.4"
+        ]
+      },
+      {
+        "authoredFixture": "rfs",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.047,
+        "peakMiB": 9.898,
+        "spirvValidation": [
+          "vulkan1.2",
+          "vulkan1.4"
+        ]
+      }
+    ]
+  }
+}

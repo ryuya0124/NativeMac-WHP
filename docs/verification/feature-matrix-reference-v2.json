@@ -1,0 +1,680 @@
+{
+  "schema": 1,
+  "label": "M4-Mac-mini",
+  "architecture": "arm64",
+  "macOS": "27.2",
+  "sources": {
+    "FeatureExecutionProbe.m": "9004571211993d9cc0b96aaa77815ceb4e5eaa10aba0bd0f707d40d1d0a1bf2e",
+    "Probe.m": "15399770f00bbb9c172dbb58853cc22cf562e51147678be84c5b3af81bdf293f",
+    "BitReverseProbe.m": "64794bef195a25b39d0390d8b26b379da8c30ad51f3238156238a7b61cbb0725",
+    "TextureReadbackProbe.m": "df6e04bfdecc2386f33e4db31c7175a7cff6cb65263aa200f1147504112c5080",
+    "ArgumentBufferProbe.m": "2512781843284a2d1e9df246692c4ea39d1ca4f0701b05dbaf63a6d6cc6fc750",
+    "HeapProbe.m": "15faded1182127ead9463ddbe98736d962169fd27b79507e604c45a0a4a6b177",
+    "HeapTextureProbe.m": "47885f1af57bdb0a65a390b4a918d9caa5a495f4309e98e7c51297fa1c1d540e",
+    "NoCopyProbe.m": "10f214aa5235b98f2705c3783e6c87fc76752733b43341c1666611bb68e0c1ed",
+    "MPSGraphProbe.m": "1b2017a3cf00bf9c10518a8a8057c01b186989ead2325823f1eaa45a7027a852",
+    "MPSConvolutionProbe.m": "d181bb19fb9391d9a2695c9fa3ff329ef1617042dd68f65e74fbf2f1d567afb3",
+    "MPSOperationsProbe.m": "c6ae8533849a6d8714ff9f5a341b8734dcc40e07f5ca7648c267f9ba7f034876",
+    "MPSCNNProbe.m": "e993e0af5a893e170bbaaa1e8bd0e10d20e6d9a35830d130cadb09842f56a034",
+    "VectorOffsetProbe.m": "f46dcc6800230a729ed5ff3d2fb9b3162725b43cf1fb496d11b2d3ac9c3c804a"
+  },
+  "createdAt": "2026-10-23T01:43:15.276585+00:00",
+  "cases": [
+    {
+      "case": "texture-transfer/r8",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.266,
+      "measurements": [
+        {
+          "allocated": 1,
+          "checkedBytes": 256,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "texture-transfer/rg8",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.059,
+      "measurements": [
+        {
+          "allocated": 1,
+          "checkedBytes": 512,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "texture-transfer/rgba8",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.046,
+      "measurements": [
+        {
+          "allocated": 1,
+          "checkedBytes": 1024,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "texture-transfer/bgra8",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.05,
+      "measurements": [
+        {
+          "allocated": 1,
+          "checkedBytes": 1024,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "texture-transfer/r32uint",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.056,
+      "measurements": [
+        {
+          "allocated": 1,
+          "checkedBytes": 1024,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "texture-transfer/rgba8uint",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.046,
+      "measurements": [
+        {
+          "allocated": 1,
+          "checkedBytes": 1024,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "texture-transfer/r32float",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.046,
+      "measurements": [
+        {
+          "allocated": 1,
+          "checkedBytes": 1024,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "texture-transfer/rgba16float",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.053,
+      "measurements": [
+        {
+          "allocated": 1,
+          "checkedBytes": 2048,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "texture-transfer/rgba32float",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.051,
+      "measurements": [
+        {
+          "allocated": 1,
+          "checkedBytes": 4096,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "render/draw",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.058,
+      "measurements": [
+        {
+          "checkedValues": 1024,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "render/indirect-draw",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.062,
+      "measurements": [
+        {
+          "checkedValues": 1024,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "render/icb",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.063,
+      "measurements": [
+        {
+          "allocated": 1,
+          "checkedValues": 1024,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "synchronization/fence",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.045,
+      "measurements": [
+        {
+          "allocated": 1,
+          "checkedBytes": 4096,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "synchronization/shared-event",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.052,
+      "measurements": [
+        {
+          "allocated": 1,
+          "checkedBytes": 4096,
+          "commandCompleted": 1,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "binding/basic-compute",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.235,
+      "measurements": []
+    },
+    {
+      "case": "binding/vector-offsets",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.248,
+      "measurements": [
+        {
+          "checkedValues": 512,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "texture-readback/mips-slices-subregions",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.261,
+      "measurements": [
+        {
+          "stage": "texture-readback-regions",
+          "cases": 84,
+          "checkedBytes": 23500,
+          "errors": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "intrinsic/uint4-reverse-bits",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.244,
+      "measurements": [
+        {
+          "device": "Apple M4",
+          "checkedValues": 16384,
+          "verified": true,
+          "mismatches": 0,
+          "gpuSeconds": 3.166613169014454e-06
+        }
+      ]
+    },
+    {
+      "case": "binding/mixed-argument-buffer",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.238,
+      "measurements": [
+        {
+          "argumentBufferTier": 1,
+          "atomicCount": 256,
+          "checked": 1024,
+          "commandCompleted": 1,
+          "expectedValues": 1024,
+          "laneMatches": [
+            256,
+            256,
+            256,
+            256
+          ],
+          "passed": true,
+          "stage": "mixed-argument-buffer"
+        }
+      ]
+    },
+    {
+      "case": "buffer/no-copy-subpage-alias",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.236,
+      "measurements": [
+        {
+          "allocated": 1,
+          "device": 1,
+          "sameContents": 1,
+          "verified": 1,
+          "aliasVerified": 1,
+          "computeVerified": 1,
+          "mismatches": 0
+        }
+      ]
+    },
+    {
+      "case": "mps/vector-constant-add",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.338,
+      "measurements": [
+        {
+          "buffer": 1,
+          "stage": "resources"
+        },
+        {
+          "stage": "before-tensor-data"
+        },
+        {
+          "stage": "tensor-data"
+        },
+        {
+          "stage": "before-graph-run"
+        },
+        {
+          "checked": 64,
+          "resultAvailable": 1,
+          "mismatches": 0,
+          "stage": "graph-result"
+        }
+      ]
+    },
+    {
+      "case": "mps/convolution-float32",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.297,
+      "measurements": [
+        {
+          "channels": 32,
+          "checkedValues": 28800,
+          "groups": 1,
+          "half": false,
+          "layers": 1,
+          "maxError": 0,
+          "mismatches": 0,
+          "outputs": 32,
+          "passed": 1,
+          "width": 32
+        }
+      ]
+    },
+    {
+      "case": "mps/convolution-float16",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.141,
+      "measurements": [
+        {
+          "channels": 32,
+          "checkedValues": 28800,
+          "groups": 1,
+          "half": true,
+          "layers": 1,
+          "maxError": 0,
+          "mismatches": 0,
+          "outputs": 32,
+          "passed": 1,
+          "width": 32
+        }
+      ]
+    },
+    {
+      "case": "heap/private-buffer",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.234,
+      "measurements": [
+        {
+          "buffer": 1,
+          "checkedBytes": 4096,
+          "heap": 1,
+          "mismatches": 0,
+          "stage": "heap-buffer-gpu-readback",
+          "verified": true
+        }
+      ]
+    },
+    {
+      "case": "heap/private-texture",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.247,
+      "measurements": [
+        {
+          "stage": "before-size-query"
+        },
+        {
+          "stage": "size-query",
+          "size": 1152,
+          "align": 128
+        },
+        {
+          "stage": "allocation",
+          "heap": 1,
+          "texture": 1
+        },
+        {
+          "mismatches": 0,
+          "stage": "readback"
+        }
+      ]
+    },
+    {
+      "case": "mps/matmul-float32",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.546,
+      "measurements": [
+        {
+          "checkedValues": 899,
+          "half": false,
+          "maxError": 3.445880095043208e-06,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "mps/matmul-float16",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.168,
+      "measurements": [
+        {
+          "checkedValues": 899,
+          "half": true,
+          "maxError": 0.00390625,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "mps/matmul-transpose-float32",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.074,
+      "measurements": [
+        {
+          "checkedValues": 899,
+          "half": false,
+          "maxError": 7.449460994735091e-07,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "mps/matmul-transpose-float16",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.126,
+      "measurements": [
+        {
+          "checkedValues": 899,
+          "half": true,
+          "maxError": 0.001953125,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "mps/softmax-float32",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.076,
+      "measurements": [
+        {
+          "checkedValues": 2015,
+          "half": false,
+          "maxError": 1.0510666219321063e-08,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "mps/softmax-float16",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.266,
+      "measurements": [
+        {
+          "checkedValues": 2015,
+          "half": true,
+          "maxError": 9.1552734375e-05,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "mps/sigmoid-float32",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.073,
+      "measurements": [
+        {
+          "checkedValues": 2015,
+          "half": false,
+          "maxError": 8.425135911149795e-08,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "mps/sigmoid-float16",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.171,
+      "measurements": [
+        {
+          "checkedValues": 2015,
+          "half": true,
+          "maxError": 0.0009765625,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "mps/sum-float32",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.071,
+      "measurements": [
+        {
+          "checkedValues": 31,
+          "half": false,
+          "maxError": 1.2330710887908936e-06,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "mps/sum-float16",
+      "status": "fail",
+      "exitCode": 3,
+      "seconds": 0.103,
+      "measurements": [
+        {
+          "checkedValues": 31,
+          "half": true,
+          "maxError": 0.021484375,
+          "mismatches": 7,
+          "passed": false
+        }
+      ]
+    },
+    {
+      "case": "mps/sum-exact-float32",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.072,
+      "measurements": [
+        {
+          "checkedValues": 31,
+          "half": false,
+          "maxError": 0,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "mps/sum-exact-float16",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.087,
+      "measurements": [
+        {
+          "checkedValues": 31,
+          "half": true,
+          "maxError": 0,
+          "mismatches": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case": "mps/cnn-convolution",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.255,
+      "measurements": [
+        {
+          "channels": 16,
+          "checkedValues": 14400,
+          "commandCompleted": 1,
+          "maxError": 0,
+          "mismatches": 0,
+          "passed": true,
+          "width": 32
+        }
+      ]
+    },
+    {
+      "case": "mps/cnn-managed-readback",
+      "status": "not-applicable",
+      "exitCode": 77,
+      "seconds": 0.008,
+      "measurements": [
+        {
+          "stage": "managed-storage",
+          "applicable": false,
+          "reason": "Apple Silicon has no distinct Managed storage mode"
+        }
+      ]
+    },
+    {
+      "case": "mps/convolution-chain",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.112,
+      "measurements": [
+        {
+          "channels": 16,
+          "checkedValues": 9216,
+          "groups": 1,
+          "half": false,
+          "layers": 4,
+          "maxError": 2.9802322387695312e-08,
+          "mismatches": 0,
+          "outputs": 16,
+          "passed": 1,
+          "width": 32
+        }
+      ]
+    },
+    {
+      "case": "mps/depthwise-chain",
+      "status": "pass",
+      "exitCode": 0,
+      "seconds": 0.101,
+      "measurements": [
+        {
+          "channels": 16,
+          "checkedValues": 9216,
+          "groups": 16,
+          "half": false,
+          "layers": 4,
+          "maxError": 0,
+          "mismatches": 0,
+          "outputs": 16,
+          "passed": 1,
+          "width": 32
+        }
+      ]
+    }
+  ]
+}

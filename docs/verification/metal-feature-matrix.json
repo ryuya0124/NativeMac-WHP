@@ -1,0 +1,52 @@
+{
+  "verifiedOn": "2026-10-23",
+  "reference": {
+    "architecture": "arm64",
+    "macOS": "27.2",
+    "xcode": "27.1 RC"
+  },
+  "vm": {
+    "architecture": "x86_64",
+    "macOS": "26.6.2",
+    "memoryGiB": 12,
+    "processors": 8,
+    "hostGPU": "NVIDIA GeForce RTX 5080",
+    "guestKext": "42e21ba06a83973b46581f7844ab39f7659f2956",
+    "translatorCode": "66092df",
+    "semanticsVersion": 1698,
+    "dllSha256": "65da33a2fdff0c487a067e3a2ae56defd68e64b0b3c71706766db76e5c62e8d5"
+  },
+  "sameProbeSourceHashes": true,
+  "sameOperatingSystem": false,
+  "limitations": [
+    "41 executed cases are not exhaustive Metal support",
+    "Original random FP16 sum tolerance remains unchanged; reference Mac fails 7/31 outputs at maximum error 0.021484375 versus tolerance 0.01",
+    "Separately authored exactly representable sum passes on both hosts",
+    "Managed storage has no distinct Apple Silicon mode and is marked not-applicable only there"
+  ],
+  "referenceResults": {
+    "pass": 39,
+    "fail": 1,
+    "not-applicable": 1
+  },
+  "vmResults": {
+    "pass": 37,
+    "fail": 4
+  },
+  "repositorySourceSha256LF": {
+    "FeatureExecutionProbe.m": "9004571211993d9cc0b96aaa77815ceb4e5eaa10aba0bd0f707d40d1d0a1bf2e",
+    "Probe.m": "15399770f00bbb9c172dbb58853cc22cf562e51147678be84c5b3af81bdf293f",
+    "BitReverseProbe.m": "64794bef195a25b39d0390d8b26b379da8c30ad51f3238156238a7b61cbb0725",
+    "TextureReadbackProbe.m": "df6e04bfdecc2386f33e4db31c7175a7cff6cb65263aa200f1147504112c5080",
+    "ArgumentBufferProbe.m": "2512781843284a2d1e9df246692c4ea39d1ca4f0701b05dbaf63a6d6cc6fc750",
+    "HeapProbe.m": "9c8e60261eff1064c76c3da79acd6fe78efe28393f4bc9fd28f7366617652347",
+    "HeapTextureProbe.m": "47885f1af57bdb0a65a390b4a918d9caa5a495f4309e98e7c51297fa1c1d540e",
+    "NoCopyProbe.m": "10f214aa5235b98f2705c3783e6c87fc76752733b43341c1666611bb68e0c1ed",
+    "MPSGraphProbe.m": "3a53b4914afbf23c4cd5367f5cc5b4df4f0949e4e6f876f03f5ec6f74bb0a01c",
+    "MPSConvolutionProbe.m": "d181bb19fb9391d9a2695c9fa3ff329ef1617042dd68f65e74fbf2f1d567afb3",
+    "MPSOperationsProbe.m": "c6ae8533849a6d8714ff9f5a341b8734dcc40e07f5ca7648c267f9ba7f034876",
+    "MPSCNNProbe.m": "e993e0af5a893e170bbaaa1e8bd0e10d20e6d9a35830d130cadb09842f56a034",
+    "VectorOffsetProbe.m": "f46dcc6800230a729ed5ff3d2fb9b3162725b43cf1fb496d11b2d3ac9c3c804a"
+  },
+  "sourceHashNote": "Per-host reports retain raw executed-file hashes. HeapProbe.m and MPSGraphProbe.m were executed with CRLF on both hosts; Git stores LF. Canonical LF hashes are listed separately without changing historical execution evidence."
+}

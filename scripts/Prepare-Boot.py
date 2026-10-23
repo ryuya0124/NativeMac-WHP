@@ -12,12 +12,16 @@ parser.add_argument('--processors', type=int, default=8, choices=range(1, 65))
 parser.add_argument('--gpu', action='store_true')
 parser.add_argument('--metal-compat', action='store_true')
 parser.add_argument('--reject-astc', action='store_true')
+parser.add_argument('--gpu-name', help='Host renderer model label, published separately from PCI identity and capabilities')
 parser.add_argument('--resolution', choices=('1920x1080', '2560x1440', '3840x2160'), default='1920x1080')
 args = parser.parse_args()
 if args.metal_compat and not args.gpu:
     parser.error('--metal-compat requires --gpu')
 if args.reject_astc and not args.metal_compat:
     parser.error('--reject-astc requires --metal-compat')
+if args.gpu_name and (not args.gpu or not 1 <= len(args.gpu_name) <= 63 or
+                     any(ord(c) < 32 or ord(c) > 126 for c in args.gpu_name)):
+    parser.error('--gpu-name requires --gpu and 1..63 printable ASCII characters')
 firmware = ROOT / 'backend/firmware'
 oc = firmware / 'opencore-1.0.8-debug'
 hv = firmware / 'hyperv-0.4.0'
@@ -61,6 +65,10 @@ for driver in config['UEFI']['Drivers']:
 if args.gpu:
     config['UEFI']['Drivers'].append({'Arguments':'','Comment':'NativeMac PCI GPU GOP',
         'Enabled':True,'LoadEarly':False,'HideVerbose':False,'Path':'ReimsVgpu.efi'})
+    if args.gpu_name:
+        # NativeMac's fixed PCI topology: root port 1, endpoint 0. The guest
+        # bridge reads this label without changing the paravirtual PCI IDs.
+        config['DeviceProperties']['Add'].setdefault('PciRoot(0x0)/Pci(0x1,0x0)/Pci(0x0,0x0)', {})['reims-gpu-model'] = args.gpu_name.encode('ascii') + b'\0'
 config['NVRAM']['Add']['7C436110-AB2A-4BBB-A880-FE41995C9F82']['boot-args'] = '-v debug=0x10a keepsyms=1 serial=9 -lilubetaall'
 if args.gpu:
     config['NVRAM']['Add']['7C436110-AB2A-4BBB-A880-FE41995C9F82']['boot-args'] += ' npci=0x2000 -hvpcinative'

@@ -1,0 +1,40 @@
+{
+  "verifiedOn": "2026-10-23",
+  "identitySource": "selected GPU of the configured Reims DLL, Windows Vulkan backend startup callback",
+  "configuredFixedGpuName": false,
+  "missingIdentityStopsLaunch": true,
+  "coldBoot": true,
+  "hostProbeName": "NVIDIA GeForce RTX 5080",
+  "actualVmRendererName": "NVIDIA GeForce RTX 5080",
+  "openCorePropertyName": "NVIDIA GeForce RTX 5080",
+  "guestRegistryModel": "NVIDIA GeForce RTX 5080",
+  "systemInformationModels": [
+    "NVIDIA GeForce RTX 5080"
+  ],
+  "normalMetalName": "Apple Paravirtual device",
+  "gpuComputeValues": 4096,
+  "gpuComputePassed": true,
+  "guestBridgeSource": "1b9a256573aa84b3aaaac5935dcdf0289e8256da",
+  "dllSha256": "65da33a2fdff0c487a067e3a2ae56defd68e64b0b3c71706766db76e5c62e8d5",
+  "prototype": {
+    "explicitProcessOnly": true,
+    "deviceName": "NVIDIA GeForce RTX 5080",
+    "sameRegistryID": true,
+    "gpuComputeValues": 4096,
+    "mismatches": 0,
+    "passed": true,
+    "systemWideInstalled": false
+  },
+  "limitations": [
+    "Pinned backend startup callback is parsed; no new structured GPU identity C API yet",
+    "Actual selected renderer was verified on this Windows host, not a multi-GPU hotplug or alternate GPU qualification",
+    "System-wide Metal name integration and OpenCL device support remain unqualified"
+  ],
+  "sourceSha256LF": {
+    "scripts/Start-VM.ps1": "27543b821e6643c044a2b189b26daf0d4350d13ef623a66474e57cc404eca239",
+    "scripts/Probe-VGpu.py": "73e1697b12c467e9228e28575c8093cb97787fe68e1d3e5a494d87e757c5ce30",
+    "scripts/Prepare-Boot.py": "e653c982ccc8d22d751b13f2bfd6736a52d405c0de8db7b0aa5618724917ad36",
+    "native/MetalIdentity/Driver.m": "a1adab7a2fbc1c5ae44ac03d75e24f5ce5d29e1f370710d581126501961e25b6",
+    "native/MetalIdentity/Probe.m": "891838bdfc2e9602b69d9ab9edefd2e24bb327d89f9107c31cc2b43aa80f62cb"
+  }
+}

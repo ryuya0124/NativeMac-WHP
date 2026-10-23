@@ -1,4 +1,62 @@
-# FHD GPU compatibility checks
+# GPU compatibility checks
+
+Stock signed Geekbench 7.1.0 Metal completes all 11 workloads with zero
+validation errors: [3238](https://browser.geekbench.com/v7/gpu/317315).
+The guest uses kernel bridge `42e21ba` and translator code `66092df`
+(semantics 1698), without benchmark patches, injected adapters or changed
+GPU-family claims. No other benchmark or stress suite ran concurrently;
+light SSH readouts and two brief identity-probe compilations occurred during
+the run, so laboratory-isolated performance is not claimed.
+
+The bridge preserves subpage NoCopy aliases and publishes completed Shared
+texture GPU writes to their CPU backing, including mipmapped records. The
+translator respects final descriptor-relative vector offsets of 4, 8 and
+12 bytes while retaining aligned vector accesses. Authored GPU checks cover
+512 vector values plus guard bytes and 84 texture readback cases / 23500 bytes.
+FP32 matrix multiplication checks 899 values with zero mismatches, maximum
+error 3.5108e-6; the transposed case has maximum error 5.6965e-7.
+
+The [automatically generated feature matrix](verification/feature-matrix-comparison-v2.json)
+executes identical probe sources on the M4 reference and Intel VM. The VM
+passes 37 of 41 cases. Remaining failures are indirect command buffer
+allocation, mixed argument buffer bindings, private heap buffers and private
+heap textures. The reference runs macOS 27.2 while the VM runs 26.6.2, so the
+comparison includes OS, SDK and architecture differences. The original FP16
+random sum check fails its unchanged tolerance on the reference; a separately
+authored exactly representable sum passes on both. See
+[counts and limitations](verification/metal-feature-matrix.json).
+
+VM VideoToolbox software H.264 and HEVC round trips each return 12 verified
+frames. An authored local H.264 movie plays through WKWebView with 38 frame
+callbacks and 5 observed pixel changes. These are software codec results;
+VideoToolbox hardware encoder/decoder selection is not implemented. The
+Windows RTX 5080 separately passes a 90-frame NVENC H.264 encode and NVDEC
+decode. The guest-to-Windows transport also passes checked H.264/HEVC encode
+and decode batches from 320×180 through 3840×2160, with explicit NVENC/CUVID
+and no software fallback. See [transport evidence](verification/video-hardware-transport.json).
+This is not yet a registered VideoToolbox codec or sustained playback test.
+YouTube still fails with a player `fmt.decode` error. Neither host codec
+success nor local movie playback qualifies Safari hardware video.
+
+## GPU model discovery
+
+Every GPU-enabled launch creates a short-lived probe using the same Reims
+DLL and default device selection as the VM. Its selected Windows Vulkan
+renderer name is read from the pinned backend's startup callback, validated
+and passed through OpenCore `reims-gpu-model` to the guest bridge. No fixed
+GPU model, first-Windows-adapter assumption or cached-name fallback is used.
+Failure to obtain one valid name stops launch.
+
+The dynamic path cold boots with the probe, actual VM renderer log,
+IORegistry model and System Information model all agreeing; the subsequent
+4096-value GPU compute check passes. See [identity evidence](verification/gpu-host-identity.json).
+Normal Metal applications still return the stock `Apple Paravirtual device`
+name. The opt-in [Metal identity prototype](../native/MetalIdentity/README.md)
+returns the host name and checks GPU output in its explicit test process;
+system-wide plug-in loading and signing are not qualified. OpenCL device
+support and Geekbench's malformed OpenCL API-menu label remain separate gaps.
+
+## Earlier FHD and 4K checks
 
 Tests use macOS 26.6.2 x86_64, WHP, 12 GiB / 8 virtual processors, and RTX 5080 through Reims/Vulkan. CPU execution uses no instruction translation. FHD remains the default. A bounded 4K desktop and populated GravityMark run now pass; general Metal and game compatibility remain incomplete.
 

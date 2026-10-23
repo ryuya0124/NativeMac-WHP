@@ -51,6 +51,19 @@ if (!$Gpu) { $options += '--gfx' }
 if (!$FirmwareOnly) {
     $prepareOptions = @('--processors',"$Processors",'--resolution',$DisplayResolution)
     if ($Gpu) { $prepareOptions += '--gpu' }
+    if ($Gpu) {
+        # Ask the same Windows Vulkan DLL and default-device selection used by
+        # the VM. Never pick the first Win32_VideoController (often an iGPU),
+        # reuse a previous launch's name, or fall back to a configured label.
+        $identityLibrary = Join-Path $projectRoot 'artifacts/vgpu/reims_vgpu_c.dll'
+        $identityReport = Join-Path $projectRoot 'artifacts/host-renderer-identity.json'
+        $identityOutput = & python (Join-Path $PSScriptRoot 'Probe-VGpu.py') $identityLibrary --identity-only --report $identityReport
+        if ($LASTEXITCODE -ne 0) { throw 'Could not identify the actual Windows Vulkan renderer.' }
+        $hostIdentity = ($identityOutput -join "`n") | ConvertFrom-Json
+        if (!$hostIdentity.hostGPUName) { throw 'The selected Windows renderer has no usable name.' }
+        $prepareOptions += @('--gpu-name', [string]$hostIdentity.hostGPUName)
+        Write-Host "Windows GPU renderer: $($hostIdentity.hostGPUName)"
+    }
     if ($Gpu -and $MetalTransport -eq 'compat') {
         $prepareOptions += '--metal-compat'
         if ($defaults.rejectAstcTextures) { $prepareOptions += '--reject-astc' }
