@@ -1,0 +1,213 @@
+{
+  "date": "2026-10-23",
+  "scope": "Resident-pointer translation cost and explicitly scoped VM signing experiments",
+  "translator": {
+    "base": "e8390936f58a2110d0f4842ac7c441f6fbe23b34",
+    "code": "0d91a5461a0c2c72fe04bed7eb957e8c55d476af",
+    "goldens": "90004070fabb5678de958a25e7f2aac6acda2b74",
+    "semantics": 1699,
+    "fixedSearchStepsBefore": 16,
+    "fixedSearchStepsAfter": 4,
+    "residualBoundedSearchRetained": true,
+    "shaderSpecificSpecialCases": false
+  },
+  "hardwareMeasurement": {
+    "device": "NVIDIA GeForce RTX 5080",
+    "order": "A16/B4/A16/B4",
+    "vmPaused": true,
+    "concurrentGpuTests": false,
+    "shaderThreads": 65536,
+    "readsPerThread": 16,
+    "checkedEveryValueEveryRound": true,
+    "warmupRounds": 1,
+    "measuredRoundsPerSize": 7,
+    "rows": [
+      {
+        "residentBuffers": 1,
+        "gpuMedianMsABAB": [
+          0.024352000000000054,
+          0.018143999999999993,
+          0.024543999999997873,
+          0.018560000000000798
+        ],
+        "reductionPercentUsingMeanOfRunMedians": 24.93
+      },
+      {
+        "residentBuffers": 4,
+        "gpuMedianMsABAB": [
+          0.02799999999999938,
+          0.020768000000000002,
+          0.025856000000001184,
+          0.021856000000000653
+        ],
+        "reductionPercentUsingMeanOfRunMedians": 20.86
+      },
+      {
+        "residentBuffers": 16,
+        "gpuMedianMsABAB": [
+          0.03456000000000119,
+          0.023168000000000494,
+          0.03456000000000292,
+          0.023839999999997197
+        ],
+        "reductionPercentUsingMeanOfRunMedians": 31.99
+      },
+      {
+        "residentBuffers": 64,
+        "gpuMedianMsABAB": [
+          0.03657599999999997,
+          0.026336000000000068,
+          0.03657599999999997,
+          0.026367999999998837
+        ],
+        "reductionPercentUsingMeanOfRunMedians": 27.95
+      },
+      {
+        "residentBuffers": 256,
+        "gpuMedianMsABAB": [
+          0.036384000000000416,
+          0.028287999999999577,
+          0.0362559999999984,
+          0.028288000000001312
+        ],
+        "reductionPercentUsingMeanOfRunMedians": 22.11
+      },
+      {
+        "residentBuffers": 4096,
+        "gpuMedianMsABAB": [
+          0.13651199999999836,
+          0.1417920000000017,
+          0.13359999999998373,
+          0.12787199999998722
+        ],
+        "reductionPercentUsingMeanOfRunMedians": 0.17
+      }
+    ],
+    "interpretation": "About 21-32 percent lower GPU duration for 1-256 resident buffers. 4096-buffer results vary; no application or Geekbench speedup is established."
+  },
+  "m4Reference": {
+    "device": "Apple M4",
+    "rounds": 42,
+    "valuesPerRound": 65536,
+    "allValuesMatched": true
+  },
+  "vmProbes": {
+    "ordinaryComputeValues": 4096,
+    "fp32MatmulValues": 899,
+    "fp16MatmulValues": 899,
+    "convolutionValues": 144,
+    "allCheckedValuesPassed": true,
+    "residentGpuAddressProbe": "unavailable: public buffer GPU address is zero; exit 77 before dispatch, not a pass"
+  },
+  "checks": {
+    "macPinnedLlvm": "21.1.8",
+    "macFmt": "pass",
+    "macClippyAllTargetsAllFeatures": "pass",
+    "macTranslatorNextest": {
+      "passed": 3264,
+      "skipped": 19
+    },
+    "goldenBless": "pass; 51 affected output hashes refreshed",
+    "windowsClippyAllTargetsAllFeatures": "pass",
+    "windowsIsolatedScratchRegressionTests": "2/2 pass under nextest",
+    "windowsCargoTest": "3239 pass, 4 fail, 10 ignored. Two scratch-path races pass under isolated nextest; LLVM 22 AIR numbering and golden differences are not a full-suite pass.",
+    "boundedAuthoredTranslation": {
+      "limitSeconds": 20,
+      "limitMiB": 500,
+      "exit": 0,
+      "seconds": 0.219,
+      "peakMiB": 4.012,
+      "spirvValidation": [
+        "Vulkan 1.2 pass",
+        "Vulkan 1.4 pass"
+      ]
+    }
+  },
+  "geekbench": {
+    "version": "7.1.0",
+    "api": "Metal",
+    "score": 2931,
+    "url": "https://browser.geekbench.com/v7/gpu/317819",
+    "completedWorkloads": 11,
+    "exit": 0,
+    "reportedValidationErrors": 0,
+    "deviceName": "NVIDIA GeForce RTX 5080",
+    "memoryGiB": 12,
+    "cpuCount": 8,
+    "physicalDisplay": [
+      3840,
+      2160
+    ],
+    "disk": "ephemeral",
+    "entry": "stock",
+    "amfiDevelopmentBoot": true,
+    "concurrentGpuBenchmarks": false,
+    "interpretation": "Valid completion, below earlier best 3238. Different disk/signing conditions prevent attributing a full-application gain."
+  },
+  "signing": {
+    "scope": "Explicit development boot and authored test process only",
+    "vmBootArgument": "amfi=0x80",
+    "defaultSigningChanged": false,
+    "windowsPolicyChanged": false,
+    "sealedSystemVolumePatched": false,
+    "customMetalEntry": {
+      "windowServerLoaded": true,
+      "presentedAt4K": true,
+      "rebootComputeValuesPassed": 4096,
+      "qualifiedReplacement": false,
+      "negativeTests": [
+        "Host memory architecture getter: Background Blur/Face Tracking validation failures",
+        "Parent memory contract restored: Super Resolution validation failure"
+      ],
+      "normalEntry": "stock"
+    },
+    "registryDiscovery": {
+      "codecSubtype": "nmq3",
+      "automaticDiscovery": true,
+      "hardwareRequired": true,
+      "decodedFrames": 90,
+      "comparedNV12Bytes": 7776000,
+      "mismatchingBytes": 0,
+      "originalTimestampsMatch": true,
+      "callbackErrors": 0,
+      "ownAdHocSealStatus": 0,
+      "ownAppleAnchorBaselineStatus": -67050,
+      "ownScopedOverrideStatus": 0,
+      "unrelatedAppleAnchorStatus": -67050,
+      "tamperedExecutableStatus": -67061,
+      "originalRestoredAndSealVerified": true,
+      "ordinaryH264OrSafariIntegration": false,
+      "lowDelayAndEarlyInvalidation": "still failing",
+      "videoToolboxEncoder": "absent"
+    }
+  },
+  "deployment": {
+    "vulkanDllSHA256": "66e95a8ebe8551b7321beb8af24e4773567168227c0525b599ab03b84bc075ac",
+    "normalBridgeSHA256": "4745852df065cfc9d85a9ca11dc2b8be60317e1ccf788e87952fd421f96d688e",
+    "defaultMemoryGiB": 12,
+    "defaultCpuCount": 8,
+    "defaultRefreshHz": 60,
+    "normalPersistentWinUiBootRestored": true,
+    "normalBootHasDevelopmentAmfiArgument": false,
+    "normalBootComputedValuesMatched": 4096,
+    "normalBootMpsCasesPassed": [
+      "fp32 matmul 899",
+      "fp16 matmul 899",
+      "convolution 144"
+    ],
+    "ownExperimentalSystemBundlesRemoved": true,
+    "monitoringAutomation": "remains deleted"
+  },
+  "sourceSHA256": {
+    "native/MetalProbe/ResidentSearch.metal": "a225b9e7be3921227ea151aeb25383449c21ff2a28cdc76e829a13f029a5628b",
+    "native/MetalProbe/ResidentSearchBench.rs": "4b8f3d63aabd42bed7dbc7b6cb632c09221b5913c60fc0968eeb625c7c4e5c5c",
+    "native/MetalProbe/ResidentSearchReference.m": "f277ada4b54aa6b28a029d72a694030b888038ff14f9f9b6c4890f0d0cdfe302",
+    "native/MetalProbe/SubmissionProbe.m": "4a36326f1c1012137825cf3b4350054ab5b491f7144fc2dba1b1cfe8820b31e0",
+    "native/MetalIdentity/Driver.m": "3d202434af623f3f02eb191d78dfb895f12dc983c9407d50beb92655957e01c3",
+    "native/VideoBridge/RegistrySigning.m": "d7e2bc0a605a9867eb23ad20ab332bf2f2bc5db1ba910b0dd6e326fcb703b53d",
+    "native/VideoBridge/RegistrySigningProbe.m": "7a2c5d783b77d0e7ebddd817cefcba72c4252dd4e7a55ba8a5c6df8da9a84a95",
+    "patches/metal2vulkan-resident-search.patch": "d9b65d77f98e5aeb7e48920d73924226f31fecd94304b89c15e08a156c889586",
+    "patches/reims-metal-host-entry.patch": "b7e743748842f476337254874f18cddaf4ef90addaaa126d3ee7f9d1f9a37898"
+  },
+  "privacy": "Aggregated authored measurements only. No guest captures, private logs, credentials, claim URLs, consumer binaries or Apple shaders."
+}

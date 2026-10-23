@@ -5,11 +5,16 @@ param(
     [switch]$Gpu,
     [switch]$SerialConsole,
     [switch]$EphemeralDisk,
+    [switch]$DevelopmentSigning,
+    [switch]$HostMetalEntry,
+    [switch]$HostMemoryArchitecture,
     [ValidateSet('legacy','compat')][string]$MetalTransport,
     [ValidateSet('1920x1080','2560x1440','3840x2160')][string]$DisplayResolution,
     [ValidateRange(30,240)][int]$DisplayRefreshHz
 )
 $ErrorActionPreference = 'Stop'
+if ($HostMetalEntry -and (!$DevelopmentSigning -or !$Gpu)) { throw '-HostMetalEntry requires -DevelopmentSigning and -Gpu.' }
+if ($HostMemoryArchitecture -and !$HostMetalEntry) { throw '-HostMemoryArchitecture requires -HostMetalEntry.' }
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $defaults = Get-Content (Join-Path $projectRoot 'vm/defaults.json') -Raw | ConvertFrom-Json
 if (!$DisplayRefreshHz) {
@@ -52,6 +57,9 @@ $options = @('--hypervisor','whp','--processors',"$Processors",'--vps-per-socket
 if (!$Gpu) { $options += '--gfx' }
 if (!$FirmwareOnly) {
     $prepareOptions = @('--processors',"$Processors",'--resolution',$DisplayResolution)
+    if ($DevelopmentSigning) { $prepareOptions += '--development-signing' }
+    if ($HostMetalEntry) { $prepareOptions += '--host-metal-entry' }
+    if ($HostMemoryArchitecture) { $prepareOptions += '--host-memory-architecture' }
     if ($Gpu) { $prepareOptions += '--gpu' }
     if ($Gpu) {
         # Ask the same Windows Vulkan DLL and default-device selection used by
@@ -63,7 +71,11 @@ if (!$FirmwareOnly) {
         if ($LASTEXITCODE -ne 0) { throw 'Could not identify the actual Windows Vulkan renderer.' }
         $hostIdentity = ($identityOutput -join "`n") | ConvertFrom-Json
         if (!$hostIdentity.hostGPUName) { throw 'The selected Windows renderer has no usable name.' }
+        if ($hostIdentity.vulkanDeviceType -eq 4) { throw 'The selected Vulkan renderer is a CPU device; a hardware GPU is required.' }
         $prepareOptions += @('--gpu-name', [string]$hostIdentity.hostGPUName)
+        if ($null -ne $hostIdentity.hostHasUnifiedMemory) {
+            $prepareOptions += @('--gpu-unified-memory', ([string][bool]$hostIdentity.hostHasUnifiedMemory).ToLowerInvariant())
+        }
         Write-Host "Windows GPU renderer: $($hostIdentity.hostGPUName)"
     }
     if ($Gpu -and $MetalTransport -eq 'compat') {

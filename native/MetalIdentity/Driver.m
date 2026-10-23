@@ -1,5 +1,5 @@
-// Metadata-only Metal driver entry. Rendering stays in the existing driver;
-// no GPU capability, resource method, shader or command is replaced.
+// Metal metadata entry. Rendering stays in the existing driver. The memory
+// architecture getter uses the selected Windows renderer's Vulkan device type.
 #import <Foundation/Foundation.h>
 #import <IOKit/IOKitLib.h>
 #import <Metal/Metal.h>
@@ -10,10 +10,32 @@
 @end
 
 // The compiler resolves the vendor bundle from this class. Keep the original
-// compiler identity while the real Objective-C subclass adds only -name.
+// compiler identity while the real Objective-C subclass adds metadata getters.
 static Class compilerClass(id object,SEL selector){
     (void)selector;
     return class_getSuperclass(object_getClass(object));
+}
+
+static BOOL hostUnifiedMemory(id object,SEL selector){
+    id<MTLDevice> device=object;
+    io_service_t service=IOServiceGetMatchingService(kIOMainPortDefault,IORegistryEntryIDMatching(device.registryID));
+    CFTypeRef optIn=service?IORegistryEntrySearchCFProperty(service,kIOServicePlane,CFSTR("reims-use-host-memory-architecture"),
+        kCFAllocatorDefault,kIORegistryIterateRecursively|kIORegistryIterateParents):NULL;
+    BOOL enabled=optIn && CFGetTypeID(optIn)==CFDataGetTypeID() && CFDataGetLength(optIn)==1 && CFDataGetBytePtr(optIn)[0]==1;
+    if(optIn)CFRelease(optIn);
+    CFTypeRef value=enabled?IORegistryEntrySearchCFProperty(service,kIOServicePlane,CFSTR("reims-gpu-unified-memory"),
+        kCFAllocatorDefault,kIORegistryIterateRecursively|kIORegistryIterateParents):NULL;
+    BOOL answer=NO,valid=NO;
+    if(value){
+        if(CFGetTypeID(value)==CFDataGetTypeID()&&CFDataGetLength(value)==1){
+            UInt8 byte=CFDataGetBytePtr(value)[0];valid=byte<=1;answer=byte==1;
+        }
+        CFRelease(value);
+    }
+    if(service)IOObjectRelease(service);
+    if(valid)return answer;
+    struct objc_super parent={object,class_getSuperclass(object_getClass(object))};
+    return ((BOOL(*)(struct objc_super *,SEL))objc_msgSendSuper)(&parent,selector);
 }
 
 static NSString *hostName(id object,SEL selector){
@@ -52,6 +74,8 @@ static Class namedDeviceClass(void){
         Class cls=objc_allocateClassPair(parent,"NativeMacHostNamedDevice",0);
         if(!cls)return;
         if(!class_addMethod(cls,@selector(name),(IMP)hostName,"@@:")){objc_disposeClassPair(cls);return;}
+        Method unified=class_getInstanceMethod(parent,@selector(hasUnifiedMemory));
+        if(!unified||!class_addMethod(cls,@selector(hasUnifiedMemory),(IMP)hostUnifiedMemory,method_getTypeEncoding(unified))){objc_disposeClassPair(cls);return;}
         if(!class_addMethod(cls,@selector(class),(IMP)compilerClass,"#@:")){objc_disposeClassPair(cls);return;}
         objc_registerClassPair(cls);result=cls;
     });

@@ -1,0 +1,14 @@
+[package]
+name = "nativemac-resident-search-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "resident-search-bench"
+path = "../ResidentSearchBench.rs"
+
+[dependencies]
+metal2vulkan-runtime = { path = "../../../backend/metal2-stability/crates/metal2vulkan-runtime" }
+metal2vulkan = { path = "../../../backend/metal2-stability/crates/metal2vulkan" }
+serde_json = "=1.0.154"

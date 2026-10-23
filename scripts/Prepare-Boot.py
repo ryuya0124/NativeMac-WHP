@@ -13,8 +13,18 @@ parser.add_argument('--gpu', action='store_true')
 parser.add_argument('--metal-compat', action='store_true')
 parser.add_argument('--reject-astc', action='store_true')
 parser.add_argument('--gpu-name', help='Host renderer model label, published separately from PCI identity and capabilities')
+parser.add_argument('--development-signing', action='store_true', help='Disable AMFI enforcement inside this development VM boot')
+parser.add_argument('--host-metal-entry', action='store_true', help='Select the experimental authored Metal entry (requires development signing)')
+parser.add_argument('--gpu-unified-memory', choices=('true','false'), help='Memory architecture of the uniquely matched selected Vulkan renderer')
+parser.add_argument('--host-memory-architecture', action='store_true', help='Unqualified discrete-memory experiment; may fail MPS validation')
 parser.add_argument('--resolution', choices=('1920x1080', '2560x1440', '3840x2160'), default='1920x1080')
 args = parser.parse_args()
+if args.host_metal_entry and not (args.development_signing and args.metal_compat):
+    parser.error('--host-metal-entry requires --development-signing and --metal-compat')
+if args.gpu_unified_memory and not (args.gpu and args.gpu_name):
+    parser.error('--gpu-unified-memory requires --gpu and --gpu-name')
+if args.host_memory_architecture and not (args.host_metal_entry and args.gpu_unified_memory):
+    parser.error('--host-memory-architecture requires --host-metal-entry and --gpu-unified-memory')
 if args.metal_compat and not args.gpu:
     parser.error('--metal-compat requires --gpu')
 if args.reject_astc and not args.metal_compat:
@@ -69,7 +79,15 @@ if args.gpu:
         # NativeMac's fixed PCI topology: root port 1, endpoint 0. The guest
         # bridge reads this label without changing the paravirtual PCI IDs.
         config['DeviceProperties']['Add'].setdefault('PciRoot(0x0)/Pci(0x1,0x0)/Pci(0x0,0x0)', {})['reims-gpu-model'] = args.gpu_name.encode('ascii') + b'\0'
+        if args.gpu_unified_memory:
+            config['DeviceProperties']['Add']['PciRoot(0x0)/Pci(0x1,0x0)/Pci(0x0,0x0)']['reims-gpu-unified-memory'] = bytes([args.gpu_unified_memory == 'true'])
+        if args.host_memory_architecture:
+            config['DeviceProperties']['Add']['PciRoot(0x0)/Pci(0x1,0x0)/Pci(0x0,0x0)']['reims-use-host-memory-architecture'] = b'\1'
 config['NVRAM']['Add']['7C436110-AB2A-4BBB-A880-FE41995C9F82']['boot-args'] = '-v debug=0x10a keepsyms=1 serial=9 -lilubetaall'
+if args.development_signing:
+    config['NVRAM']['Add']['7C436110-AB2A-4BBB-A880-FE41995C9F82']['boot-args'] += ' amfi=0x80'
+if args.host_metal_entry:
+    config['NVRAM']['Add']['7C436110-AB2A-4BBB-A880-FE41995C9F82']['boot-args'] += ' -reimshostname'
 if args.gpu:
     config['NVRAM']['Add']['7C436110-AB2A-4BBB-A880-FE41995C9F82']['boot-args'] += ' npci=0x2000 -hvpcinative'
 if args.metal_compat:
@@ -131,9 +149,12 @@ if args.gpu:
     files[name] = modified_info
 files['EFI/OC/ACPI/SSDT-NM-VMBUS.aml'] = ROOT / 'artifacts/SSDT-NM-VMBUS.aml'
 if args.metal_compat:
-    bridge = ROOT / 'artifacts/metal-compat/ReimsMetalCompat.kext'
+    bridge = ROOT / ('artifacts/metal-signing/ReimsMetalCompat.kext' if args.host_metal_entry
+                     else 'artifacts/metal-compat/ReimsMetalCompat.kext')
     if not (bridge / 'Contents/MacOS/ReimsMetalCompat').is_file():
         raise FileNotFoundError('Build the pinned ReimsMetalCompat source snapshot first')
+    if args.host_metal_entry and b'-reimshostname' not in (bridge / 'Contents/MacOS/ReimsMetalCompat').read_bytes():
+        raise ValueError('The selected bridge does not implement the experimental Metal entry')
     for source in bridge.rglob('*'):
         if source.is_file():
             files['EFI/OC/Kexts/ReimsMetalCompat.kext/' + source.relative_to(bridge).as_posix()] = source

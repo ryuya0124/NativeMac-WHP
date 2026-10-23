@@ -6,6 +6,7 @@ import argparse
 import ctypes as c
 import json
 import pathlib
+import importlib.util
 
 parser = argparse.ArgumentParser()
 parser.add_argument('library')
@@ -54,12 +55,19 @@ names = {line['message'][len(prefix):] for line in lines
 name = next(iter(names)) if len(names) == 1 else None
 identity_valid = bool(name and name != '(unnamed)' and 1 <= len(name) <= 63 and
                       all(32 <= ord(char) <= 126 for char in name))
+facts = {}
+if status == 0 and identity_valid:
+    spec = importlib.util.spec_from_file_location('vulkan_renderer_info', pathlib.Path(__file__).with_name('Vulkan-RendererInfo.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    facts = module.renderer_info(name)
 report = {'hostVulkanDeviceCreated': status == 0, 'status': status,
           'message': library.rvg_status_message(status).decode(),
           'hostGPUName': name if identity_valid else None,
           'identitySource': 'selected GPU of the configured Reims DLL, Windows Vulkan backend startup callback',
           'macOsBooted': False, 'guestGpuAccelerated': False, 'logs': lines}
+report.update(facts)
 pathlib.Path(args.report).write_text(json.dumps(report, indent=2), encoding='utf-8')
-print(json.dumps({key: report[key] for key in ('hostVulkanDeviceCreated','status','hostGPUName','identitySource')}
+print(json.dumps({key: report.get(key) for key in ('hostVulkanDeviceCreated','status','hostGPUName','hostHasUnifiedMemory','vulkanDeviceType','identitySource')}
                  if args.identity_only else report, indent=2))
 raise SystemExit(0 if status == 0 and (not args.identity_only or identity_valid) else 1)

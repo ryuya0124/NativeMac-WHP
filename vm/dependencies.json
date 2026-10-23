@@ -72,6 +72,13 @@
         "sourceRevision": "1b9a256573aa84b3aaaac5935dcdf0289e8256da",
         "scope": "Validated Windows-selected renderer name to PCI/accelerator model metadata; no PCI IDs, feature claims or default Metal driver name changes",
         "status": "Dynamic Windows renderer discovery, cold boot, matching guest IORegistry model and 4096 GPU values pass; system-wide Metal name integration remains unqualified"
+      },
+      "experimentalHostMetalEntry": {
+        "patch": "patches/reims-metal-host-entry.patch",
+        "applyAfter": "patches/reims-metal-host-model.patch",
+        "sourceRevision": "631546ff0cf0022fdb37021e5263dfd9ea3fc0bb",
+        "defaultEnabled": false,
+        "status": "VM development signing permits WindowServer load and 4K presentation; custom-entry Geekbench validation fails; stock entry remains selected"
       }
     },
     "contiguousMemoryRuns": {
@@ -161,6 +168,18 @@
     "semanticsVersion": 1698,
     "scope": "Respect 4/8/12-byte descriptor-relative vector offsets, keep aligned uvec4 fast path, and bound expanded vector copy unrolling",
     "status": "512 guest GPU vector values plus guard bytes pass; 41-case matrix completes with 37 passes and 4 declared failures",
+    "usesCpuRendering": false
+  },
+  "metal2vulkanResidentSearch": {
+    "patch": "patches/metal2vulkan-resident-search.patch",
+    "applyAfter": "patches/metal2vulkan-vector-binding-offsets.patch",
+    "baseCommit": "e8390936f58a2110d0f4842ac7c441f6fbe23b34",
+    "codeRevision": "0d91a5461a0c2c72fe04bed7eb957e8c55d476af",
+    "sourceRevision": "90004070fabb5678de958a25e7f2aac6acda2b74",
+    "semanticsVersion": 1699,
+    "scope": "Shorten fixed resident-pointer binary-search prefix; preserve residual bounded search",
+    "status": "3264 pinned-LLVM tests pass; authored RTX A/B/A/B values match; stock Geekbench Metal completes all 11 workloads, score 2931",
+    "verification": "docs/verification/resident-search-signing.json",
     "usesCpuRendering": false
   }
 }

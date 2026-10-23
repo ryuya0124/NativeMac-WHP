@@ -1,4 +1,71 @@
-# Current checkpoint (2026-10-23)
+# Current checkpoint (2026-10-23 17:05 JST)
+
+The resident-pointer search now performs four fixed binary-search steps rather
+than sixteen, then retains the original bounded residual loop. No shader/app
+identity checks, precision relaxation or feature claims were added. Translator
+code 0d91a54 and golden source 9000407 are merged on backend/metal2-stability
+development; semantics is 1699. The distributable patch includes the 51 updated
+output hashes. Preserve the pre-existing four Metal2 and six Reims dirty paths.
+
+On the real RTX 5080, an authored integer-pointer shader was run A/B/A/B with
+the VM paused. Every value in all rounds matches a separate CPU calculation.
+GPU timestamp medians for 1..256 resident buffers are about 21-32% shorter;
+4096-buffer timing varies. This is a specific shader path gain, not evidence
+of a corresponding game/application speedup. The final M4 reference source
+also verifies all 42 rounds. The guest public buffer GPU address is zero, so
+that reference exits 77 before dispatch in the VM: unavailable, not a pass.
+
+Pinned LLVM 21.1.8 on M4: fmt, all-target/all-feature clippy and all 3264
+translator nextest cases pass (19 skipped). Windows clippy passes; two
+scratch-path races in a multi-threaded cargo-test run pass under isolated
+nextest. Windows LLVM 22 AIR numbering/golden differences remain; do not
+claim the original Windows full cargo-test run passed. Authored translation
+passes the unchanged 20-second / 500-MiB bound and SPIR-V 1.2/1.4 validation.
+
+The rebuilt Vulkan DLL (66e95a8ebe8551b7321beb8af24e4773567168227c0525b599ab03b84bc075ac)
+is deployed. Stock signed Geekbench 7.1.0 completes all eleven Metal workloads,
+exit 0, reported validation errors 0, score 2931:
+https://browser.geekbench.com/v7/gpu/317819. It identifies the Windows-selected
+NVIDIA GeForce RTX 5080. This run used a memory-backed disk diff and an explicit
+development-signing boot with the stock Metal entry. No other GPU benchmark
+overlapped. It remains below the earlier best 3238; do not attribute an overall
+benchmark gain to the optimization. Guest 4096-value compute, FP32/FP16
+899-value matmul and 144-value convolution checks also pass.
+
+The user explicitly authorized VM signing bypass and sudo. New opt-in
+Start-VM switches DevelopmentSigning / HostMetalEntry / HostMemoryArchitecture
+stage development trials separately. Only DevelopmentSigning adds amfi=0x80
+to that VM boot. Default launch, Windows policy and sealed system volume are
+unchanged. NVRAM boot-args are replaced by each prepared boot. The authored
+Metal entry now loads in WindowServer and presents at 4K after linking IOGPU.
+It is NOT qualified: host-discrete memory reporting fails Background Blur/
+Face Tracking validation, and retaining the parent memory contract still
+fails Super Resolution. Both trials were stopped; keep the stock entry.
+The separately staged candidate bridge is 631546f, while the normal staged
+bridge is restored to source 1b9a256 / binary SHA256
+4745852df065cfc9d85a9ca11dc2b8be60317e1ccf788e87952fd421f96d688e.
+
+The explicit-process CoreMedia registry interposer now permits automatic
+discovery of the exact root-owned authored nmq3 decoder while still checking
+its ad-hoc seal: 90 frames, 7,776,000 matching NV12 bytes, original PTS and
+zero callback errors. Unrelated code retains the Apple-anchor rejection;
+a tampered probe executable is rejected and the original was restored.
+This does not provide ordinary H.264/Safari selection. Low-delay and early
+invalidation remain failing, and VideoToolbox NVENC encoding is absent.
+No global internal-OS cache, SSV or persistent injection was changed.
+
+Source patches and aggregate evidence are in
+docs/verification/resident-search-signing.json. Do not publish raw guest logs,
+screens, result claim links, Apple/consumer binaries or private shader inputs.
+Monitoring remains deleted. The normal persistent WinUI-controlled VM is now
+restored: actual boot args have no amfi=0x80, dynamic host names agree,
+4096 GPU values and all three MPS smoke cases pass. Its real session PID/pipe
+is refreshed in artifacts/vm-session.json. Own experimental system bundles
+were removed and the idle streaming test server/tunnel stopped. Keep 12 GiB,
+8 CPUs, 4K60 physical / 1080p HiDPI. A separate older batch-video tunnel is
+pre-existing and was left alone.
+
+## Previous checkpoint (2026-10-23)
 
 The previous best stock Geekbench 7.1.0 Metal run completes all 11 workloads,
 exit 0, validation errors 0, score 3238:

@@ -1,0 +1,32 @@
+diff --git a/guest/metal-compat/README.md b/guest/metal-compat/README.md
+index 6c9b0c9..ebebef8 100644
+--- a/guest/metal-compat/README.md
++++ b/guest/metal-compat/README.md
+@@ -135,3 +135,11 @@ by the same owning task, with its return status and a 512-byte bound. Arming
+ clears the record; reading disables recording. Nothing is published to the
+ registry or collected from other tasks. This isolates authored heap probes
+ without relying on interposition inside the dyld shared cache.
++# Host name entry (experimental)
++
++With `-reimsmetal -reimshostname`, publish `NativeMacMetal` as the Metal plug-in
++name. This requires the authored entry bundle in `/Library/GPUBundles` before
++boot. Without the second flag, the existing Apple paravirtual entry remains
++selected. The bundle changes display-name metadata only; resource, shader
++and command behavior stay in the existing driver. Signing and loader behavior
++must be checked by a cold boot before enabling the entry in a normal session.
+diff --git a/guest/metal-compat/ReimsMetalCompat.cpp b/guest/metal-compat/ReimsMetalCompat.cpp
+index 169d8e8..bb48cef 100644
+--- a/guest/metal-compat/ReimsMetalCompat.cpp
++++ b/guest/metal-compat/ReimsMetalCompat.cpp
+@@ -1511,7 +1511,10 @@ bool matched(void *, void *, IOService *service, IONotifier *) {
+     MachInfo::setKernelWriting(false, KernelPatcher::kernelWriteLock);
+     SYSLOG("init", "diagnostic client interceptor %s", installed ? "installed" : "unavailable");
+     if (installed && callbacksRouted && checkKernelArgument("-reimsmetal")) {
+-        auto name = OSString::withCString("AppleParavirtGPUMetalIOGPUFamily");
++        // Opt in only after the authored metadata entry has been installed in
++        // /Library/GPUBundles. Keep the existing driver as the default.
++        bool hostNamePlugin = checkKernelArgument("-reimshostname");
++        auto name = OSString::withCString(hostNamePlugin ? "NativeMacMetal" : "AppleParavirtGPUMetalIOGPUFamily");
+         if (name) {
+             __atomic_store_n(&globalMetalEnabled, true, __ATOMIC_RELEASE);
+             if (!service->setProperty("MetalPluginName", name)) {

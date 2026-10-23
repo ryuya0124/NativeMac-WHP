@@ -64,11 +64,18 @@ See [streaming evidence](../../docs/verification/video-vt-stream.json).
 
 This is **not ready for ordinary applications**:
 
-- Automatic component selection rejects the ad-hoc probe's signature
+- With normal policy, automatic component selection rejects the ad-hoc probe's signature
   (`SecStaticCodeCheckValidity = -67050`), even though the registry scans its
   metadata and a standalone authored program can load its factory. Signature
-  enforcement was not changed. The temporary installed probe bundles were
-  removed; normal VM startup does not select this decoder.
+  enforcement was not changed for that baseline. The new opt-in
+  `RegistrySigning.m` process interposer relaxes only the extra Apple-anchor
+  requirement for the root-owned authored probe at its exact installation
+  path. It still checks its ad-hoc seal. A discovery run using the authored
+  `nmq3` subtype now completes all 90 frames, with hardware required, matching
+  all 7,776,000 NV12 bytes and original timestamps. Unrelated code retains its
+  rejection; a changed probe executable is rejected with -67061. The original
+  executable was restored and its seal verified after that negative test.
+  This does not qualify normal H.264 discovery or Safari integration.
 - Low-delay calls and early session invalidation still fail the bounded
   regression tests. Only finishing the complete temporal stream is qualified.
   Midstream drain/reset, seeking, preroll and format changes remain unsupported.
@@ -107,10 +114,19 @@ The build prints the SDK ABI measurement first. The qualified x86-64 layout
 has a four-byte class-version field; the implementation pads its class tables
 accordingly. It deliberately rejects other target architectures at compile time.
 `build_probe.sh` does not install any component. `ProbeCodec-Info.plist` uses
-only an authored test codec tag for the failed automatic-discovery experiment.
+only an authored test codec tag for the automatic-discovery experiment.
 `--low-delay` and `--cancel` reproduce the known failures, with an eight-second
 self-deadline; their timeout is a failure, not a successful cancellation test.
 The full probe has a 45-second self-deadline.
+
+For the explicit development process, build `RegistrySigning.m` as an ad-hoc
+signed dylib linked with Foundation and Security. Use
+`DYLD_INSERT_LIBRARIES="$PWD/RegistrySigning.dylib" ./VTStreamProbe input.json baseline.nv12 --discover`
+after installing the authored, root-owned `NativeMacNVDECProbe.bundle` under
+`/Library/Video/Plug-Ins`. Do not export the injection into login sessions or
+select this unfinished codec for normal H.264 applications. The interposer's
+`RegistrySigningProbe.m` checks the separate ad-hoc-seal and Apple-anchor
+outcomes without invoking any video decoder.
 
 The streaming listener permits two codec sessions. Compressed packets are at
 most 8 MiB, configuration at most 64 KiB, and dimensions even up to 3840×2160.
