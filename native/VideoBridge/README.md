@@ -5,9 +5,10 @@ listener. `roundtrip.py` creates NV12 frames in the Intel VM, sends them for
 hardware encoding and decoding, and checks returned luma and chroma pixels.
 FFmpeg's explicit `*_nvenc` and `*_cuvid` paths have no software fallback.
 
-This is a transport prototype. It does **not** register a VideoToolbox codec,
-accelerate ordinary macOS applications or repair Safari. Hardware labels in
-its responses describe the host codec worker, not the guest's system APIs.
+The batch transport does **not** register a VideoToolbox codec, accelerate
+ordinary macOS applications or repair Safari. Hardware labels in its responses
+describe the host codec worker. The explicit VideoToolbox streaming experiment
+below is separate and remains incomplete.
 
 Start on Windows with an installed FFmpeg containing NVENC and CUVID:
 
@@ -43,3 +44,77 @@ from the shader translator's unchanged 20-second / 500-MiB boundary. CUDA
 initialization and FHD/4K decode surfaces can exceed 512 MiB. Temporary files
 are owned by one request and removed on completion. The remote caller supplies
 no executable, filesystem path or command options.
+
+## Experimental VideoToolbox streaming
+
+`stream.py`, `matroska.py` and `server.py` keep one Windows NVDEC worker alive
+across compressed packets. `VTDecoder.mm` implements an authored decoder for
+an Intel guest test process; `VTStreamProbe.mm` registers it explicitly and
+uses ordinary H.264 VideoToolbox session/decode/finish APIs with hardware
+required and temporal processing enabled. These are private component
+interfaces, with BSD-licensed WebKit declarations under `spi/`.
+
+The checked 320×180 / 90-frame B-frame test completes: all 7,776,000 NV12 bytes
+match an independent CUDA/CUVID decode, original sample timestamps match,
+callbacks report zero errors and the hardware decoder property is true.
+The Windows worker also separately produces frames before EOF, preserving
+reordering within CUVID's 100 ns timestamp clock. This checks decoded bytes
+and timing; it does not qualify RGB color conversion, HDR or playback speed.
+See [streaming evidence](../../docs/verification/video-vt-stream.json).
+
+This is **not ready for ordinary applications**:
+
+- Automatic component selection rejects the ad-hoc probe's signature
+  (`SecStaticCodeCheckValidity = -67050`), even though the registry scans its
+  metadata and a standalone authored program can load its factory. Signature
+  enforcement was not changed. The temporary installed probe bundles were
+  removed; normal VM startup does not select this decoder.
+- Low-delay calls and early session invalidation still fail the bounded
+  regression tests. Only finishing the complete temporal stream is qualified.
+  Midstream drain/reset, seeking, preroll and format changes remain unsupported.
+- The VideoToolbox encoder side is absent. NVENC is tested through the separate
+  Windows worker, not ordinary VM recording/encoding applications.
+- Only H.264 is qualified for the streaming VT component. HEVC/4K batch results
+  do not qualify HEVC streaming or sustained 4K playback. Frames currently pass
+  through CPU-addressable NV12 copies and SSH forwards; this is not zero copy.
+
+Create a synthetic fixture on Windows, using installed FFmpeg/ffprobe paths:
+
+```powershell
+python native/VideoBridge/make_fixture.py --ffmpeg C:/path/ffmpeg.exe `
+  --ffprobe C:/path/ffprobe.exe --out artifacts/my-video-fixture
+python native/VideoBridge/server.py --ffmpeg C:/path/ffmpeg.exe --port 54883
+```
+
+The fixture uses NVENC GPU 0, two B frames and a 30-frame GOP; its independent
+byte baseline uses CUVID GPU 0. This was tested on the RTX 5080 at that index;
+automatic CUDA-device matching to the VM's selected renderer is not implemented.
+The destination directory must be new. Do not commit generated movies, packets
+or raw pixels.
+
+For the streaming service, forward Windows loopback 54883 to relay loopback
+54884, then guest loopback 54885 to relay loopback 54884. Keep all listeners
+on loopback and use authenticated SSH identities, as with the batch service.
+Copy the source directory, `input.json` and `baseline.nv12` into an Intel guest
+test folder, then run:
+
+```bash
+bash build_probe.sh
+./VTStreamProbe input.json baseline.nv12
+```
+
+The build prints the SDK ABI measurement first. The qualified x86-64 layout
+has a four-byte class-version field; the implementation pads its class tables
+accordingly. It deliberately rejects other target architectures at compile time.
+`build_probe.sh` does not install any component. `ProbeCodec-Info.plist` uses
+only an authored test codec tag for the failed automatic-discovery experiment.
+`--low-delay` and `--cancel` reproduce the known failures, with an eight-second
+self-deadline; their timeout is a failure, not a successful cancellation test.
+The full probe has a 45-second self-deadline.
+
+The streaming listener permits two codec sessions. Compressed packets are at
+most 8 MiB, configuration at most 64 KiB, and dimensions even up to 3840×2160.
+Host and guest queues are bounded. Each FFmpeg worker retains the separate
+1-GiB job limit, a 20-second pending-work watchdog, 300-second idle deadline
+and one-hour lifetime limit. These video limits do not change shader translation
+limits. A protocol, codec or hardware failure never enables a software decoder.

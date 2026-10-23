@@ -35,12 +35,20 @@ authored exactly representable sum passes on both. See
 VM VideoToolbox software H.264 and HEVC round trips each return 12 verified
 frames. An authored local H.264 movie plays through WKWebView with 38 frame
 callbacks and 5 observed pixel changes. These are software codec results;
-VideoToolbox hardware encoder/decoder selection is not implemented. The
+Automatic VideoToolbox hardware encoder/decoder selection is not implemented. The
 Windows RTX 5080 separately passes a 90-frame NVENC H.264 encode and NVDEC
 decode. The guest-to-Windows transport also passes checked H.264/HEVC encode
 and decode batches from 320×180 through 3840×2160, with explicit NVENC/CUVID
 and no software fallback. See [transport evidence](verification/video-hardware-transport.json).
-This is not yet a registered VideoToolbox codec or sustained playback test.
+An explicit-process H.264 VideoToolbox/NVDEC streaming prototype now completes
+90 B-frame samples: 7,776,000 NV12 bytes match the independent hardware baseline,
+timestamps match and the hardware property is true. Automatic selection rejects
+the ad-hoc component at the codec registry's signature check (-67050).
+Low-delay and early invalidation still fail bounded tests; the temporary
+components were removed. This does not qualify ordinary Safari/QuickTime,
+VideoToolbox encoding or sustained playback. See
+[streaming evidence](verification/video-vt-stream.json) and
+[scope/reproduction](../native/VideoBridge/README.md).
 YouTube still fails with a player `fmt.decode` error. Neither host codec
 success nor local movie playback qualifies Safari hardware video.
 

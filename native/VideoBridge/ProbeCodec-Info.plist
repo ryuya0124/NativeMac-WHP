@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>io.nativemac.NVDECProbe</string>
+<key>CFBundleDevelopmentRegion</key><string>English</string>
+<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+<key>CFBundleName</key><string>NativeMacNVDECProbe</string>
+<key>CFBundleShortVersionString</key><string>1.0</string>
+<key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
+<key>CFBundleExecutable</key><string>NativeMacNVDECProbe</string>
+<key>CFBundlePackageType</key><string>BNDL</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>CMClassImplementations</key><array><dict>
+<key>CMClassID</key><string>com.apple.videotoolbox.videodecoder</string>
+<key>CMClassImplementationID</key><string>io.nativemac.videodecoder.nmq3.probe</string>
+<key>CMClassImplementationName</key><string>NativeMac NVDEC Discovery Probe</string>
+<key>CMClassImplementationVersion</key><integer>1</integer>
+<key>CMExecutableArchitectures</key><array><string>x86_64</string></array>
+<key>CMFactoryFunction</key><string>NativeMacNVDECCreate</string>
+<key>CMMatchingInfo</key><dict>
+<key>VTCodecType</key><string>nmq3</string>
+<key>VTRating</key><integer>400</integer>
+<key>VTIsHardwareAccelerated</key><true/>
+<key>VTIsParavirtualizationAware</key><true/>
+<key>VTAllowSandboxedDecode</key><false/>
+</dict></dict></array>
+</dict></plist>

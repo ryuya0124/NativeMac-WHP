@@ -1,0 +1,130 @@
+{
+  "verifiedOn": "2026-10-23",
+  "status": "experimental; ordinary application integration incomplete",
+  "guestVersion": "26.6.2",
+  "sdkVersion": "26.5",
+  "abi": {
+    "architecture": "x86_64",
+    "versionBytes": 4,
+    "baseBytes": 76,
+    "derivedStorageOffset": 4,
+    "decoderClassBytes": 84,
+    "decoderStartOffset": 4,
+    "decoderClassVersion": 2
+  },
+  "hardware": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "cudaDeviceIndex": 0,
+    "automaticCudaDeviceMatching": false,
+    "decoder": "h264_cuvid",
+    "encoderUsedToGenerateFixture": "h264_nvenc",
+    "softwareFallback": false
+  },
+  "fixture": {
+    "generator": "native/VideoBridge/make_fixture.py",
+    "authoredSyntheticTestsrc2": true,
+    "width": 320,
+    "height": 180,
+    "frames": 90,
+    "bFrames": 2,
+    "gop": 30,
+    "packetPresentationTimestampsReordered": true,
+    "inputSha256": "78cc2f7112958627e84bb58e0c35d970d10bd5643d90ffc61da4a0ab4503600c",
+    "independentNvdecBaselineSha256": "3c8553cfd1b29aad13a0ad165877fe062e6999188073718bd751b4d6b47314b7"
+  },
+  "fullTemporalStream": {
+    "publicVideoToolboxSessionApis": true,
+    "explicitProcessLocalPrivateFactoryRegistration": true,
+    "requireHardware": true,
+    "temporalProcessingEnabled": true,
+    "exit": 0,
+    "result": {
+      "callbackErrors": 0,
+      "cancelledEarly": false,
+      "comparedBytes": 7776000,
+      "componentDiscovery": false,
+      "createStatus": 0,
+      "decodedFrames": 90,
+      "drainStatus": 0,
+      "hardwareProperty": true,
+      "hardwarePropertyStatus": 0,
+      "mismatchingBytes": 0,
+      "ordinaryAppIntegration": false,
+      "passed": true,
+      "registrationStatus": 0,
+      "submitStatus": 0,
+      "submitted": 90,
+      "timestampsMatchOriginalSamples": true,
+      "unsupportedLowDelayRejected": false,
+      "waitStatus": 0
+    }
+  },
+  "knownFailures": [
+    {
+      "case": "low-delay",
+      "exit": 124,
+      "result": {
+        "passed": false,
+        "deadlineExceeded": true,
+        "ordinaryAppIntegration": false
+      }
+    },
+    {
+      "case": "early-invalidate",
+      "exit": 124,
+      "result": {
+        "passed": false,
+        "deadlineExceeded": true,
+        "ordinaryAppIntegration": false
+      }
+    }
+  ],
+  "automaticComponentSelection": {
+    "registryScannedAuthoredComponent": true,
+    "metadataPredicateAccepted": true,
+    "directAuthoredProcessBundleLoadAndFactoryLookup": true,
+    "vtSessionStatus": -12906,
+    "signatureValidityStatus": -67050,
+    "signatureRequirement": "Apple-anchor codec registry requirement not satisfied by ad-hoc signature",
+    "signaturePolicyChanged": false,
+    "temporaryProbeComponentsRemoved": true,
+    "scope": "Signature rejection measured on an ad-hoc metadata-matched probe before factory loading, separate from the explicitly registered decoded-frame test"
+  },
+  "limitations": [
+    "Safari/QuickTime ordinary playback and VideoToolbox NVENC integration remain absent",
+    "Low-delay and early session invalidation hit the probe deadline; neither is a passing compatibility case",
+    "Midstream reset/drain, seeking, preroll and format changes remain unsupported",
+    "Streaming VT path qualified only for the 320x180 H.264 fixture; HEVC, 4K throughput, HDR and color conversion are not qualified",
+    "NV12 bytes cross CPU-addressable copies and authenticated loopback SSH forwarding; no zero-copy or performance claim"
+  ],
+  "guestSourceSha256ExecutedBytes": {
+    "ABIProbe.mm": "b1863bbda9a1c2e51252f2d5ef551bd1c57046c498558ed639d1ba5142e70289",
+    "VTDecoder.mm": "bf8e3df8cddd800e0b02c60a5118f989dbaf4d19d8d2ed0fcf9368f9a5009aa5",
+    "VTStreamProbe.mm": "71642d4cce56107929b5fe5a294d8bd56d47ebda05eb478d561afdc20e153c85",
+    "build_probe.sh": "de623946c7b6a7c43b9956c3a7f507672bd44064a1707d181c9aa20bc7245012",
+    "spi/CMBaseObjectSPI.h": "2e30b39dadff06145a1dfc29f735b9067eb99d08151a7fe8b9464803df784a62",
+    "spi/VTVideoDecoderSPI.h": "3d3f58450ba71ec689a50dfab37d3d84e3d7e686c20b01d5892300866030092f"
+  },
+  "sourceFormatting": "Published WebKit declarations normalize CRLF and one blank line trailing-space sequence; executed raw header hashes are retained separately. Own executed guest source bytes match the published source before Git LF normalization.",
+  "sourceSha256CanonicalLF": {
+    "ABIProbe.mm": "b1863bbda9a1c2e51252f2d5ef551bd1c57046c498558ed639d1ba5142e70289",
+    "VTDecoder.mm": "bf8e3df8cddd800e0b02c60a5118f989dbaf4d19d8d2ed0fcf9368f9a5009aa5",
+    "VTStreamProbe.mm": "71642d4cce56107929b5fe5a294d8bd56d47ebda05eb478d561afdc20e153c85",
+    "build_probe.sh": "de623946c7b6a7c43b9956c3a7f507672bd44064a1707d181c9aa20bc7245012",
+    "make_fixture.py": "83eb7955b902aec638d25f4667541a00f102741226424ce617b8cfcc9aa7b251",
+    "matroska.py": "39e029675054cd1433e76dac46c7dfd323d7d667b3f9ce160f0633e3d4d98ccc",
+    "stream.py": "2fb66a7d1fa16b4637cfc7c4675440e1e779df6fce5e3547b5c7c2aa1587f602",
+    "server.py": "44d66bdbb1a4ed84ab6303494f9e34f392d7dfde5d3f24042ee0e6494d064247",
+    "ProbeCodec-Info.plist": "543bd3c02a912ec28cb199260286210d0f324b4f572c4695f6b7d6649f2a5226",
+    "spi/CMBaseObjectSPI.h": "2e30b39dadff06145a1dfc29f735b9067eb99d08151a7fe8b9464803df784a62",
+    "spi/VTVideoDecoderSPI.h": "cb353b1db48decc551f2778f08540427aac3750947f6ee7a11611309fa8284d4"
+  },
+  "hostWorkerLimits": {
+    "concurrentSessions": 2,
+    "perFfmpegJobMiB": 1024,
+    "pendingWorkWatchdogSeconds": 20,
+    "idleSeconds": 300,
+    "lifetimeSeconds": 3600,
+    "shaderTranslatorLimitsUnchanged": true
+  }
+}

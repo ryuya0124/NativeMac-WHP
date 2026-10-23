@@ -1,7 +1,9 @@
 # Current checkpoint (2026-10-23)
 
-Stock Geekbench 7.1.0 Metal completes all 11 workloads, exit 0, validation
-errors 0, score 3238: https://browser.geekbench.com/v7/gpu/317315.
+The previous best stock Geekbench 7.1.0 Metal run completes all 11 workloads,
+exit 0, validation errors 0, score 3238:
+https://browser.geekbench.com/v7/gpu/317315. The newer named-device run is 2378
+(details and conditions below); do not describe the name update as a speedup.
 Bridge 42e21ba and translator code 66092df / semantics 1698 qualify that
 result. No other benchmark or stress suite overlapped it; light readouts and
 two brief probe builds did. No app patch, DYLD adapter, CPU renderer or
@@ -17,18 +19,31 @@ VM H.264/HEVC software codec round trips and an authored local WebKit movie
 pass. YouTube still has a fmt.decode error. Host RTX 5080 NVENC and NVDEC
 complete a separate 90-frame H.264 round trip. The guest-to-Windows bounded
 loopback transport in native/VideoBridge also passes checked H.264/HEVC
-batches at 320×180, 854×480, FHD and 4K. VideoToolbox registration, sustained
-playback and Safari hardware codec integration remain required.
+batches at 320×180, 854×480, FHD and 4K. Automatic VideoToolbox selection,
+sustained playback and Safari hardware codec integration remain required.
 
 The experimental persistent NVDEC worker (native/VideoBridge/stream.py) has
 now decoded the authored 90-frame H.264 fixture with reordered input PTS:
 72 frames arrive before EOF; all 7,776,000 NV12 bytes match an independent
 NVDEC batch, PTS maximum error 33 ns (CUVID clock quantization). The Matroska
 mux separately preserves all compressed packets/configuration and exact input
-timestamps under ffprobe. Streaming VideoToolbox integration is still absent.
-Authored unsupported decoder/encoder factories register and are invoked by
-ordinary VT session-creation APIs in a test process. The /Library/Video/Plug-Ins
-discovery stub is not selected automatically; registry investigation continues.
+timestamps under ffprobe. The explicit-process VT decoder now completes an
+authored 90-frame B-frame H.264 fixture: 7,776,000 NV12 bytes match an independent
+CUVID baseline, source sample PTS match, hardware required/property true,
+zero callback errors. The public make_fixture.py and build_probe.sh reproduce
+this on the Intel VM. SDK ABI is version 4 bytes, base 76, storage offset 4,
+decoder class 84, start offset 4; class version 2 is needed for drain dispatch.
+Low-delay and early invalidation remain failures under a bounded self-deadline;
+do not select the component for ordinary use. NVENC VT integration is absent.
+
+Automatic component selection is specifically blocked by a signature gate in
+CoreMedia's registry after its item predicate accepts the metadata. Public
+SecRequirementCopyString and SecStaticCodeCheckValidity in an authored process
+confirm the ad-hoc component does not satisfy the registry's Apple-anchor
+requirement (-67050). Direct CFBundle load/factory lookup in an authored process
+passes. No signing policy was weakened. Both temporary /Library/Video/Plug-Ins
+probe components were removed. Investigate a supported trusted video-driver
+route rather than installing this unfinished component or changing policy.
 
 GPU naming source 1b9a256 is integrated into backend/reims-stability and is
 the current guest kext. ABI and snapshot tests, signed build and cold boot
@@ -46,7 +61,7 @@ return the Windows name; 4096 GPU values, FP32/FP16 899-value matmul and
 workloads with the name NVIDIA GeForce RTX 5080, score 2378,
 https://browser.geekbench.com/v7/gpu/317477. This is lower than 3238;
 ephemeral disk and light CPU-only diagnostics overlapped, and the cause is
-not isolated. New name helper source/publication is in progress.
+not isolated. The name helper source/evidence are published in 736bd35.
 
 The separate native/MetalIdentity entry had a missing IOGPU link dependency;
 IOGPU.tbd fixes it for ordinary processes. A cold-boot trial on source
