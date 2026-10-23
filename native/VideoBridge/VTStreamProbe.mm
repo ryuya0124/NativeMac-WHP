@@ -76,8 +76,9 @@ int main(int argc,char **argv){@autoreleasepool{
     bool serial=argc==4&&!strcmp(argv[3],"--serial");
     bool lowDelay=serial||(argc==4&&!strcmp(argv[3],"--low-delay"));
     bool drainMidstream=argc==4&&!strcmp(argv[3],"--drain-midstream");
+    bool pauseMidstream=argc==4&&!strcmp(argv[3],"--pause-midstream");
     bool retainWindow=argc==4&&!strcmp(argv[3],"--retain-window");
-    if(argc==4&&!discovery&&!cancel&&!lowDelay&&!drainMidstream&&!retainWindow)return 64;
+    if(argc==4&&!discovery&&!cancel&&!lowDelay&&!drainMidstream&&!pauseMidstream&&!retainWindow)return 64;
     signal(SIGALRM,deadlineExceeded);alarm(cancel?8:45);
     NSData *inputData=[NSData dataWithContentsOfFile:@(argv[1])];
     if(!inputData)return 65;
@@ -133,10 +134,13 @@ int main(int argc,char **argv){@autoreleasepool{
             roundTrips.push_back(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count());
             if(submitted)break;
         }
-        if(drainMidstream&&sent==packets.count/2){
+        if((drainMidstream||pauseMidstream)&&sent==packets.count/2){
             submitted=VTDecompressionSessionFinishDelayedFrames(session);
             if(!submitted)submitted=VTDecompressionSessionWaitForAsynchronousFrames(session);
             if(submitted)break;
+            // Outlive the host's bounded target lease. Resumption must rebind
+            // safely and preserve pixels/PTS, rather than using expired holds.
+            if(pauseMidstream)sleep(22);
         }
         if(cancel&&sent==(activeCancel?60u:12u)){
             if(activeCancel){
@@ -164,7 +168,7 @@ int main(int argc,char **argv){@autoreleasepool{
     NSDictionary *report=@{@"registrationStatus":@(registered),@"createStatus":@(created),@"hardwarePropertyStatus":@(queried),
         @"hardwareProperty":@(hardwareTrue),@"submitted":@(sent),@"submitStatus":@(submitted),@"drainStatus":@(drained),@"waitStatus":@(waited),
         @"decodedFrames":@(r.frames),@"droppedFrames":@(r.dropped),@"callbackErrors":@(r.errors),@"comparedBytes":@(r.frames*r.width*r.height*3/2),@"mismatchingBytes":@(r.mismatch),
-        @"timestampsMatchOriginalSamples":@(timestamps),@"passed":@(passed),@"ordinaryAppIntegration":@NO,@"componentDiscovery":@(discovery),@"cancelledEarly":@(cancel),@"midstreamDrain":@(drainMidstream),@"temporalProcessingRequested":@(!lowDelay),
+        @"timestampsMatchOriginalSamples":@(timestamps),@"passed":@(passed),@"ordinaryAppIntegration":@NO,@"componentDiscovery":@(discovery),@"cancelledEarly":@(cancel),@"midstreamDrain":@(drainMidstream||pauseMidstream),@"idlePauseSeconds":@(pauseMidstream?22:0),@"temporalProcessingRequested":@(!lowDelay),
         @"width":@(r.width),@"height":@(r.height),@"serialRoundTrip":@(serial),@"roundTripMedianMs":roundTrips.empty()?NSNull.null:@(roundTrips[roundTrips.size()/2])};
     NSMutableDictionary *finalReport=[report mutableCopy];finalReport[@"retainedFrameChecks"]=@(r.retainedChecks);
     finalReport[@"droppedTimestampsMatchExpected"]=@(droppedTimestamps);

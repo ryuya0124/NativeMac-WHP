@@ -25,6 +25,7 @@ class NativeMacGpuVideoPool {
     struct Entry {
         IOSurfaceRef surface=nullptr;
         NSArray<id<MTLTexture>> *textures=nil;
+        std::array<uint8_t,16> previous{};
         ~Entry(){if(surface)CFRelease(surface);}
     };
     CVPixelBufferPoolRef pool=nullptr;
@@ -53,7 +54,11 @@ public:
         device=MTLCreateSystemDefaultDevice();queue=[device newCommandQueue];scratch=[device newBufferWithLength:512 options:MTLResourceStorageModeShared];
     }}
     ~NativeMacGpuVideoPool(){if(pool)CFRelease(pool);}
-    CVPixelBufferRef acquire(const uint8_t *capability,uint8_t *actual,const std::atomic<bool> &stopped){@autoreleasepool{
+    bool prepare(CVPixelBufferRef pixel){
+        auto found=entries.find(IOSurfaceGetID(CVPixelBufferGetIOSurface(pixel)));
+        return found!=entries.end()&&materialize(found->second->textures);
+    }
+    CVPixelBufferRef acquire(const uint8_t *capability,uint8_t *actual,const std::atomic<bool> &stopped,bool reuse=false){@autoreleasepool{
     if(!pool||!device||!queue)return nullptr;
     CVPixelBufferRef pixel=nullptr;
     NSDictionary *limits=@{(id)kCVPixelBufferPoolAllocationThresholdKey:@24};
@@ -81,8 +86,12 @@ public:
     // Keep CoreVideo's planar metadata at the beginning intact.
     memcpy(static_cast<uint8_t*>(IOSurfaceGetBaseAddress(surface))+1024,metadata.data(),metadata.size());IOSurfaceUnlock(surface,0,nullptr);
     if(found!=entries.end()){
-        if(!materialize(found->second->textures)){CFRelease(pixel);return nullptr;}
-        memcpy(actual,capability,16);return pixel;
+        if(reuse)memcpy(actual,found->second->previous.data(),16);
+        else {
+            if(!materialize(found->second->textures)){CFRelease(pixel);return nullptr;}
+            memcpy(actual,capability,16);
+        }
+        memcpy(found->second->previous.data(),capability,16);return pixel;
     }
     NSMutableArray<id<MTLTexture>> *textures=[NSMutableArray array];
     for(NSUInteger plane=0;plane<2;plane++){
@@ -96,6 +105,7 @@ public:
     // They preserve the registered backing while CoreVideo independently
     // checks consumer ownership before recycling that pixel buffer.
     auto entry=std::make_unique<Entry>();entry->surface=surface;CFRetain(surface);entry->textures=textures;
+    memcpy(entry->previous.data(),capability,16);
     memcpy(actual,capability,16);
     entries.emplace(IOSurfaceGetID(surface),std::move(entry));return pixel;
     }}

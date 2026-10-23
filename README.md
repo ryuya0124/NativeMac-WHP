@@ -8,7 +8,7 @@ GPU名はWindows側でVMが実際に選択したVulkanアダプターから起�
 
 動画は、標準のVideoToolbox／AVFoundationとSafariからWindows側のNVDEC／NVENCへ接続する共通経路を実装しています。H.264／HEVCの8-bit映像に加え、VP9 profile 0の復号を検証しています。ライブ映像・音声にSSHは使いません。新しい復号経路では、圧縮済みの動画と小さな制御情報を直接TLSで送り、デコード後の画素はGPUでVMへ渡します。NVENCへの未圧縮入力と音声にはCPU／TLS処理が残ります。[導入・解除・検証手順](native/VideoBridge/README.md)を参照してください。
 
-実験的なGPU共有経路をVMのIOSurfaceとSafariへ接続しました。147フレームでVMのCPU／Metal双方から画素一致を確認し、バッファを保持した3,060フレームの試験も通過しました。GPUによるゲストRAMへの書き込みは残るため、VRAM内だけで完結する構成ではありません。YouTubeの表示通知は30秒の観測でFHD約19回/秒、4K約13回/秒で、まだ低fpsです。透明度を下げるVM設定で既知のシェーダー拒否を回避していますが、全体回帰テストには未解決の失敗が残ります。[検証範囲と制限](docs/verification/video-shared-gpu-guest.json)を参照してください。
+実験的なGPU共有経路をVMのIOSurfaceとSafariへ接続し、バッファの安全な再利用でGPU準備待ちを減らしました。また、完了通知の競合で約20秒停止する不具合を修正しました。修正後はFHDの120フレーム処理を20回連続で実行し、すべて1.81秒以内で画素が一致しました。同条件の交互比較では、バッファ再利用によってFHDの処理時間を約34%、短い4K試験では約14%短縮しています。GPUによるゲストRAMへの書き込み、描画の精度差、全体回帰テストの失敗は残り、4K・60fpsは未達です。[今回の計測](docs/verification/video-target-reuse.json)と[描画精度の差](docs/verification/fetch-product.json)を参照してください。
 
 CPUはWHPで実行し、QEMU実行ファイル・QEMUコア・CPU命令の動的変換を使用しません。Appleの復旧DMGは原本を読み取り専用で参照します。RAM・CPUは起動前に変更できます（設定上限256 GiB・64コア）。現在の割り当てと検証は12 GiB・8コアのままです。実際に確保できる容量はホストの空きメモリなどに依存します。
 

@@ -73,11 +73,24 @@ class GpuControl:
         if self.operation(b'A',capability,struct.pack('<II',width,height)):raise RuntimeError('GPU target reservation refused')
         self.current=capability;return capability
 
-    def copy(self,capability,actual,generation):
+    def reuse(self,capability,previous):
+        if capability!=self.current or previous==capability:raise RuntimeError('GPU target reuse mismatch')
+        if previous not in self.targets:raise RuntimeError('GPU target was not parked by this session')
+        if self.operation(b'R',capability,extra=previous):
+            # An expired or discarded backing cannot be retried. Release the
+            # old capability even when the guest must materialize a new one.
+            self.operation(b'D',previous)
+            self.targets.discard(previous)
+            return False
+        self.targets.discard(previous)
+        return True
+
+    def copy(self,capability,actual,generation,park=False):
         if capability!=self.current or actual!=capability:raise RuntimeError('GPU target request mismatch')
         if self.operation(b'Q',capability)!=2:raise RuntimeError('GPU target is not bound')
         if self.operation(b'C',capability,struct.pack('<Q',generation)):raise RuntimeError('GPU target copy refused')
-        if self.operation(b'D',capability):raise RuntimeError('GPU target release refused')
+        if self.operation(b'P' if park else b'D',capability):raise RuntimeError('GPU target release refused')
+        if park:self.targets.add(capability)
         self.current=None
 
     def close(self):

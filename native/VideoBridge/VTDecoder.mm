@@ -20,6 +20,7 @@
 #include <compression.h>
 #include <chrono>
 #include "GpuVideoTarget.h"
+#include "DecoderWake.h"
 
 static constexpr OSStatus failed = -12909;
 static constexpr int64_t timestampBias = 1000000000000000LL;
@@ -35,11 +36,13 @@ struct State {
     std::deque<std::vector<uint8_t>> output;
     std::atomic<bool> stopped{false},finished{false},ready{false},ended{false};
     std::atomic<unsigned> emitted{0},errors{0},barriers{0};
+    unsigned requestedBarriers=0; // guarded by writeMutex; acknowledgements arrive in wire order
     uint64_t readNs=0,unpackNs=0,pixelNs=0,emitNs=0;
     size_t pendingCount=0;
     bool gpuFrames=false;
     CVPixelBufferRef gpuPixel=nullptr;
     std::unique_ptr<NativeMacGpuVideoPool> gpuPool;
+    bool gpuReuse=false;
     std::array<uint8_t,24> gpuFrame{};
     ~State(){if(gpuPixel)CFRelease(gpuPixel);if(writer>=0&&writer!=fd)close(writer);if(fd>=0)close(fd);}
 };
@@ -84,7 +87,10 @@ static void receiveFrames(StateHandle owner){@autoreleasepool{
         bool read=readMessage(s,body,s->width*s->height*3/2+9);
         s->readNs+=elapsed(readStart);
         if(!read)break;
-        if(body==std::vector<uint8_t>{'G'}){s->barriers++;s->drained.notify_all();continue;}
+        if(body==std::vector<uint8_t>{'G'}){
+            NativeMacPublishDecoderState(s->pendingMutex,s->drained,[&]{s->barriers++;});
+            continue;
+        }
         if(body[0]=='E'&&body.size()==5){
             uint32_t count;memcpy(&count,body.data()+1,4);complete=ntohl(count)==received;break;
         }
@@ -93,12 +99,18 @@ static void receiveFrames(StateHandle owner){@autoreleasepool{
             auto pixelStart=std::chrono::steady_clock::now();
             if(!s->gpuPool)s->gpuPool=std::make_unique<NativeMacGpuVideoPool>(s->width,s->height);
             std::array<uint8_t,16> actual{};
-            s->gpuPixel=s->gpuPool->acquire(body.data()+9,actual.data(),s->stopped);
+            s->gpuPixel=s->gpuPool->acquire(body.data()+9,actual.data(),s->stopped,s->gpuReuse);
             s->pixelNs+=elapsed(pixelStart);
             if(!s->gpuPixel){s->errors++;break;}
             memcpy(s->gpuFrame.data(),body.data()+1,24);
-            memcpy(s->gpuFrame.data()+8,actual.data(),16);
             std::vector<uint8_t> prepared(33);prepared[0]='T';memcpy(prepared.data()+1,body.data()+9,16);memcpy(prepared.data()+17,actual.data(),16);
+            std::lock_guard guard(s->writeMutex);if(!writeMessage(s,prepared))break;
+            continue;
+        }
+        if(s->gpuReuse&&body[0]=='R'&&body.size()==17){
+            if(!s->gpuPixel||memcmp(body.data()+1,s->gpuFrame.data()+8,16)||!s->gpuPool->prepare(s->gpuPixel)){s->errors++;break;}
+            std::vector<uint8_t> prepared(33);prepared[0]='T';
+            memcpy(prepared.data()+1,body.data()+1,16);memcpy(prepared.data()+17,body.data()+1,16);
             std::lock_guard guard(s->writeMutex);if(!writeMessage(s,prepared))break;
             continue;
         }
@@ -123,7 +135,7 @@ static void receiveFrames(StateHandle owner){@autoreleasepool{
         lock.unlock();
         emitReady(s);
     }
-    s->ended=true;s->drained.notify_all();
+    NativeMacPublishDecoderState(s->pendingMutex,s->drained,[&]{s->ended=true;});
     if(!complete&&!s->stopped){s->errors++;failPending(s);}
     os_log(OS_LOG_DEFAULT,"NativeMac video timings frames=%u read_ms=%llu unpack_ms=%llu pixel_ms=%llu emit_ms=%llu",s->emitted.load(),(unsigned long long)(s->readNs/1000000),(unsigned long long)(s->unpackNs/1000000),(unsigned long long)(s->pixelNs/1000000),(unsigned long long)(s->emitNs/1000000));
 }}
@@ -187,7 +199,7 @@ static void emitReady(State *s){
 }
 static OSStatus invalidate(CMBaseObjectRef object){
     State *s=state(object);if(!s)return 0;
-    s->stopped=true;
+    NativeMacPublishDecoderState(s->pendingMutex,s->drained,[&]{s->stopped=true;});
     {std::lock_guard guard(s->writeMutex);
         if(s->fd>=0&&s->writer==s->fd)shutdown(s->fd,SHUT_RDWR);
         else if(s->writer>=0){close(s->writer);s->writer=-1;}
@@ -242,7 +254,7 @@ static OSStatus start(VTVideoDecoderRef object,VTVideoDecoderSession session,CMV
     setsockopt(s->fd,IPPROTO_TCP,TCP_NODELAY,&yes,sizeof(yes));
     timeval deadline{20,0};setsockopt(s->fd,SOL_SOCKET,SO_SNDTIMEO,&deadline,sizeof(deadline));
     setsockopt(s->fd,SOL_SOCKET,SO_RCVTIMEO,&deadline,sizeof(deadline));
-    NSDictionary *hello=@{@"version":@1,@"codec":codecName,@"width":@(s->width),@"height":@(s->height),@"configuration":[config base64EncodedStringWithOptions:0],@"compression":@"lz4-raw",@"output":@"shared-gpu-v1"};
+    NSDictionary *hello=@{@"version":@1,@"codec":codecName,@"width":@(s->width),@"height":@(s->height),@"configuration":[config base64EncodedStringWithOptions:0],@"compression":@"lz4-raw",@"output":@"shared-gpu-v2"};
     NSData *json=[NSJSONSerialization dataWithJSONObject:hello options:0 error:nil];
     std::vector<uint8_t> body(static_cast<const uint8_t*>(json.bytes),static_cast<const uint8_t*>(json.bytes)+json.length);
     const auto request=body;
@@ -251,6 +263,7 @@ static OSStatus start(VTVideoDecoderRef object,VTVideoDecoderSession session,CMV
         if(!readMessage(s,body,256)){os_log_error(OS_LOG_DEFAULT,"NativeMac video decoder hello read failed errno=%d",errno);return failed;}
         if(body==std::vector<uint8_t>{'A'})break;
         if(body==std::vector<uint8_t>{'V'}){s->gpuFrames=true;break;}
+        if(body==std::vector<uint8_t>{'W'}){s->gpuFrames=true;s->gpuReuse=true;break;}
         if(body!=std::vector<uint8_t>{'B'}||retry>=39)return failed;
         if(s->writer!=s->fd)close(s->writer);close(s->fd);s->fd=s->writer=-1;std::this_thread::sleep_for(std::chrono::milliseconds(50));
         s->fd=NativeMacVideoOpenSocket(&s->writer);if(s->fd<0)return failed;
@@ -316,7 +329,7 @@ static OSStatus finish(VTVideoDecoderRef object){
     StateHandle owner=handle(reinterpret_cast<CMBaseObjectRef>(object));auto *s=owner.get();
     if(s->stopped){failPending(s,true);return 0;}
     unsigned barrier;
-    {std::lock_guard lock(s->writeMutex);barrier=s->barriers.load()+1;if(!writeMessage(s,{'G'}))return failed;}
+    {std::lock_guard lock(s->writeMutex);barrier=++s->requestedBarriers;if(!writeMessage(s,{'G'}))return failed;}
     auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(20);
     for(;;){
         std::unique_lock lock(s->pendingMutex);

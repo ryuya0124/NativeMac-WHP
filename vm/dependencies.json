@@ -105,13 +105,16 @@
     "sharedGpuVideo": {
       "patch": "patches/reims-shared-gpu-video.patch",
       "baseCommit": "1b9a256573aa84b3aaaac5935dcdf0289e8256da",
-      "candidateCommit": "c92cfb7",
+      "candidateCommit": "84fb8090d121618e15d6f0af066af5e4f05836d0",
       "applyAlso": "patches/reims-msvc.patch",
-      "runtimeCommit": "90004070fabb5678de958a25e7f2aac6acda2b74",
-      "status": "experimental: Intel VM byte/PTS checks and ordinary Safari shared-GPU playback pass; low display fps and full-library regression failures remain",
+      "runtimeCommit": "79aafca3482a54429bab8e09b62ef558baf4cff1",
+      "status": "experimental: validated pooled target reuse, FHD/4K serial byte comparisons and ordinary Safari playback pass; full-library regression failures and half-output shader precision differences remain",
       "verification": "docs/verification/video-shared-gpu-guest.json",
       "noCpuDecodeFallback": true,
-      "vramExclusive": false
+      "vramExclusive": false,
+      "runtimePatch": "patches/metal2vulkan-fetch-product.patch",
+      "protocol": "shared-gpu-v2",
+      "performanceVerification": "docs/verification/video-target-reuse.json"
     }
   },
   "amdVanilla": {
@@ -191,6 +194,17 @@
     "scope": "Shorten fixed resident-pointer binary-search prefix; preserve residual bounded search",
     "status": "3264 pinned-LLVM tests pass; authored RTX A/B/A/B values match; stock Geekbench Metal completes all 11 workloads, score 2931",
     "verification": "docs/verification/resident-search-signing.json",
+    "usesCpuRendering": false
+  },
+  "metal2vulkanFetchProductRepair": {
+    "patch": "patches/metal2vulkan-fetch-product.patch",
+    "applyAfter": "patches/metal2vulkan-resident-search.patch",
+    "baseCommit": "90004070fabb5678de958a25e7f2aac6acda2b74",
+    "sourceRevision": "79aafca3482a54429bab8e09b62ef558baf4cff1",
+    "semanticsVersion": 1700,
+    "scope": "Structurally lower fast-math source-times-destination framebuffer-fetch blends on direct R/RG/RGBA16Float targets with correctly sized float/half outputs",
+    "status": "Focused and macOS workspace tests, docs and clippy pass; 8 authored float-output cases byte-exact against M4, 8 half-output cases retain recorded mismatches. Reims full gate remains unqualified.",
+    "verification": "docs/verification/fetch-product.json",
     "usesCpuRendering": false
   }
 }

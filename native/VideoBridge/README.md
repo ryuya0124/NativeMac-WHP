@@ -45,9 +45,9 @@ choice. This is not a claim that every application or media format works.
   patched. The scoped development registry check still verifies the exact
   authored component's ad-hoc seal.
 
-The deployed route still copies NV12 through CPU-addressable buffers, optional
-lossless LZ4 and direct TLS. Hardware codec work runs on the GPU, but media
-transport is not zero copy. Audio uses the separate virtual-output relay in
+The development default uses the shared-GPU decode route described below.
+The explicit older CPU-frame route uses CPU-addressable NV12 buffers, optional
+lossless LZ4 and direct TLS. NVENC input still uses CPU buffers. Audio uses the separate virtual-output relay in
 [`../AudioBridge`](../AudioBridge/README.md). Short 4K checks do not establish
 sustained 4K playback/encoding frame rates. Actual YouTube playback remains
 slow; a progressing media clock alone is not evidence of rendered frame rate.
@@ -160,7 +160,7 @@ and later paging; this is not VRAM-exclusive playback.
 host control configuration and starts/stops the codec service with the VM.
 The development defaults enable these switches. Explicit
 `-SharedGpuVideo:$false` selects the older CPU-frame route. The guest and
-host negotiate `shared-gpu-v1`; logs record the actual selected route. Missing
+host negotiate `shared-gpu-v2`; the host also accepts older v1 clients. Logs record the actual selected route. Missing
 GPU dependencies fail startup, rather than claiming GPU transfer. TLS carries
 compressed samples and small frame messages, never decoded pixels on this
 path. The GPU control port is host loopback only, separately authenticated;
@@ -170,26 +170,51 @@ Each frame gets a fresh capability, a twenty-second target deadline and
 strong resource holds through GPU completion. Disconnects disarm reservations.
 The CoreVideo pool has at most 24 buffers, reused only after consumers release
 them. Metadata occupies 64 bytes at offset 1024 of the alignment page,
-preserving CoreVideo's planar header. Each acquisition prepares the current
-backing after guest discard/rebind. Completion publishes an IOSurface seed
+preserving CoreVideo's planar header. A completed target can stay parked until
+its deadline. On reuse the host validates fresh metadata and transfers only a
+still-current backing to the new capability. Core discard/destruction invalidates
+parked backings before their pages are released; expired or invalidated targets
+fall back to materializing the guest's current backing. This removes a tiny
+Metal submission and completion wait on successful reuse, without assuming
+that an old IOSurface binding remains valid. Completion publishes an IOSurface seed
 change, without CPU frame reads or writes. A VP9 stream starting without its
 references explicitly drops samples until its first real keyframe; drops
 retain the original timestamps and are terminal callbacks.
 
-The current VM uses `defaults write com.apple.universalaccess reduceTransparency -bool true`
-before ordinary apps start. This avoids an
-observed unsupported blended framebuffer-fetch path during desktop login;
-`half_blend` alone does not fix that path. This is a visual-setting workaround,
-not general shader support. Guest preparation/synchronization still limits
-playback: the observed YouTube display notifications were about 19/s at FHD
-and 13/s at 4K, with adaptive counter resets. No 4K60 qualification or new
-Geekbench gain is claimed. NVENC input and PCM audio still use CPU buffers.
+The transparency setting alone did not prevent recurrence of a product-blend
+framebuffer-fetch refusal. `patches/metal2vulkan-fetch-product.patch` adds that
+structural fast-math path, retaining precision notes: eight authored float-output
+cases match the M4 reference exactly, while eight half-output cases have recorded
+rounding differences. They are not counted as exact passes.
+
+Barrier acknowledgements, end-of-stream and cancellation now update the
+condition-variable predicate under its waiting mutex. This fixes a lost wake
+that left successful operations asleep until their twenty-second deadline.
+`DecoderWakeTest.cpp` forces that check/wait interval. Twenty serial 120-frame
+FHD runs (2,400 exact frames) finish in at most 1.81 seconds each, with no
+twenty-second stall. Individual barrier requests also have distinct sequence numbers.
+
+An interleaved v1/v2 comparison with full pixel checks and the notification fix
+reduces the authored 120-frame FHD run from 2.49 to 1.65 seconds (34%). The short
+40-frame 4K runs improve by about 14%, with overlapping timing ranges. Per-trial
+median frame round trips are 12.91–13.00 to 8.39–8.44 ms at FHD, and
+11.80–13.01 to 8.00–8.60 ms at 4K. These measure serial decode
+and CPU verification, not displayed fps. A 30-second ordinary YouTube observation
+at sampled 2340x1080 records 847 presentation callbacks (about 28/s), with one
+adaptive counter reset. No sustained 4K60 or new Geekbench gain is claimed.
+After a cold boot and two lock/unlock cycles, a separate 3840x2160 ordinary
+YouTube observation records 677 presentation callbacks in 30.163 seconds,
+720 playback-quality frames and zero reported drops. Callback cadence is
+about 22.4/s, so this does not establish smooth 4K60 presentation.
+The report is `docs/verification/video-target-reuse.json` (relative to repository root).
+NVENC input and PCM audio still use CPU buffers.
 
 The five byte/PTS checks, 3,060 retained-frame checks, thirteen drain/cancel
 cases, two missing-reference VP9 cases and Safari recording/WebCodecs results
-are in `docs/verification/video-shared-gpu-guest.json` (relative to repository
-root). Reims core's 2,304 tests and strict clippy pass, but its full Windows
-gate has unresolved toolchain/runtime failures. The Reims candidate remains
+are in `docs/verification/video-target-reuse.json` (relative to repository
+root); the earlier v1 evidence remains in `video-shared-gpu-guest.json`.
+Reims strict clippy passes, but its full Windows gate has 2,916 passes,
+14 unresolved failures and four skips. The Reims candidate remains
 on its isolated branch, not merged into the owner's checkout.
 
 `GpuFrameInterop.cpp` and the separate `NativeMacNvdecInteropProbe.exe` execute

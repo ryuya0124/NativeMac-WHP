@@ -1,6 +1,6 @@
-# Current checkpoint (2026-10-24, shared GPU guest decoding candidate)
+# Current checkpoint (2026-10-24, video target reuse and lost-wake repair)
 
-The standard VideoToolbox/Safari decoder now negotiates shared-gpu-v1.
+The standard VideoToolbox/Safari decoder now negotiates shared-gpu-v2.
 NVDEC -> CUDA -> shared device-local Vulkan buffer -> guest plane images and
 GPU DMA into coherent guest RAM avoids host CPU full-frame readback, LZ4
 and decoded-pixel network transfer. This is not VRAM-exclusive playback.
@@ -9,38 +9,52 @@ No live media or GPU workload travels through SSH or the M4. Maintenance and
 authored test media remain allowed. Do not recreate the deleted monitor.
 
 Keep the actual 12-GiB / 8-CPU / 4K60 allocation. Development defaults enable
-sharedGpuVideo and gpuExactHalfBlend. Reduce Transparency is enabled in the
-VM to avoid an unsupported blended framebuffer-fetch path during login.
-Half-blend mode alone did not fix that shader. Do not call this a shader fix.
+sharedGpuVideo and gpuExactHalfBlend. A structural fast-math product-blend
+framebuffer-fetch implementation replaces the earlier setting workaround.
+Float-output authored comparisons are 8/8 exact; half-output comparisons
+are 8/8 non-exact and retain explicit precision notes. Do not waive them.
 The private control file is per-launch and host-only; do not print its key.
-Fresh frame capabilities hold current GPU backing only until copy completion,
-disconnect or the twenty-second deadline. CoreVideo owns pool reuse (24 slots).
-Do not remove per-frame backing preparation: guest discard/paging invalidates
-old bindings. The metadata lives at offset 1024, beyond CoreVideo's own header.
+Fresh frame capabilities hold current GPU backing through copy completion.
+Parked targets can be reused only with validated fresh metadata, exact shape,
+current backing and their twenty-second deadline. Core discard/destruction
+invalidates targets before releasing pages. Expiry/discard falls back to
+materialization (a 22-second pause test takes that fallback and passes).
+CoreVideo alone owns buffer recycling (24 slots); no extra pixel-buffer holds.
+Metadata remains at offset 1024, beyond CoreVideo's own header.
 
 Five end-to-end cases (147 frames) match CPU and Metal-plane readbacks in the
 actual Intel VM. A 3,060-frame retained-buffer check and thirteen lifecycle
-cases pass. Two VP9 missing-reference starts explicitly drop one sample with
-its exact timestamp then decode 21 matching frames. Ordinarily launched Safari
-passes 49 distinct recorded/playback frames and 30 WebCodecs frames/two keys.
-YouTube observations: FHD 567 callbacks/30.142s; 4K 390/30.175s. Adaptive
-counter resets and ads make these observations, not controlled throughput
-benchmarks. Backing preparation and synchronization remain expensive. No new
-Geekbench result, 4K60 or all-application compatibility is claimed.
+cases pass. Barrier/end/cancel notifications now publish their predicate under
+the waiting mutex, fixing a lost wake that stalled successful calls for twenty
+seconds. A deterministic regression passes on Windows/MSVC and Intel/libc++.
+Twenty serial 120-frame runs (2,400 exact frames) each finish within 1.81 s.
+Interleaved v1/v2 trials with the wake repair in both reduce FHD elapsed time
+by 34% and short 4K elapsed time by 14% (overlapping ranges at 4K). This is
+serial decode plus CPU byte verification, not display fps. Ordinary Safari
+recording/WebCodecs and post-cold-boot decode checks pass. No new Geekbench,
+sustained 4K60 or all-application compatibility is claimed.
 
-Reims candidate c92cfb7 is isolated at
+Reims candidate 84fb809 is isolated at
 C:/Users/ryuya/.codex/build-cache/nativemac-reims-video-worktree; target is
 C:/Users/ryuya/.codex/build-cache/nativemac-reims-video-disk-target.
 Root patches/reims-shared-gpu-video.patch records its authored changes on
-1b9a256; existing patches/reims-msvc.patch is also required. Runtime remains
-Metal2Vulkan 90004070, with the local dependency override kept out of Git.
+1b9a256; existing patches/reims-msvc.patch is also required. Metal2Vulkan is
+79aafca on base 90004070, recorded by metal2vulkan-fetch-product.patch.
+SEMANTICS_VERSION is 1700. RUNTIME_VERSION remains 1183: the source-guard
+follow-up only corrects an inherited stale hash; all 383 runtime inputs are
+unchanged from base. Product commit 59d9ef3 and follow-up 79aafca are merged
+into owner development, never master. Local dependency overrides stay private.
 Owner backend checkouts and their earlier dirty changes are preserved.
-Core 2304/2304 and strict all-feature clippy pass. The full Windows xtask run
-was NOT green (2912 pass, 17 fail, 4 skip); two new-interface failures were
-fixed and targeted reruns pass. Remaining Windows harness/linker/nm, Vulkan
-all-device enumeration and shader/deallocator failures are not waived.
-Mac-only behaviour-lock suite not run. Candidate is not merged into the
-owner checkout. Aggregate evidence: docs/verification/video-shared-gpu-guest.json.
+Reims strict clippy passes. Full Windows xtask is NOT green: 2916 pass,
+14 fail, 4 skip. Nine shader-death failures reproduce in isolation; PE/nm,
+C harness linking and Vulkan enumeration also remain. Mac-only behaviour-lock
+suite not run. Reims candidate is not merged into its owner checkout.
+Metal2 macOS checks cover all 4567 core/AIR/runtime/devtools cases, all 1303
+validation cases (four ignored), doctests, docs with warnings denied, fmt,
+workspace/feature-matrix clippy and GPU-cfg clippy. The four resource-heavy
+compile census cases were resumed with two test threads; the sole initial
+validation failure was the audited inherited source-guard hash, now passing.
+Aggregate evidence: docs/verification/video-target-reuse.json and fetch-product.json.
 
 # Historical checkpoint (2026-10-24, direct transport and GPU sharing foundation)
 

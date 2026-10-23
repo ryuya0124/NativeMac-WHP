@@ -77,6 +77,7 @@ class Handler(socketserver.BaseRequestHandler):
         started=time.monotonic();frames=0;dropped_frames=0;raw_bytes=wire_bytes=0
         receive_seconds=compression_seconds=write_seconds=0.0
         gpu_prepare_seconds=gpu_copy_seconds=0.0
+        reused_targets=rebound_targets=0
         completed=False
         try:
             self.request.settimeout(20)
@@ -98,8 +99,9 @@ class Handler(socketserver.BaseRequestHandler):
             if compression not in (None,'lz4-raw'):raise ValueError('Unsupported transport compression')
             compress=lz4_compress if compression else None
             output=request.get('output')
-            if output not in (None,'shared-gpu-v1'):raise ValueError('Unsupported video output')
-            gpu_frames=not encode and output=='shared-gpu-v1' and self.server.gpu_worker is not None and self.server.gpu_control is not None
+            if output not in (None,'shared-gpu-v1','shared-gpu-v2'):raise ValueError('Unsupported video output')
+            gpu_frames=not encode and output in ('shared-gpu-v1','shared-gpu-v2') and self.server.gpu_worker is not None and self.server.gpu_control is not None
+            gpu_reuse=gpu_frames and output=='shared-gpu-v2'
             if gpu_frames:gpu_control=GpuControl(self.server.gpu_control)
             settings=None
             if encode:
@@ -111,8 +113,8 @@ class Handler(socketserver.BaseRequestHandler):
             decoder = Decoder(self.server.ffmpeg, request['codec'], request['width'],
                               request['height'], configuration,worker=self.server.encoder_worker if encode else self.server.gpu_worker if gpu_frames else self.server.worker,encoder=encode,encoder_settings=settings,gpu_index=self.server.gpu_index,gpu_frames=gpu_frames)
             print(json.dumps({'stage':'encode-start' if encode else 'decode-start','codec':request['codec'],'width':request['width'],'height':request['height'],
-                              'backend':'api' if self.server.worker else 'cli','output':'shared-gpu-v1' if gpu_frames else 'cpu-nv12'}),flush=True)
-            write_message(self.request, b'A'+decoder.configuration if encode else b'V' if gpu_frames else b'A')
+                              'backend':'api' if self.server.worker else 'cli','output':output if gpu_frames else 'cpu-nv12'}),flush=True)
+            write_message(self.request, b'A'+decoder.configuration if encode else b'W' if gpu_reuse else b'V' if gpu_frames else b'A')
             self.request.settimeout(300)
 
             # Read target-ready metadata independently of worker input
@@ -197,9 +199,23 @@ class Handler(socketserver.BaseRequestHandler):
                             if time.monotonic()>=deadline:raise TimeoutError('GPU target readiness deadline')
                     requested,actual=ready
                     if requested!=capability:raise ValueError('GPU target capability mismatch')
+                    if actual!=capability:
+                        if not gpu_reuse:raise ValueError('Legacy GPU target capability mismatch')
+                        if gpu_reuse and gpu_control.reuse(capability,actual):
+                            reused_targets+=1;actual=capability
+                        else:
+                            write_message(self.request,b'R'+capability);wire_bytes+=17
+                            rebound_targets+=1
+                            deadline=time.monotonic()+20
+                            while True:
+                                if client_closed.is_set() or decoder.closed.is_set():raise PeerClosed('Client closed during GPU rebind')
+                                try:requested,actual=target_ready.get(timeout=.1);break
+                                except queue.Empty:
+                                    if time.monotonic()>=deadline:raise TimeoutError('GPU target rebind deadline')
+                            if requested!=capability or actual!=capability:raise ValueError('GPU target rebind mismatch')
                     gpu_prepare_seconds+=time.monotonic()-preparing
                     copying=time.monotonic()
-                    gpu_control.copy(capability,actual,metadata['generation'])
+                    gpu_control.copy(capability,actual,metadata['generation'],park=gpu_reuse)
                     gpu_copy_seconds+=time.monotonic()-copying
                     write_message(self.request,b'S'+struct.pack('!q',metadata['pts'])+actual)
                     frames+=1;wire_bytes+=50;continue
@@ -243,6 +259,7 @@ class Handler(socketserver.BaseRequestHandler):
                                   'droppedFrames':dropped_frames,'decodedFrames':frames-dropped_frames,
                                   'receiveWaitSeconds':round(receive_seconds,4),'compressionSeconds':round(compression_seconds,4),
                                   'gpuTargetPrepareSeconds':round(gpu_prepare_seconds,4),'gpuTargetCopySeconds':round(gpu_copy_seconds,4),
+                                  'gpuReusedTargets':reused_targets,'gpuReboundTargets':rebound_targets,
                                   'socketWriteSeconds':round(write_seconds,4),'seconds':round(time.monotonic()-started,4)}),flush=True)
             try:
                 self.request.shutdown(socket.SHUT_RDWR)

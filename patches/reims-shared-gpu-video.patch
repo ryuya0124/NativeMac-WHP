@@ -632,10 +632,10 @@ index cd7d88b..218c366 100644
          }
  
 diff --git a/crates/reims-vgpu-core/src/platform.rs b/crates/reims-vgpu-core/src/platform.rs
-index 5addf2f..90e6013 100644
+index 5addf2f..aa1206f 100644
 --- a/crates/reims-vgpu-core/src/platform.rs
 +++ b/crates/reims-vgpu-core/src/platform.rs
-@@ -57,6 +57,19 @@ pub trait Handle: Send + Sync + 'static {
+@@ -57,6 +57,23 @@ pub trait Handle: Send + Sync + 'static {
  /// Associated types without a selector core sends to them (`Event`, `Fence`, `Function`, the two
  /// shared handles, the address-range array, the event listener) are bounded by `Handle` alone.
  pub trait Platform: Sized + Send + Sync + 'static {
@@ -652,11 +652,15 @@ index 5addf2f..90e6013 100644
 +    ) {
 +    }
 +
++    /// Forget an explicitly cached host target before its guest pages are
++    /// discarded or its backing is destroyed. Ordinary platforms do nothing.
++    fn surface_backing_discarded(&self, _buffer: &Self::Buffer) {}
++
      // Metal objects.
      /// `id<MTLDevice>`.
      type Device: device::GpuDevice<Self>;
 diff --git a/crates/reims-vgpu-core/src/resources/texture/backing.rs b/crates/reims-vgpu-core/src/resources/texture/backing.rs
-index dae22d2..9315160 100644
+index dae22d2..f649f2f 100644
 --- a/crates/reims-vgpu-core/src/resources/texture/backing.rs
 +++ b/crates/reims-vgpu-core/src/resources/texture/backing.rs
 @@ -110,6 +110,8 @@ impl BackingPlane {
@@ -693,7 +697,7 @@ index dae22d2..9315160 100644
          }
          let made = match self.task.upgrade() {
              Some(t) => Some(t.new_buffer_for_virtual_page(hold, self.page, self.length)?),
-@@ -282,9 +288,16 @@ impl<P: Platform> BackingResource<P> {
+@@ -282,9 +288,22 @@ impl<P: Platform> BackingResource<P> {
          if let Some(raced) = self.transfer_buffer.lock().replace(made) {
              keep_forever(raced, Kept::MetalNumbering);
          }
@@ -707,10 +711,38 @@ index dae22d2..9315160 100644
 +        }
 +    }
 +
++    fn forget_physical(&self, buffer: &P::Buffer) {
++        if let Some(platform) = crate::resources::resource::platform_for(&self.task) {
++            platform.surface_backing_discarded(buffer);
++        }
++    }
++
      /// The IOSurface.
      pub fn io_surface(&self) -> Option<P::Surface> {
          self.io_surface.as_ref().map(Handle::clone_ref)
-@@ -968,6 +981,12 @@ mod tests {
+@@ -438,6 +457,9 @@ impl<P: Platform> ResourceClass<P> for BackingResource<P> {
+         let _ = this;
+         // 63 on a backing only drops the guest pages.
+         let old = self.transfer_buffer.lock().take();
++        if let Some(buffer) = &old {
++            self.forget_physical(buffer);
++        }
+         drop(old);
+         Ok(())
+     }
+@@ -446,6 +468,11 @@ impl<P: Platform> ResourceClass<P> for BackingResource<P> {
+ impl<P: Platform> Drop for BackingResource<P> {
+     /// In order: the IOSurface, the guest pages, the textures, then the planes.
+     fn drop(&mut self) {
++        if let Some(buffer) = self.transfer_buffer.get_mut().as_ref()
++            && let Some(platform) = crate::resources::resource::platform_for(&self.task)
++        {
++            platform.surface_backing_discarded(buffer);
++        }
+         drop(self.io_surface.take());
+         drop(self.transfer_buffer.get_mut().take());
+         drop(std::mem::take(&mut self.textures));
+@@ -968,6 +995,12 @@ mod tests {
          assert!(!r.state.host_valid());
          // A backing whose task is gone.
          let lone = BackingResource::<P> {
@@ -997,7 +1029,7 @@ index f8296f5..a67df93 100644
  
      #[test]
 diff --git a/crates/reims-vgpu-vulkan/src/platform.rs b/crates/reims-vgpu-vulkan/src/platform.rs
-index 8c3c8bc..3641bf5 100644
+index 8c3c8bc..591ab63 100644
 --- a/crates/reims-vgpu-vulkan/src/platform.rs
 +++ b/crates/reims-vgpu-vulkan/src/platform.rs
 @@ -303,6 +303,15 @@ pub(crate) fn device_options() -> &'static rt::DeviceOptions {
@@ -1016,7 +1048,7 @@ index 8c3c8bc..3641bf5 100644
          options.metal_level = crate::os::METAL_LEVEL;
          options.gpu_times_from_host = true;
          options.policy = exact_policy(std::env::var("REIMS_VGPU_EXACT").ok().as_deref());
-@@ -423,6 +432,15 @@ pub(crate) fn default_device_registry_id() -> Option<u64> {
+@@ -423,6 +432,19 @@ pub(crate) fn default_device_registry_id() -> Option<u64> {
  }
  
  impl Platform for VulkanPlatform {
@@ -1029,10 +1061,14 @@ index 8c3c8bc..3641bf5 100644
 +        crate::video_targets::observe(buffer, textures, spec);
 +    }
 +
++    fn surface_backing_discarded(&self, buffer: &VulkanBuffer) {
++        crate::video_targets::forget_backing(buffer);
++    }
++
      type Device = VulkanDevice;
      type CommandQueue = VulkanCommandQueue;
      type CommandBuffer = VulkanCommandBuffer;
-@@ -527,11 +545,15 @@ impl Platform for VulkanPlatform {
+@@ -527,11 +549,15 @@ impl Platform for VulkanPlatform {
          crate::gpu::rate_map::new_descriptor(desc)
      }
  
@@ -1116,10 +1152,10 @@ index 782c3b5..2c9a024 100644
          assert_eq!(take(), [(alias, 2 * page, true)]);
 diff --git a/crates/reims-vgpu-vulkan/src/video_endpoint.rs b/crates/reims-vgpu-vulkan/src/video_endpoint.rs
 new file mode 100644
-index 0000000..8f8fd22
+index 0000000..d9ebfe3
 --- /dev/null
 +++ b/crates/reims-vgpu-vulkan/src/video_endpoint.rs
-@@ -0,0 +1,265 @@
+@@ -0,0 +1,286 @@
 +//! Bounded loopback control for host-issued video targets. This channel carries
 +//! capabilities, GPU-handle metadata and dimensions only, never pixels or audio. Authentication is
 +//! separate from the guest media channel; the host keeps its random key private.
@@ -1236,7 +1272,8 @@ index 0000000..8f8fd22
 +    #[cfg(target_os = "windows")]
 +    let mut source: Option<crate::video_sources::Source> = None;
 +    let mut reservations = Reservations(BTreeSet::new());
-+    // Every operation is one fixed 25-byte request. Unknown operations never
++    // Every operation starts with 25 bytes. Source import and target reuse have
++    // bounded suffixes of 80 and 16 bytes respectively. Unknown operations never
 +    // interpret capability bytes as an address, path, handle or executable.
 +    let started = crate::os::OsClock::new().now_mono();
 +    for _ in 0..3_000_000 {
@@ -1260,6 +1297,26 @@ index 0000000..8f8fd22
 +        exact(&mut stream, &mut request[1..], stop)?;
 +        let capability: [u8; 16] = request[1..17].try_into().map_err(std::io::Error::other)?;
 +        let answer = match request[0] {
++            b'P' if request[17..] == [0; 8] && reservations.0.contains(&capability) => {
++                if video_targets::park(capability) {
++                    0
++                } else {
++                    1
++                }
++            }
++            b'R' if request[17..] == [0; 8] => {
++                let mut previous = [0; 16];
++                exact(&mut stream, &mut previous, stop)?;
++                if reservations.0.contains(&capability)
++                    && reservations.0.contains(&previous)
++                    && video_targets::reuse(previous, capability)
++                {
++                    reservations.0.remove(&previous);
++                    0
++                } else {
++                    1
++                }
++            }
 +            #[cfg(target_os = "windows")]
 +            b'I' if request[17..] == [0; 8] && source.is_none() => {
 +                let mut producer = [0; 8];
@@ -1387,10 +1444,10 @@ index 0000000..8f8fd22
 +}
 diff --git a/crates/reims-vgpu-vulkan/src/video_sources.rs b/crates/reims-vgpu-vulkan/src/video_sources.rs
 new file mode 100644
-index 0000000..7f0930f
+index 0000000..c538114
 --- /dev/null
 +++ b/crates/reims-vgpu-vulkan/src/video_sources.rs
-@@ -0,0 +1,569 @@
+@@ -0,0 +1,586 @@
 +//! Windows GPU-frame imports for explicitly armed NV12 targets. The frame
 +//! remains in device-local memory until GPU blits reach the destination planes
 +//! and the guest's coherent backing. No CPU pixel mapping or network payload is
@@ -1812,7 +1869,7 @@ index 0000000..7f0930f
 +            // producer must time out without leaving the render queue stuck.
 +            check(unsafe { self.raw.wait_semaphores(&wait, 20_000_000_000) })?;
 +            self.in_flight = true;
-+            self.transfer_ownership(self.acquire, Some(generation), None)?;
++            self.transfer_ownership(self.acquire, Some(generation), None, false)?;
 +            let command = self.queue.command_buffer().map_err(|e| e.to_string())?;
 +            let mut blit = command.blit_command_encoder().map_err(|e| e.to_string())?;
 +            let source = self
@@ -1866,7 +1923,7 @@ index 0000000..7f0930f
 +            if command.status() != rt::CommandBufferStatus::Completed {
 +                return Err("video GPU target command failed".to_owned());
 +            }
-+            self.transfer_ownership(self.release, None, Some(generation))?;
++            self.transfer_ownership(self.release, None, Some(generation), true)?;
 +            self.in_flight = false;
 +            self.generation = generation;
 +            Ok(())
@@ -1879,6 +1936,7 @@ index 0000000..7f0930f
 +        command: vk::CommandBuffer,
 +        wait: Option<u64>,
 +        signal: Option<u64>,
++        completed: bool,
 +    ) -> Result<(), String> {
 +        let waits = if wait.is_some() {
 +            vec![self.ready]
@@ -1903,7 +1961,19 @@ index 0000000..7f0930f
 +            .command_buffers(&commands)
 +            .signal_semaphores(&signals)
 +            .push_next(&mut timeline);
-+        check(unsafe { self.raw.reset_fences(&[self.fence]) })?;
++        if completed {
++            check(unsafe { self.raw.reset_fences(&[self.fence]) })?;
++        }
++        // Acquisition is submitted synchronously onto this exact VkQueue before
++        // the runtime can submit the blit there. Queue order and the ownership
++        // barrier order its GPU use; no host fence wait is needed in between.
++        // The completed release below also covers this earlier acquisition, so
++        // its command buffer is not reused or freed while it is in flight.
++        let fence = if completed {
++            self.fence
++        } else {
++            vk::Fence::null()
++        };
 +        // SAFETY: the runtime lends its queue under its own submission lock;
 +        // this callback makes no runtime call or wait for a later submission.
 +        let submitted = unsafe {
@@ -1911,14 +1981,18 @@ index 0000000..7f0930f
 +                if family != self.family {
 +                    return Err("video queue family changed".to_owned());
 +                }
-+                check(self.raw.queue_submit(queue, &[info], self.fence))
++                check(self.raw.queue_submit(queue, &[info], fence))
 +            })
 +        };
 +        submitted?;
-+        check(unsafe {
-+            self.raw
-+                .wait_for_fences(&[self.fence], true, 20_000_000_000)
-+        })
++        if completed {
++            check(unsafe {
++                self.raw
++                    .wait_for_fences(&[self.fence], true, 20_000_000_000)
++            })
++        } else {
++            Ok(())
++        }
 +    }
 +}
 +
@@ -1962,10 +2036,10 @@ index 0000000..7f0930f
 +}
 diff --git a/crates/reims-vgpu-vulkan/src/video_targets.rs b/crates/reims-vgpu-vulkan/src/video_targets.rs
 new file mode 100644
-index 0000000..f406486
+index 0000000..0103291
 --- /dev/null
 +++ b/crates/reims-vgpu-vulkan/src/video_targets.rs
-@@ -0,0 +1,389 @@
+@@ -0,0 +1,509 @@
 +//! Explicit host-armed video targets over guest IOSurface backings.
 +//!
 +//! No guest texture ID is required. An authored codec owns a separate metadata
@@ -2019,6 +2093,7 @@ index 0000000..f406486
 +    height: u32,
 +    armed: MonoTime,
 +    target: Option<Target>,
++    parked: bool,
 +}
 +
 +struct Target {
@@ -2089,6 +2164,7 @@ index 0000000..f406486
 +            height,
 +            armed: crate::os::OsClock::new().now_mono(),
 +            target: None,
++            parked: false,
 +        },
 +    );
 +    ENABLED.store(true, Ordering::Release);
@@ -2099,6 +2175,108 @@ index 0000000..f406486
 +pub fn disarm(capability: Capability) {
 +    let removed = { TARGETS.lock().remove(&capability) };
 +    drop(removed);
++}
++
++/// Keep an explicitly completed target available for bounded pool reuse.
++pub(crate) fn park(capability: Capability) -> bool {
++    reap_expired();
++    let mut slots = TARGETS.lock();
++    let Some(slot) = slots.get_mut(&capability) else {
++        return false;
++    };
++    if slot.target.is_none() {
++        return false;
++    }
++    slot.parked = true;
++    true
++}
++
++/// Reuse only a still-current backing whose guest metadata names the fresh
++/// reservation. Core discard/destruction invalidates it before pages go away.
++pub(crate) fn reuse(previous: Capability, fresh: Capability) -> bool {
++    if previous == fresh {
++        return false;
++    }
++    reap_expired();
++    let buffer = {
++        let slots = TARGETS.lock();
++        let Some(old) = slots.get(&previous).filter(|s| s.parked) else {
++            return false;
++        };
++        let Some(target) = &old.target else {
++            return false;
++        };
++        target.buffer.clone_ref()
++    };
++    let Some(pointer) = buffer.raw.contents() else {
++        return false;
++    };
++    let mut header = [0u8; 64];
++    for (i, byte) in header.iter_mut().enumerate() {
++        // SAFETY: only previously validated, retained NV12 buffers reach here.
++        *byte = unsafe { pointer.as_ptr().add(METADATA_OFFSET + i).read_volatile() };
++    }
++    let mut slots = TARGETS.lock();
++    let Some(new) = slots.get(&fresh) else {
++        return false;
++    };
++    if new.target.is_some() || !fresh_header(&header, fresh, new.width, new.height) {
++        return false;
++    }
++    let Some(old) = slots
++        .get(&previous)
++        .filter(|s| s.parked && s.width == new.width && s.height == new.height)
++    else {
++        return false;
++    };
++    if old
++        .target
++        .as_ref()
++        .is_none_or(|t| t.buffer.id() != buffer.id())
++    {
++        return false;
++    }
++    let target = slots.get_mut(&previous).and_then(|s| s.target.take());
++    slots.remove(&previous);
++    if let Some(new) = slots.get_mut(&fresh) {
++        new.target = target;
++    }
++    true
++}
++
++fn fresh_header(header: &[u8; 64], cap: Capability, width: u32, height: u32) -> bool {
++    &header[..16] == MAGIC
++        && header[16..32] == cap
++        && header[32..36] == 1u32.to_le_bytes()
++        && header[36..40] == width.to_le_bytes()
++        && header[40..44] == height.to_le_bytes()
++        && header[44..48] == PIXEL_FORMAT.to_le_bytes()
++        && header[48..] == [0; 16]
++}
++
++/// Called before core drops a physical backing, never after its address may
++/// be reused. Release explicit holds outside the registry lock.
++pub(crate) fn forget_backing(buffer: &VulkanBuffer) {
++    if !ENABLED.load(Ordering::Acquire) {
++        return;
++    }
++    let mut dropped = Vec::new();
++    {
++        let mut slots = TARGETS.lock();
++        slots.retain(|_, slot| {
++            if slot
++                .target
++                .as_ref()
++                .is_some_and(|t| t.buffer.id() == buffer.id())
++            {
++                dropped.extend(slot.target.take());
++                !slot.parked
++            } else {
++                true
++            }
++        });
++    }
++    drop(dropped);
 +}
 +
 +/// A host query: 0 absent/expired, 1 awaiting binding, 2 bound to live objects.
@@ -2299,6 +2477,21 @@ index 0000000..f406486
 +    }
 +
 +    #[test]
++    fn reuse_requires_the_fresh_capability_and_exact_metadata() {
++        let (mut header, _, _) = fixture();
++        assert!(fresh_header(&header, [7; 16], 320, 180));
++        assert!(!fresh_header(&header, [8; 16], 320, 180));
++        assert!(!fresh_header(&header, [7; 16], 1920, 1080));
++        for byte in [0, 16, 32, 36, 40, 44, 48, 63] {
++            header[byte] ^= 1;
++            assert!(!fresh_header(&header, [7; 16], 320, 180));
++            header[byte] ^= 1;
++        }
++        assert!(!reuse([0; 16], [0; 16]));
++        assert!(!park([0; 16]));
++    }
++
++    #[test]
 +    fn wrong_header_dimensions_and_unknown_version_are_refused() {
 +        let (mut header, spec, length) = fixture();
 +        header[36..40].copy_from_slice(&318u32.to_le_bytes());
@@ -2344,6 +2537,7 @@ index 0000000..f406486
 +                height: 180,
 +                armed: start,
 +                target: None,
++                parked: false,
 +            },
 +        );
 +        assert!(take_expired(&mut slots, start.saturating_add(Duration::from_secs(19))).is_empty());

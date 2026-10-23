@@ -1,0 +1,308 @@
+{
+  "source": "native/MetalProbe/FetchProductProbe.m",
+  "comparison": "scripts/Compare-MetalReadback.py",
+  "referenceDevice": "Apple M4",
+  "candidateDevice": "NVIDIA GeForce RTX 5080",
+  "cases": [
+    {
+      "format": 25,
+      "function": "product_half",
+      "mask": 15,
+      "comparedBytes": 32,
+      "exact": false,
+      "mismatches": [
+        {
+          "lane": 4,
+          "referenceHalfBits": 1864,
+          "candidateHalfBits": 1863
+        },
+        {
+          "lane": 7,
+          "referenceHalfBits": 136,
+          "candidateHalfBits": 134
+        }
+      ]
+    },
+    {
+      "format": 25,
+      "function": "product_half",
+      "mask": 8,
+      "comparedBytes": 32,
+      "exact": false,
+      "mismatches": [
+        {
+          "lane": 4,
+          "referenceHalfBits": 1864,
+          "candidateHalfBits": 1863
+        },
+        {
+          "lane": 7,
+          "referenceHalfBits": 136,
+          "candidateHalfBits": 134
+        }
+      ]
+    },
+    {
+      "format": 25,
+      "function": "product_float",
+      "mask": 15,
+      "comparedBytes": 32,
+      "exact": true,
+      "mismatches": []
+    },
+    {
+      "format": 25,
+      "function": "product_float",
+      "mask": 8,
+      "comparedBytes": 32,
+      "exact": true,
+      "mismatches": []
+    },
+    {
+      "format": 65,
+      "function": "product_half",
+      "mask": 15,
+      "comparedBytes": 64,
+      "exact": false,
+      "mismatches": [
+        {
+          "lane": 1,
+          "referenceHalfBits": 5145,
+          "candidateHalfBits": 5144
+        },
+        {
+          "lane": 7,
+          "referenceHalfBits": 15132,
+          "candidateHalfBits": 15131
+        },
+        {
+          "lane": 8,
+          "referenceHalfBits": 1864,
+          "candidateHalfBits": 1863
+        },
+        {
+          "lane": 13,
+          "referenceHalfBits": 17,
+          "candidateHalfBits": 16
+        },
+        {
+          "lane": 14,
+          "referenceHalfBits": 136,
+          "candidateHalfBits": 134
+        },
+        {
+          "lane": 27,
+          "referenceHalfBits": 13656,
+          "candidateHalfBits": 13655
+        }
+      ]
+    },
+    {
+      "format": 65,
+      "function": "product_half",
+      "mask": 8,
+      "comparedBytes": 64,
+      "exact": false,
+      "mismatches": [
+        {
+          "lane": 8,
+          "referenceHalfBits": 1864,
+          "candidateHalfBits": 1863
+        },
+        {
+          "lane": 14,
+          "referenceHalfBits": 136,
+          "candidateHalfBits": 134
+        }
+      ]
+    },
+    {
+      "format": 65,
+      "function": "product_float",
+      "mask": 15,
+      "comparedBytes": 64,
+      "exact": true,
+      "mismatches": []
+    },
+    {
+      "format": 65,
+      "function": "product_float",
+      "mask": 8,
+      "comparedBytes": 64,
+      "exact": true,
+      "mismatches": []
+    },
+    {
+      "format": 65,
+      "function": "product_half2",
+      "mask": 15,
+      "comparedBytes": 64,
+      "exact": false,
+      "mismatches": [
+        {
+          "lane": 1,
+          "referenceHalfBits": 5145,
+          "candidateHalfBits": 5144
+        },
+        {
+          "lane": 7,
+          "referenceHalfBits": 15132,
+          "candidateHalfBits": 15131
+        },
+        {
+          "lane": 8,
+          "referenceHalfBits": 1864,
+          "candidateHalfBits": 1863
+        },
+        {
+          "lane": 13,
+          "referenceHalfBits": 17,
+          "candidateHalfBits": 16
+        },
+        {
+          "lane": 14,
+          "referenceHalfBits": 136,
+          "candidateHalfBits": 134
+        },
+        {
+          "lane": 27,
+          "referenceHalfBits": 13656,
+          "candidateHalfBits": 13655
+        }
+      ]
+    },
+    {
+      "format": 65,
+      "function": "product_half2",
+      "mask": 8,
+      "comparedBytes": 64,
+      "exact": false,
+      "mismatches": [
+        {
+          "lane": 8,
+          "referenceHalfBits": 1864,
+          "candidateHalfBits": 1863
+        },
+        {
+          "lane": 14,
+          "referenceHalfBits": 136,
+          "candidateHalfBits": 134
+        }
+      ]
+    },
+    {
+      "format": 65,
+      "function": "product_float2",
+      "mask": 15,
+      "comparedBytes": 64,
+      "exact": true,
+      "mismatches": []
+    },
+    {
+      "format": 65,
+      "function": "product_float2",
+      "mask": 8,
+      "comparedBytes": 64,
+      "exact": true,
+      "mismatches": []
+    },
+    {
+      "format": 115,
+      "function": "product_half",
+      "mask": 15,
+      "comparedBytes": 128,
+      "exact": false,
+      "mismatches": [
+        {
+          "lane": 1,
+          "referenceHalfBits": 5145,
+          "candidateHalfBits": 5144
+        },
+        {
+          "lane": 7,
+          "referenceHalfBits": 13312,
+          "candidateHalfBits": 13311
+        },
+        {
+          "lane": 13,
+          "referenceHalfBits": 15132,
+          "candidateHalfBits": 15131
+        },
+        {
+          "lane": 16,
+          "referenceHalfBits": 1864,
+          "candidateHalfBits": 1863
+        },
+        {
+          "lane": 19,
+          "referenceHalfBits": 4646,
+          "candidateHalfBits": 4645
+        },
+        {
+          "lane": 25,
+          "referenceHalfBits": 17,
+          "candidateHalfBits": 16
+        },
+        {
+          "lane": 27,
+          "referenceHalfBits": 1,
+          "candidateHalfBits": 0
+        },
+        {
+          "lane": 28,
+          "referenceHalfBits": 136,
+          "candidateHalfBits": 134
+        },
+        {
+          "lane": 47,
+          "referenceHalfBits": 14850,
+          "candidateHalfBits": 14849
+        },
+        {
+          "lane": 53,
+          "referenceHalfBits": 13656,
+          "candidateHalfBits": 13655
+        }
+      ]
+    },
+    {
+      "format": 115,
+      "function": "product_half",
+      "mask": 8,
+      "comparedBytes": 128,
+      "exact": false,
+      "mismatches": [
+        {
+          "lane": 16,
+          "referenceHalfBits": 1864,
+          "candidateHalfBits": 1863
+        },
+        {
+          "lane": 28,
+          "referenceHalfBits": 136,
+          "candidateHalfBits": 134
+        }
+      ]
+    },
+    {
+      "format": 115,
+      "function": "product_float",
+      "mask": 15,
+      "comparedBytes": 128,
+      "exact": true,
+      "mismatches": []
+    },
+    {
+      "format": 115,
+      "function": "product_float",
+      "mask": 8,
+      "comparedBytes": 128,
+      "exact": true,
+      "mismatches": []
+    }
+  ],
+  "exactCases": 8,
+  "totalCases": 16,
+  "byteExactQualification": false,
+  "qualification": "Float outputs: 8/8 exact. Half outputs: 8/8 recorded mismatches, not passed or waived. Fast half-source regrouping and device conversion notes remain visible; normal differences reach one half code and subnormal differences reach two codes in this authored fixture. No general exactness bound is claimed for half-source expressions."
+}
