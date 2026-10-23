@@ -1,4 +1,48 @@
-# Current checkpoint (2026-10-24, direct transport and GPU sharing foundation)
+# Current checkpoint (2026-10-24, shared GPU guest decoding candidate)
+
+The standard VideoToolbox/Safari decoder now negotiates shared-gpu-v1.
+NVDEC -> CUDA -> shared device-local Vulkan buffer -> guest plane images and
+GPU DMA into coherent guest RAM avoids host CPU full-frame readback, LZ4
+and decoded-pixel network transfer. This is not VRAM-exclusive playback.
+NVENC raw input and PCM audio still use CPU buffers and direct pinned TLS.
+No live media or GPU workload travels through SSH or the M4. Maintenance and
+authored test media remain allowed. Do not recreate the deleted monitor.
+
+Keep the actual 12-GiB / 8-CPU / 4K60 allocation. Development defaults enable
+sharedGpuVideo and gpuExactHalfBlend. Reduce Transparency is enabled in the
+VM to avoid an unsupported blended framebuffer-fetch path during login.
+Half-blend mode alone did not fix that shader. Do not call this a shader fix.
+The private control file is per-launch and host-only; do not print its key.
+Fresh frame capabilities hold current GPU backing only until copy completion,
+disconnect or the twenty-second deadline. CoreVideo owns pool reuse (24 slots).
+Do not remove per-frame backing preparation: guest discard/paging invalidates
+old bindings. The metadata lives at offset 1024, beyond CoreVideo's own header.
+
+Five end-to-end cases (147 frames) match CPU and Metal-plane readbacks in the
+actual Intel VM. A 3,060-frame retained-buffer check and thirteen lifecycle
+cases pass. Two VP9 missing-reference starts explicitly drop one sample with
+its exact timestamp then decode 21 matching frames. Ordinarily launched Safari
+passes 49 distinct recorded/playback frames and 30 WebCodecs frames/two keys.
+YouTube observations: FHD 567 callbacks/30.142s; 4K 390/30.175s. Adaptive
+counter resets and ads make these observations, not controlled throughput
+benchmarks. Backing preparation and synchronization remain expensive. No new
+Geekbench result, 4K60 or all-application compatibility is claimed.
+
+Reims candidate c92cfb7 is isolated at
+C:/Users/ryuya/.codex/build-cache/nativemac-reims-video-worktree; target is
+C:/Users/ryuya/.codex/build-cache/nativemac-reims-video-disk-target.
+Root patches/reims-shared-gpu-video.patch records its authored changes on
+1b9a256; existing patches/reims-msvc.patch is also required. Runtime remains
+Metal2Vulkan 90004070, with the local dependency override kept out of Git.
+Owner backend checkouts and their earlier dirty changes are preserved.
+Core 2304/2304 and strict all-feature clippy pass. The full Windows xtask run
+was NOT green (2912 pass, 17 fail, 4 skip); two new-interface failures were
+fixed and targeted reruns pass. Remaining Windows harness/linker/nm, Vulkan
+all-device enumeration and shader/deallocator failures are not waived.
+Mac-only behaviour-lock suite not run. Candidate is not merged into the
+owner checkout. Aggregate evidence: docs/verification/video-shared-gpu-guest.json.
+
+# Historical checkpoint (2026-10-24, direct transport and GPU sharing foundation)
 
 The production codec/audio service now uses direct certificate-pinned TLS,
 never SSH media or an SSH fallback. SSH is authorized only for maintenance

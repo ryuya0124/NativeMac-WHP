@@ -1,0 +1,319 @@
+{
+  "measuredAt": "2026-10-24",
+  "scope": "Experimental Windows-to-Intel-guest shared GPU decoding; includes ordinary Safari playback; not VRAM-exclusive or a sustained 4K60 qualification",
+  "host": {
+    "renderer": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42"
+  },
+  "vm": {
+    "memoryGiB": 12,
+    "processors": 8,
+    "displayPixels": [
+      3840,
+      2160
+    ],
+    "displayRefreshHz": 60,
+    "reduceTransparency": true,
+    "exactHalfBlend": true
+  },
+  "path": {
+    "decode": "NVDEC -> CUDA D2D -> exported device-local Vulkan buffer -> same-device runtime plane images and GPU DMA into coherent guest RAM -> IOSurface/CVPixelBuffer",
+    "decodedPixelNetworkBytes": 0,
+    "hostCpuFullFrameReadback": false,
+    "decodedFrameCompression": false,
+    "vramExclusive": false,
+    "control": "authenticated host-only loopback metadata and per-frame capabilities",
+    "media": "direct pinned TLS for compressed packets and small frame metadata; no SSH live media",
+    "encode": "NVENC; raw encoder input still CPU/TLS",
+    "audio": "PCM direct TLS and CPU/WinMM"
+  },
+  "pixelQualification": [
+    {
+      "passed": true,
+      "case": "vp9-hidden-key-fixture",
+      "width": 320,
+      "height": 180,
+      "frames": 20,
+      "cpuMismatchingBytes": 0,
+      "gpuMismatchingBytes": 0,
+      "metadataIntact": true,
+      "timestampsMatch": true,
+      "decodedPixelBytesOverNetwork": 0,
+      "decodedPixelBytesThroughCpuOnHost": 0,
+      "workerMetadataBytes": 413,
+      "guestBackingUpdatedByGpuDma": true,
+      "guestMetalPlaneReadbackVerified": true,
+      "safariIntegrated": false,
+      "secondsIncludingVerification": 1.25
+    },
+    {
+      "passed": true,
+      "case": "vp9-redisplay-reference",
+      "width": 320,
+      "height": 180,
+      "frames": 21,
+      "cpuMismatchingBytes": 0,
+      "gpuMismatchingBytes": 0,
+      "metadataIntact": true,
+      "timestampsMatch": true,
+      "decodedPixelBytesOverNetwork": 0,
+      "decodedPixelBytesThroughCpuOnHost": 0,
+      "workerMetadataBytes": 430,
+      "guestBackingUpdatedByGpuDma": true,
+      "guestMetalPlaneReadbackVerified": true,
+      "safariIntegrated": false,
+      "secondsIncludingVerification": 1.344
+    },
+    {
+      "passed": true,
+      "case": "video-direct-fhd",
+      "width": 1920,
+      "height": 1080,
+      "frames": 12,
+      "cpuMismatchingBytes": 0,
+      "gpuMismatchingBytes": 0,
+      "metadataIntact": true,
+      "timestampsMatch": true,
+      "decodedPixelBytesOverNetwork": 0,
+      "decodedPixelBytesThroughCpuOnHost": 0,
+      "workerMetadataBytes": 277,
+      "guestBackingUpdatedByGpuDma": true,
+      "guestMetalPlaneReadbackVerified": true,
+      "safariIntegrated": false,
+      "secondsIncludingVerification": 1.125
+    },
+    {
+      "passed": true,
+      "case": "video-direct-4k-b0",
+      "width": 3840,
+      "height": 2160,
+      "frames": 4,
+      "cpuMismatchingBytes": 0,
+      "gpuMismatchingBytes": 0,
+      "metadataIntact": true,
+      "timestampsMatch": true,
+      "decodedPixelBytesOverNetwork": 0,
+      "decodedPixelBytesThroughCpuOnHost": 0,
+      "workerMetadataBytes": 141,
+      "guestBackingUpdatedByGpuDma": true,
+      "guestMetalPlaneReadbackVerified": true,
+      "safariIntegrated": false,
+      "secondsIncludingVerification": 1.11
+    },
+    {
+      "passed": true,
+      "case": "video-direct-hevc",
+      "width": 320,
+      "height": 180,
+      "frames": 90,
+      "cpuMismatchingBytes": 0,
+      "gpuMismatchingBytes": 0,
+      "metadataIntact": true,
+      "timestampsMatch": true,
+      "decodedPixelBytesOverNetwork": 0,
+      "decodedPixelBytesThroughCpuOnHost": 0,
+      "workerMetadataBytes": 1603,
+      "guestBackingUpdatedByGpuDma": true,
+      "guestMetalPlaneReadbackVerified": true,
+      "safariIntegrated": false,
+      "secondsIncludingVerification": 2.735
+    }
+  ],
+  "retainedBufferQualification": {
+    "callbackErrors": 0,
+    "cancelledEarly": false,
+    "comparedBytes": 264384000,
+    "componentDiscovery": false,
+    "createStatus": 0,
+    "decodedFrames": 3060,
+    "drainStatus": 0,
+    "droppedFrames": 0,
+    "droppedTimestampsMatchExpected": true,
+    "hardwareProperty": true,
+    "hardwarePropertyStatus": 0,
+    "height": 180,
+    "midstreamDrain": false,
+    "mismatchingBytes": 0,
+    "ordinaryAppIntegration": false,
+    "passed": true,
+    "registrationStatus": 0,
+    "retainedFrameChecks": 3060,
+    "roundTripMedianMs": null,
+    "serialRoundTrip": false,
+    "submitStatus": 0,
+    "submitted": 3060,
+    "temporalProcessingRequested": true,
+    "timestampsMatchOriginalSamples": true,
+    "waitStatus": 0,
+    "width": 320
+  },
+  "lifecycleQualification": {
+    "cases": 13,
+    "allPassed": true,
+    "activeCancellationCases": 5,
+    "allActiveCasesProducedRealFrame": true
+  },
+  "initialVp9ReferenceRecovery": [
+    {
+      "callbackErrors": 0,
+      "cancelledEarly": false,
+      "comparedBytes": 1814400,
+      "componentDiscovery": false,
+      "createStatus": 0,
+      "decodedFrames": 21,
+      "drainStatus": 0,
+      "droppedFrames": 1,
+      "droppedTimestampsMatchExpected": true,
+      "hardwareProperty": true,
+      "hardwarePropertyStatus": 0,
+      "height": 180,
+      "midstreamDrain": false,
+      "mismatchingBytes": 0,
+      "ordinaryAppIntegration": false,
+      "passed": true,
+      "registrationStatus": 0,
+      "retainedFrameChecks": 0,
+      "roundTripMedianMs": null,
+      "serialRoundTrip": false,
+      "submitStatus": 0,
+      "submitted": 22,
+      "temporalProcessingRequested": true,
+      "timestampsMatchOriginalSamples": true,
+      "waitStatus": 0,
+      "width": 320
+    },
+    {
+      "callbackErrors": 0,
+      "cancelledEarly": false,
+      "comparedBytes": 1814400,
+      "componentDiscovery": false,
+      "createStatus": 0,
+      "decodedFrames": 21,
+      "drainStatus": 0,
+      "droppedFrames": 1,
+      "droppedTimestampsMatchExpected": true,
+      "hardwareProperty": true,
+      "hardwarePropertyStatus": 0,
+      "height": 180,
+      "midstreamDrain": false,
+      "mismatchingBytes": 0,
+      "ordinaryAppIntegration": false,
+      "passed": true,
+      "registrationStatus": 0,
+      "retainedFrameChecks": 0,
+      "roundTripMedianMs": null,
+      "serialRoundTrip": false,
+      "submitStatus": 0,
+      "submitted": 22,
+      "temporalProcessingRequested": true,
+      "timestampsMatchOriginalSamples": true,
+      "waitStatus": 0,
+      "width": 320
+    }
+  ],
+  "ordinarySafariAuthoredProbe": {
+    "complete": true,
+    "passed": true,
+    "mediaRecorder": {
+      "bytes": 48350,
+      "decodedFrames": 49,
+      "distinctPixelHashes": 49,
+      "passed": true
+    },
+    "webCodecs": {
+      "frames": 30,
+      "keyframes": 2,
+      "bytes": 17471,
+      "descriptionBytes": 48,
+      "passed": true
+    }
+  },
+  "youtubePresentationObservations": [
+    {
+      "wallSeconds": 30.142,
+      "presentedCallbacks": 567,
+      "totalFrames": 598,
+      "droppedFrames": 1,
+      "counterResets": 2,
+      "elementReplacements": 1,
+      "displayNotificationRate": 18.81,
+      "dimensionsSeen": [
+        "1920x1080"
+      ],
+      "allSampledVideoErrorsNull": true,
+      "strictPlaybackBenchmark": false
+    },
+    {
+      "wallSeconds": 30.175,
+      "presentedCallbacks": 390,
+      "totalFrames": 424,
+      "droppedFrames": 0,
+      "counterResets": 1,
+      "elementReplacements": 1,
+      "displayNotificationRate": 12.92,
+      "dimensionsSeen": [
+        "3840x2160"
+      ],
+      "allSampledVideoErrorsNull": true,
+      "strictPlaybackBenchmark": false
+    }
+  ],
+  "backendChecks": {
+    "sourceRevision": "c92cfb7",
+    "runtimeRevision": "90004070fabb5678de958a25e7f2aac6acda2b74",
+    "coreTests": {
+      "passed": 2304,
+      "failed": 0
+    },
+    "clippyAllFeaturesWarningsDenied": true,
+    "formatCheck": true,
+    "focusedCapiBoundaryAndCoverage": "passed after correcting release-wrapper shape and extending the C harness to all 43 exports",
+    "fullXtaskCheck": {
+      "passed": false,
+      "testsPassed": 2912,
+      "testsFailed": 17,
+      "testsSkipped": 4,
+      "subsequentFixes": "two added-interface failures fixed and targeted reruns passed; remaining full-gate failures are not waived",
+      "examples": "Windows C harness toolchain/linker and nm handling; device enumeration Vulkan -13; existing GPU shader/deallocation cases",
+      "notMergedIntoOwnerCheckout": true
+    },
+    "macBehaviourLockSuite": "not run: requires macOS arm64 Objective-C/Metal runner; no claim of whole-library qualification"
+  },
+  "limits": [
+    "YouTube display notifications were about 19/s at FHD and 13/s at 4K, with adaptive counter resets; not a controlled throughput comparison.",
+    "Per-frame guest backing preparation and synchronization remain expensive.",
+    "Reduce Transparency avoids an observed unsupported blended framebuffer-fetch path; this is a VM setting workaround, not a general shader fix.",
+    "Standard NVENC encoding still receives CPU NV12 input; no all-GPU encode claim.",
+    "API/auth failures, disconnect, expiry, queue bounds and failed in-flight imports refuse work; no software codec fallback."
+  ],
+  "sourceSHA256": {
+    "patches/reims-shared-gpu-video.patch": "6c510bc2ca9e1b2f69f51d4e3f77e58eead11a257cfa039da7bff0a1b1cd336a",
+    "native/VideoBridge/GpuFrameInterop.cpp": "bd4b88ca31e4ea62c5efc905f73b0f729c3061f4e47b4fd23caf228fde0792d7",
+    "native/VideoBridge/NvdecWorker.cpp": "a70a3f681fb7f8bdda7ef4687dd4d486907b546fcd81dade6e0ca0b93e362a58",
+    "native/VideoBridge/GpuVideoTarget.h": "4511b7f24855fa26dd544574ed2940088bd44a8ab5134b4a3eb04fb58ae2e4df",
+    "native/VideoBridge/VTDecoder.mm": "6864c484e8ac727a3b26bca75ee8486eaecbc414a2e679264c7a304e1709ec2c"
+  },
+  "persistentVmColdBoot": {
+    "defaultLauncher": true,
+    "ephemeralDisk": false,
+    "guestEntrySHA256": "9d9430ea977314f42e533e9ea247dd27145f54baec5673e25f69201877a865b0",
+    "guestEntrySignatureVerified": true,
+    "reduceTransparencyPersisted": true,
+    "currentBootFatalCount": 0,
+    "currentBootGpuHangCount": 0,
+    "monitorAutomationRecreated": false,
+    "legacyUnusedMediaSshForwardRemoved": true,
+    "youtubeObservation": {
+      "wallSeconds": 30.196000000000016,
+      "presentedCallbacks": 313,
+      "totalFrames": 380,
+      "droppedFrames": 0,
+      "counterResets": 2,
+      "dimensionsSeen": [
+        "1920x1080",
+        "2560x1440"
+      ],
+      "strictPlaybackBenchmark": false
+    }
+  }
+}

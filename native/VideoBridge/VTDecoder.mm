@@ -19,6 +19,7 @@
 #include "VideoTransport.h"
 #include <compression.h>
 #include <chrono>
+#include "GpuVideoTarget.h"
 
 static constexpr OSStatus failed = -12909;
 static constexpr int64_t timestampBias = 1000000000000000LL;
@@ -36,7 +37,11 @@ struct State {
     std::atomic<unsigned> emitted{0},errors{0},barriers{0};
     uint64_t readNs=0,unpackNs=0,pixelNs=0,emitNs=0;
     size_t pendingCount=0;
-    ~State(){if(writer>=0&&writer!=fd)close(writer);if(fd>=0)close(fd);}
+    bool gpuFrames=false;
+    CVPixelBufferRef gpuPixel=nullptr;
+    std::unique_ptr<NativeMacGpuVideoPool> gpuPool;
+    std::array<uint8_t,24> gpuFrame{};
+    ~State(){if(gpuPixel)CFRelease(gpuPixel);if(writer>=0&&writer!=fd)close(writer);if(fd>=0)close(fd);}
 };
 using StateHandle=std::shared_ptr<State>;
 static StateHandle &handle(CMBaseObjectRef object){return *static_cast<StateHandle*>(CMBaseObjectGetDerivedStorage(object));}
@@ -59,6 +64,7 @@ static bool readMessage(State *s,std::vector<uint8_t> &body,size_t limit){
 static void failPending(State *s, bool cancelled=false){
     std::map<int64_t,std::deque<State::Frame>> pending;
     {std::lock_guard lock(s->pendingMutex);pending.swap(s->pending);s->pendingCount=0;}
+    s->drained.notify_all();
     for(auto &[pts,frames]:pending){(void)pts;for(auto frame:frames){
         VTDecoderSessionEmitDecodedFrame(s->session,frame.token,cancelled?0:failed,kVTDecodeInfo_FrameDropped,nullptr);
         if(!cancelled)s->errors++;
@@ -82,6 +88,23 @@ static void receiveFrames(StateHandle owner){@autoreleasepool{
         if(body[0]=='E'&&body.size()==5){
             uint32_t count;memcpy(&count,body.data()+1,4);complete=ntohl(count)==received;break;
         }
+        if(s->gpuFrames&&body[0]=='T'&&body.size()==25){
+            if(s->gpuPixel){s->errors++;break;}
+            auto pixelStart=std::chrono::steady_clock::now();
+            if(!s->gpuPool)s->gpuPool=std::make_unique<NativeMacGpuVideoPool>(s->width,s->height);
+            std::array<uint8_t,16> actual{};
+            s->gpuPixel=s->gpuPool->acquire(body.data()+9,actual.data(),s->stopped);
+            s->pixelNs+=elapsed(pixelStart);
+            if(!s->gpuPixel){s->errors++;break;}
+            memcpy(s->gpuFrame.data(),body.data()+1,24);
+            memcpy(s->gpuFrame.data()+8,actual.data(),16);
+            std::vector<uint8_t> prepared(33);prepared[0]='T';memcpy(prepared.data()+1,body.data()+9,16);memcpy(prepared.data()+17,actual.data(),16);
+            std::lock_guard guard(s->writeMutex);if(!writeMessage(s,prepared))break;
+            continue;
+        }
+        bool dropped=body[0]=='K'&&body.size()==9;
+        bool gpu=s->gpuFrames&&body[0]=='S'&&body.size()==25&&s->gpuPixel&&memcmp(body.data()+1,s->gpuFrame.data(),24)==0;
+        if(gpu&&!NativeMacPublishGpuVideoTarget(s->gpuPixel)){s->errors++;break;}
         size_t pixels=s->width*s->height*3/2;
         if(body[0]=='L'&&body.size()>9){
             auto unpackStart=std::chrono::steady_clock::now();
@@ -91,7 +114,7 @@ static void receiveFrames(StateHandle owner){@autoreleasepool{
             body=std::move(raw);
             s->unpackNs+=elapsed(unpackStart);
         }
-        if(body[0]!='R'||body.size()!=pixels+9){s->errors++;break;}
+        if(!gpu&&!dropped&&(s->gpuFrames||body[0]!='R'||body.size()!=pixels+9)){s->errors++;break;}
         std::unique_lock lock(s->pendingMutex);
         s->drained.wait(lock,[&]{return s->output.size()<4||s->stopped;});
         if(s->stopped)break;
@@ -100,9 +123,9 @@ static void receiveFrames(StateHandle owner){@autoreleasepool{
         lock.unlock();
         emitReady(s);
     }
-    if(!complete&&!s->stopped)s->errors++;
-    os_log(OS_LOG_DEFAULT,"NativeMac video timings frames=%u read_ms=%llu unpack_ms=%llu pixel_ms=%llu emit_ms=%llu",s->emitted.load(),(unsigned long long)(s->readNs/1000000),(unsigned long long)(s->unpackNs/1000000),(unsigned long long)(s->pixelNs/1000000),(unsigned long long)(s->emitNs/1000000));
     s->ended=true;s->drained.notify_all();
+    if(!complete&&!s->stopped){s->errors++;failPending(s);}
+    os_log(OS_LOG_DEFAULT,"NativeMac video timings frames=%u read_ms=%llu unpack_ms=%llu pixel_ms=%llu emit_ms=%llu",s->emitted.load(),(unsigned long long)(s->readNs/1000000),(unsigned long long)(s->unpackNs/1000000),(unsigned long long)(s->pixelNs/1000000),(unsigned long long)(s->emitNs/1000000));
 }}
 // The single receiver owns output emission. Decode reports asynchronous work;
 // output does not depend on a later API call arriving to pump the queue.
@@ -116,6 +139,8 @@ static void emitReady(State *s){
         s->drained.notify_all();
         uint64_t wire;memcpy(&wire,body.data()+1,8);
         int64_t pts=static_cast<int64_t>(OSSwapBigToHostInt64(wire));
+        CVPixelBufferRef gpuPixel=nullptr;
+        if(body[0]=='S'){gpuPixel=s->gpuPixel;s->gpuPixel=nullptr;}
         VTVideoDecoderFrame frame=nullptr;
         bool suppress=false;
         int64_t firstPending=0,lastPending=0;
@@ -128,15 +153,16 @@ static void emitReady(State *s){
             }
             if(!frame&&!s->pending.empty()){firstPending=s->pending.begin()->first;lastPending=s->pending.rbegin()->first;}
         }
-        if(!frame){os_log_error(OS_LOG_DEFAULT,"NativeMac video output has no matching frame pts=%lld first=%lld last=%lld",(long long)pts,(long long)firstPending,(long long)lastPending);s->errors++;continue;}
-        if(suppress){
+        if(!frame){if(gpuPixel)CFRelease(gpuPixel);os_log_error(OS_LOG_DEFAULT,"NativeMac video output has no matching frame pts=%lld first=%lld last=%lld",(long long)pts,(long long)firstPending,(long long)lastPending);s->errors++;continue;}
+        if(suppress||body[0]=='K'){
+            if(gpuPixel)CFRelease(gpuPixel);
             if(VTDecoderSessionEmitDecodedFrame(s->session,frame,0,kVTDecodeInfo_FrameDropped,nullptr))s->errors++;
             s->drained.notify_all();continue;
         }
-        CVPixelBufferRef pixel=nullptr;
+        CVPixelBufferRef pixel=gpuPixel;
         auto pixelStart=std::chrono::steady_clock::now();
-        OSStatus status=CVPixelBufferPoolCreatePixelBuffer(nullptr,VTDecoderSessionGetPixelBufferPool(s->session),&pixel);
-        if(!status){
+        OSStatus status=gpuPixel?0:CVPixelBufferPoolCreatePixelBuffer(nullptr,VTDecoderSessionGetPixelBufferPool(s->session),&pixel);
+        if(!status&&!gpuPixel){
             status=CVPixelBufferLockBaseAddress(pixel,0);
             if(!status){
                 const uint8_t *source=body.data()+9;
@@ -216,7 +242,7 @@ static OSStatus start(VTVideoDecoderRef object,VTVideoDecoderSession session,CMV
     setsockopt(s->fd,IPPROTO_TCP,TCP_NODELAY,&yes,sizeof(yes));
     timeval deadline{20,0};setsockopt(s->fd,SOL_SOCKET,SO_SNDTIMEO,&deadline,sizeof(deadline));
     setsockopt(s->fd,SOL_SOCKET,SO_RCVTIMEO,&deadline,sizeof(deadline));
-    NSDictionary *hello=@{@"version":@1,@"codec":codecName,@"width":@(s->width),@"height":@(s->height),@"configuration":[config base64EncodedStringWithOptions:0],@"compression":@"lz4-raw"};
+    NSDictionary *hello=@{@"version":@1,@"codec":codecName,@"width":@(s->width),@"height":@(s->height),@"configuration":[config base64EncodedStringWithOptions:0],@"compression":@"lz4-raw",@"output":@"shared-gpu-v1"};
     NSData *json=[NSJSONSerialization dataWithJSONObject:hello options:0 error:nil];
     std::vector<uint8_t> body(static_cast<const uint8_t*>(json.bytes),static_cast<const uint8_t*>(json.bytes)+json.length);
     const auto request=body;
@@ -224,6 +250,7 @@ static OSStatus start(VTVideoDecoderRef object,VTVideoDecoderSession session,CMV
         if(!writeMessage(s,request)){os_log_error(OS_LOG_DEFAULT,"NativeMac video decoder hello write failed errno=%d",errno);return failed;}
         if(!readMessage(s,body,256)){os_log_error(OS_LOG_DEFAULT,"NativeMac video decoder hello read failed errno=%d",errno);return failed;}
         if(body==std::vector<uint8_t>{'A'})break;
+        if(body==std::vector<uint8_t>{'V'}){s->gpuFrames=true;break;}
         if(body!=std::vector<uint8_t>{'B'}||retry>=39)return failed;
         if(s->writer!=s->fd)close(s->writer);close(s->fd);s->fd=s->writer=-1;std::this_thread::sleep_for(std::chrono::milliseconds(50));
         s->fd=NativeMacVideoOpenSocket(&s->writer);if(s->fd<0)return failed;

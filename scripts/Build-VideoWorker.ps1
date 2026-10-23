@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$FfmpegHeaders,[string]$NvdecHeaders,[string]$VulkanHeaders,[switch]$InteropProbeOnly)
+param([Parameter(Mandatory=$true)][string]$FfmpegHeaders,[string]$NvdecHeaders,[string]$VulkanHeaders,[switch]$InteropProbeOnly,[switch]$GpuExportOnly)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $headerRoot = (Resolve-Path -LiteralPath $FfmpegHeaders).Path
@@ -18,11 +18,14 @@ $options = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/O2','/MT','/utf-8',"/e
     "/I$sdkRoot/Include/$sdkVersion/um", "/I$sdkRoot/Include/$sdkVersion/shared")
 Push-Location $buildDir
 try {
-    if ($InteropProbeOnly) {
+    if ($InteropProbeOnly -or $GpuExportOnly) {
+        if ($InteropProbeOnly -and $GpuExportOnly) { throw 'Choose one GPU worker mode.' }
         if (!$NvdecHeaders -or !$VulkanHeaders) { throw 'The interop probe requires NVDEC and Vulkan headers.' }
-        & $compiler @options "/external:I$nvHeaders" "/external:I$vkHeaders" /DNATIVEMAC_GPU_INTEROP_PROBE `
+        $mode = if ($GpuExportOnly) { '/DNATIVEMAC_GPU_FRAME_EXPORT' } else { '/DNATIVEMAC_GPU_INTEROP_PROBE' }
+        $output = if ($GpuExportOnly) { '/Fe:NativeMacNvdecGpuWorker.exe' } else { '/Fe:NativeMacNvdecInteropProbe.exe' }
+        & $compiler @options "/external:I$nvHeaders" "/external:I$vkHeaders" $mode `
             (Join-Path $projectRoot 'native/VideoBridge/NvdecWorker.cpp') (Join-Path $projectRoot 'native/VideoBridge/GpuFrameInterop.cpp') `
-            /Fe:NativeMacNvdecInteropProbe.exe /link "/LIBPATH:$($vcTools.FullName)/lib/x64" `
+            $output /link "/LIBPATH:$($vcTools.FullName)/lib/x64" `
             "/LIBPATH:$sdkRoot/Lib/$sdkVersion/um/x64" "/LIBPATH:$sdkRoot/Lib/$sdkVersion/ucrt/x64" kernel32.lib
         if ($LASTEXITCODE -ne 0) { throw 'GPU interop probe build failed.' }
         return

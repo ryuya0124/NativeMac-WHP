@@ -46,6 +46,7 @@ use vmcore::{device_state::ChangeDeviceState, interrupt::Interrupt,
 }
 #[repr(C)] struct DisplayCoord {x:u16,y:u16}
 #[repr(C)] struct FrameTargetConfig { size:u32, width:u32, height:u32, format:u32 }
+#[repr(C)] struct VideoEndpointConfig { size:u32, port:u32, reserved:u32, secret:[u8;32] }
 const _: () = {
     assert!(std::mem::size_of::<Config>()==64);
     assert!(std::mem::size_of::<WindowConfig>()==32);
@@ -53,6 +54,7 @@ const _: () = {
     assert!(std::mem::size_of::<DisplayConfig>()==64);
     assert!(std::mem::size_of::<DisplayCallbacks>()==64);
     assert!(std::mem::size_of::<DisplayCoord>()==4);
+    assert!(std::mem::size_of::<VideoEndpointConfig>()==44);
 };
 type Create = unsafe extern "C" fn(*const Config,*mut *mut c_void)->u32;
 type Release = unsafe extern "C" fn(*mut c_void);
@@ -68,6 +70,14 @@ fn display_resolution(value:Option<&str>)->Result<(u16,u16)> {
     }
 }
 
+fn video_endpoint_config(bytes:&[u8])->Result<VideoEndpointConfig> {
+    anyhow::ensure!(bytes.len()==36,"video control configuration must contain exactly 36 bytes");
+    let port=u32::from_le_bytes(bytes[..4].try_into()?);
+    let secret:[u8;32]=bytes[4..].try_into()?;
+    anyhow::ensure!((1024..=65535).contains(&port)&&secret!=[0;32],"invalid video control port or secret");
+    Ok(VideoEndpointConfig{size:44,port,reserved:0,secret})
+}
+
 struct Runtime {
     device:*mut c_void, display:*mut c_void,
     release:Release, display_release:Release, reset:Release, read:Read, write:Write,
@@ -75,6 +85,7 @@ struct Runtime {
     _memory:guestmem::GuestMemory,
     _input:Box<WindowInput>,
     log_level:u32,
+    video_endpoint:Option<(*mut c_void,Release)>,
     regions:Vec<guestmem::ShareableRegion>,
 }
 // The C API serializes device state and supports calls from host/device threads.
@@ -83,6 +94,7 @@ struct Runtime {
 unsafe impl Send for Runtime {}
 impl Drop for Runtime {
     fn drop(&mut self) { unsafe {
+        if let Some((endpoint,release))=self.video_endpoint.take() { release(endpoint); }
         if !self.display.is_null() { (self.display_release)(self.display); }
         (self.release)(self.device);
     } }
@@ -170,12 +182,16 @@ impl Runtime {
             let reset:Release=*library.get(b"rvg_device_reset\0")?;
             let read:Read=*library.get(b"rvg_device_mmio_read\0")?;
             let write:Write=*library.get(b"rvg_device_mmio_write\0")?;
+            if std::env::var_os("NATIVEMAC_VIDEO_CONTROL_FILE").is_some() {
+                let enable:unsafe extern "C" fn()->u32=*library.get(b"rvg_video_gpu_import_enable\0")?;
+                anyhow::ensure!(enable()==0,"video GPU imports must be enabled before device creation");
+            }
             let mut device=std::ptr::null_mut();
             let status=create(&config,&mut device);
             anyhow::ensure!(status==0,"rvg_device_create status {status}");
             let mut runtime=Self{device,display:std::ptr::null_mut(),release,display_release,reset,read,write,
                 _library:library,_interrupt:interrupt,_views:views,_memory:memory,regions,
-                _input:Box::new(WindowInput::new(input)?),log_level:3};
+                _input:Box::new(WindowInput::new(input)?),log_level:3,video_endpoint:None};
             let create_display:libloading::Symbol<unsafe extern "C" fn(*mut c_void,*const DisplayConfig,*mut *mut c_void)->u32>=runtime._library.get(b"rvg_display_create\0")?;
             let window_callbacks=WindowCallbacks{size:std::mem::size_of::<WindowCallbacks>() as u32,
                 ctx:(&mut *runtime._input as *mut WindowInput).cast(),
@@ -194,6 +210,25 @@ impl Runtime {
                 callbacks:(&display_callbacks as *const DisplayCallbacks).cast(),window:&window};
             let status=create_display(device,&config,&mut runtime.display);
             anyhow::ensure!(status==0,"rvg_display_create status {status}");
+            // Explicit host-only metadata channel; absent by default. The
+            // private file contains port + authentication key, never pixels.
+            if let Some(config_path)=std::env::var_os("NATIVEMAC_VIDEO_CONTROL_FILE") {
+                use std::io::Read as _;
+                let path=std::path::PathBuf::from(config_path);
+                anyhow::ensure!(path.is_absolute(),"video control config path must be absolute");
+                let file=std::fs::File::open(path).context("open private video control configuration")?;
+                let mut bytes=Vec::with_capacity(37);
+                file.take(37).read_to_end(&mut bytes)?;
+                let config=video_endpoint_config(&bytes)?;
+                type EndpointCreate=unsafe extern "C" fn(*const VideoEndpointConfig,*mut *mut c_void)->u32;
+                let create:EndpointCreate=*runtime._library.get(b"rvg_video_endpoint_create\0")?;
+                let release:Release=*runtime._library.get(b"rvg_video_endpoint_release\0")?;
+                let mut endpoint=std::ptr::null_mut();
+                let status=create(&config,&mut endpoint);
+                anyhow::ensure!(status==0&&!endpoint.is_null(),"video control endpoint status {status}");
+                runtime.video_endpoint=Some((endpoint,release));
+                tracing::info!(port=config.port,"host-only video metadata endpoint enabled; no GPU media path is claimed");
+            }
             tracing::info!(ranges=ranges.len(),"Reims Vulkan PCI GPU initialized");
             Ok(runtime)
         }
@@ -397,6 +432,17 @@ extern "C" fn wheel(ctx:*mut c_void,dy:i32,_dx:i32) {
 }
 
 #[cfg(test)] mod tests {
+    #[test] fn video_control_config_requires_exact_size_port_and_nonzero_key() {
+        let mut bytes=vec![7u8;36];
+        bytes[..4].copy_from_slice(&54888u32.to_le_bytes());
+        let config=super::video_endpoint_config(&bytes).unwrap();
+        assert_eq!(config.port,54888);assert_eq!(config.secret,[7;32]);
+        assert!(super::video_endpoint_config(&bytes[..35]).is_err());
+        bytes.push(0);assert!(super::video_endpoint_config(&bytes).is_err());bytes.pop();
+        bytes[..4].copy_from_slice(&0u32.to_le_bytes());assert!(super::video_endpoint_config(&bytes).is_err());
+        bytes[..4].copy_from_slice(&54888u32.to_le_bytes());bytes[4..].fill(0);
+        assert!(super::video_endpoint_config(&bytes).is_err());
+    }
     #[test] fn resolution_caps_are_bounded_and_reject_unknown_modes() {
         assert_eq!(super::display_resolution(None).unwrap(),(1920,1080));
         assert_eq!(super::display_resolution(Some("2560x1440")).unwrap(),(2560,1440));

@@ -1,0 +1,2357 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 8799df4..9c4e12e 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -483,6 +483,7 @@ dependencies = [
+  "parking_lot",
+  "reims-vgpu",
+  "reims-vgpu-core",
++ "reims-vgpu-vulkan",
+ ]
+ 
+ [[package]]
+diff --git a/crates/reims-vgpu-c/Cargo.toml b/crates/reims-vgpu-c/Cargo.toml
+index 507bb94..36466ae 100644
+--- a/crates/reims-vgpu-c/Cargo.toml
++++ b/crates/reims-vgpu-c/Cargo.toml
+@@ -34,6 +34,7 @@ parking_lot.workspace = true
+ libc.workspace = true
+ 
+ [target.'cfg(target_os = "windows")'.dependencies]
++reims-vgpu-vulkan.workspace = true
+ # Windows always uses Vulkan, including when the C crate's default features are disabled.
+ reims-vgpu = { workspace = true, features = ["vulkan"] }
+ 
+diff --git a/crates/reims-vgpu-c/include/reims_vgpu.h b/crates/reims-vgpu-c/include/reims_vgpu.h
+index b043078..65fd2da 100644
+--- a/crates/reims-vgpu-c/include/reims_vgpu.h
++++ b/crates/reims-vgpu-c/include/reims_vgpu.h
+@@ -263,6 +263,9 @@ typedef struct RvgIOSurfaceDevice RvgIOSurfaceDevice;
+ // The device's handler for one trace range: the host calls it when the guest writes the range.
+ typedef struct RvgTraceRangeHandler RvgTraceRangeHandler;
+ 
++// One owned metadata endpoint. Release it before unloading the library.
++typedef struct RvgVideoEndpoint RvgVideoEndpoint;
++
+ // A function's result: RVG_OK or one of RVG_ERR_*.
+ typedef uint32_t RvgStatus;
+ 
+@@ -772,6 +775,35 @@ typedef struct {
+   const RvgIOSurfaceCallbacks *callbacks;
+ } RvgIOSurfaceDeviceConfig;
+ 
++// Configuration of the optional host loopback metadata endpoint. No guest
++// media is carried. The host alone keeps this separate authentication key.
++typedef struct {
++  // `sizeof(RvgVideoEndpointConfig)`.
++  uint32_t struct_size;
++  // Explicit loopback TCP port, 1024 through 65535.
++  uint32_t port;
++  // Zero in version 1.
++  uint32_t reserved;
++  // A random nonzero 256-bit host-only key.
++  uint8_t secret[32];
++} RvgVideoEndpointConfig;
++
++// Version 1 of one host-issued NV12 target reservation. No guest pointers or
++// host handles cross this interface. The caller supplies a fresh random
++// capability and keeps it private until given to its own codec client.
++typedef struct {
++  // `sizeof(RvgVideoTargetConfig)`; starts every host-written config.
++  uint32_t struct_size;
++  // Even luma width, 16 through 3840.
++  uint32_t width;
++  // Even luma height, 16 through 2160.
++  uint32_t height;
++  // Zero in version 1.
++  uint32_t reserved;
++  // Fresh nonzero 128-bit resource capability.
++  uint8_t capability[16];
++} RvgVideoTargetConfig;
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif // __cplusplus
+@@ -1122,6 +1154,54 @@ RvgTraceRangeHandler *rvg_trace_range_handler_retain(RvgTraceRangeHandler *handl
+ // `handler` is NULL or a live handler whose reference the caller owns.
+ void rvg_trace_range_handler_release(RvgTraceRangeHandler *handler);
+ 
++// Request the Windows Vulkan external-memory/semaphore extensions before
++// the first device is created. A late request answers UNSUPPORTED. This is
++// opt-in and changes no extension selection in the default path.
++RvgStatus rvg_video_gpu_import_enable(void);
++
++// Start the explicitly configured Windows-only loopback metadata endpoint.
++// NULL outputs/configs and invalid fields are refused; bind failure returns
++// UNSUPPORTED. Writes an owned handle only on success. No pixels are copied.
++//
++// # Safety
++// The config is NULL or readable for its `struct_size`, and `out` is NULL or
++// points at one writable handle slot. Neither pointer is retained.
++RvgStatus rvg_video_endpoint_create(const RvgVideoEndpointConfig *config, RvgVideoEndpoint **out);
++
++// Release one endpoint handle; NULL is ignored. The last release closes its
++// listener. In-progress metadata requests finish within their I/O deadline.
++//
++// # Safety
++// `endpoint` is NULL or an owned live handle from this API, released once.
++void rvg_video_endpoint_release(RvgVideoEndpoint *endpoint);
++
++// Arm an exact target with a twenty-second deadline. The endpoint reaps
++// expired holds while idle; standalone users must disarm or poll state.
++// At most 64 reservations/target holds exist. A duplicate capability or
++// invalid config answers INVALID_ARGUMENT; exhaustion answers UNSUPPORTED.
++// Only an explicitly armed target is retained until disarm or expiry.
++// Unarmed surfaces are unaffected; no pixel is read or changed.
++//
++// # Safety
++// `config` is NULL or points at `struct_size` readable bytes beginning with
++// this configuration. No function retains its pointer.
++RvgStatus rvg_video_target_arm(const RvgVideoTargetConfig *config);
++
++// Query one exact capability. On success, writes 0 for absent/expired, 1 for
++// waiting, or 2 for bound to live objects. A zero capability cannot bind.
++//
++// # Safety
++// `capability` points at 16 readable bytes; `state` points at a writable u32.
++// NULL pointers are refused. No pointer is retained.
++RvgStatus rvg_video_target_state(const uint8_t *capability, uint32_t *state);
++
++// Remove the reservation and its explicit GPU target hold. Does not wait for
++// an operation that already obtained its own strong references.
++//
++// # Safety
++// `capability` is NULL or points at 16 readable bytes, retained by no function.
++RvgStatus rvg_video_target_disarm(const uint8_t *capability);
++
+ #ifdef __cplusplus
+ }  // extern "C"
+ #endif  // __cplusplus
+diff --git a/crates/reims-vgpu-c/src/lib.rs b/crates/reims-vgpu-c/src/lib.rs
+index 51ae647..cc5acac 100644
+--- a/crates/reims-vgpu-c/src/lib.rs
++++ b/crates/reims-vgpu-c/src/lib.rs
+@@ -32,6 +32,7 @@ pub mod display;
+ pub mod frame;
+ pub mod iosurface;
+ pub mod trace;
++pub mod video;
+ pub mod window;
+ 
+ mod ffi;
+diff --git a/crates/reims-vgpu-c/src/video.rs b/crates/reims-vgpu-c/src/video.rs
+new file mode 100644
+index 0000000..77cd3bb
+--- /dev/null
++++ b/crates/reims-vgpu-c/src/video.rs
+@@ -0,0 +1,274 @@
++//! Explicit host-issued capabilities for authored video IOSurface targets.
++//! These notifications alone copy no media. Windows Vulkan integration only;
++//! every other platform answers `RVG_ERR_UNSUPPORTED`.
++
++use crate::ffi;
++use crate::sized::{self, HostStruct};
++#[cfg(target_os = "windows")]
++use crate::status::RVG_OK;
++use crate::status::{RVG_ERR_INVALID_ARGUMENT, RVG_ERR_UNSUPPORTED, RvgStatus};
++
++/// Version 1 of one host-issued NV12 target reservation. No guest pointers or
++/// host handles cross this interface. The caller supplies a fresh random
++/// capability and keeps it private until given to its own codec client.
++#[repr(C)]
++#[derive(Clone, Copy)]
++pub struct RvgVideoTargetConfig {
++    /// `sizeof(RvgVideoTargetConfig)`; starts every host-written config.
++    pub struct_size: u32,
++    /// Even luma width, 16 through 3840.
++    pub width: u32,
++    /// Even luma height, 16 through 2160.
++    pub height: u32,
++    /// Zero in version 1.
++    pub reserved: u32,
++    /// Fresh nonzero 128-bit resource capability.
++    pub capability: [u8; 16],
++}
++
++// SAFETY: repr(C), a u32 first, integer fields only.
++unsafe impl HostStruct for RvgVideoTargetConfig {}
++
++/// Configuration of the optional host loopback metadata endpoint. No guest
++/// media is carried. The host alone keeps this separate authentication key.
++#[repr(C)]
++#[derive(Clone, Copy)]
++pub struct RvgVideoEndpointConfig {
++    /// `sizeof(RvgVideoEndpointConfig)`.
++    pub struct_size: u32,
++    /// Explicit loopback TCP port, 1024 through 65535.
++    pub port: u32,
++    /// Zero in version 1.
++    pub reserved: u32,
++    /// A random nonzero 256-bit host-only key.
++    pub secret: [u8; 32],
++}
++
++// SAFETY: repr(C), a u32 first, integer fields only.
++unsafe impl HostStruct for RvgVideoEndpointConfig {}
++
++/// Request the Windows Vulkan external-memory/semaphore extensions before
++/// the first device is created. A late request answers UNSUPPORTED. This is
++/// opt-in and changes no extension selection in the default path.
++#[unsafe(no_mangle)]
++pub extern "C" fn rvg_video_gpu_import_enable() -> RvgStatus {
++    ffi::export(|| {
++        #[cfg(target_os = "windows")]
++        {
++            if reims_vgpu_vulkan::video_targets::enable_gpu_imports() {
++                RVG_OK
++            } else {
++                RVG_ERR_UNSUPPORTED
++            }
++        }
++        #[cfg(not(target_os = "windows"))]
++        {
++            RVG_ERR_UNSUPPORTED
++        }
++    })
++}
++
++/// One owned metadata endpoint. Release it before unloading the library.
++pub struct RvgVideoEndpoint {
++    #[cfg(target_os = "windows")]
++    _inner: reims_vgpu_vulkan::video_endpoint::Endpoint,
++}
++
++/// Start the explicitly configured Windows-only loopback metadata endpoint.
++/// NULL outputs/configs and invalid fields are refused; bind failure returns
++/// UNSUPPORTED. Writes an owned handle only on success. No pixels are copied.
++///
++/// # Safety
++/// The config is NULL or readable for its `struct_size`, and `out` is NULL or
++/// points at one writable handle slot. Neither pointer is retained.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn rvg_video_endpoint_create(
++    config: *const RvgVideoEndpointConfig,
++    out: *mut *mut RvgVideoEndpoint,
++) -> RvgStatus {
++    ffi::export(|| {
++        if out.is_null() {
++            return RVG_ERR_INVALID_ARGUMENT;
++        }
++        // SAFETY: the caller lends the configuration.
++        let config = match unsafe { sized::read(config) } {
++            Ok(Some(config))
++                if config.reserved == 0
++                    && (1024..=65535).contains(&config.port)
++                    && config.secret != [0; 32] =>
++            {
++                config
++            }
++            Ok(_) => return RVG_ERR_INVALID_ARGUMENT,
++            Err(status) => return status,
++        };
++        #[cfg(target_os = "windows")]
++        {
++            let Ok(port) = u16::try_from(config.port) else {
++                return RVG_ERR_INVALID_ARGUMENT;
++            };
++            let Ok(inner) = reims_vgpu_vulkan::video_endpoint::Endpoint::start(port, config.secret)
++            else {
++                return RVG_ERR_UNSUPPORTED;
++            };
++            let handle = crate::handle::new(RvgVideoEndpoint { _inner: inner });
++            // SAFETY: caller lends the writable output slot.
++            unsafe { out.write(handle) };
++            RVG_OK
++        }
++        #[cfg(not(target_os = "windows"))]
++        {
++            let _ = config;
++            RVG_ERR_UNSUPPORTED
++        }
++    })
++}
++
++/// Release one endpoint handle; NULL is ignored. The last release closes its
++/// listener. In-progress metadata requests finish within their I/O deadline.
++///
++/// # Safety
++/// `endpoint` is NULL or an owned live handle from this API, released once.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn rvg_video_endpoint_release(endpoint: *mut RvgVideoEndpoint) {
++    ffi::export(|| {
++        // SAFETY: the caller returns its owned handle once.
++        unsafe { crate::handle::release(endpoint) };
++    })
++}
++
++/// Arm an exact target with a twenty-second deadline. The endpoint reaps
++/// expired holds while idle; standalone users must disarm or poll state.
++/// At most 64 reservations/target holds exist. A duplicate capability or
++/// invalid config answers INVALID_ARGUMENT; exhaustion answers UNSUPPORTED.
++/// Only an explicitly armed target is retained until disarm or expiry.
++/// Unarmed surfaces are unaffected; no pixel is read or changed.
++///
++/// # Safety
++/// `config` is NULL or points at `struct_size` readable bytes beginning with
++/// this configuration. No function retains its pointer.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn rvg_video_target_arm(config: *const RvgVideoTargetConfig) -> RvgStatus {
++    ffi::export(|| {
++        // SAFETY: caller's configuration contract.
++        let config = match unsafe { sized::read(config) } {
++            Ok(Some(config)) if config.reserved == 0 => config,
++            Ok(_) => return RVG_ERR_INVALID_ARGUMENT,
++            Err(status) => return status,
++        };
++        #[cfg(target_os = "windows")]
++        {
++            use reims_vgpu_vulkan::video_targets::{self, Refusal};
++            match video_targets::arm(config.capability, config.width, config.height) {
++                Ok(()) => RVG_OK,
++                Err(Refusal::Invalid) => RVG_ERR_INVALID_ARGUMENT,
++                Err(Refusal::Full) => RVG_ERR_UNSUPPORTED,
++            }
++        }
++        #[cfg(not(target_os = "windows"))]
++        {
++            let _ = config;
++            RVG_ERR_UNSUPPORTED
++        }
++    })
++}
++
++/// Query one exact capability. On success, writes 0 for absent/expired, 1 for
++/// waiting, or 2 for bound to live objects. A zero capability cannot bind.
++///
++/// # Safety
++/// `capability` points at 16 readable bytes; `state` points at a writable u32.
++/// NULL pointers are refused. No pointer is retained.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn rvg_video_target_state(
++    capability: *const u8,
++    state: *mut u32,
++) -> RvgStatus {
++    ffi::export(|| {
++        if capability.is_null() || state.is_null() {
++            return RVG_ERR_INVALID_ARGUMENT;
++        }
++        #[cfg(target_os = "windows")]
++        {
++            // SAFETY: the caller lends 16 readable capability bytes and the output.
++            let capability = unsafe { capability.cast::<[u8; 16]>().read_unaligned() };
++            let value = reims_vgpu_vulkan::video_targets::state(capability);
++            // SAFETY: the caller lends the writable output.
++            unsafe { state.write(value) };
++            RVG_OK
++        }
++        #[cfg(not(target_os = "windows"))]
++        {
++            RVG_ERR_UNSUPPORTED
++        }
++    })
++}
++
++/// Remove the reservation and its explicit GPU target hold. Does not wait for
++/// an operation that already obtained its own strong references.
++///
++/// # Safety
++/// `capability` is NULL or points at 16 readable bytes, retained by no function.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn rvg_video_target_disarm(capability: *const u8) -> RvgStatus {
++    ffi::export(|| {
++        if capability.is_null() {
++            return RVG_ERR_INVALID_ARGUMENT;
++        }
++        #[cfg(target_os = "windows")]
++        {
++            // SAFETY: the caller lends 16 readable bytes.
++            let capability = unsafe { capability.cast::<[u8; 16]>().read_unaligned() };
++            reims_vgpu_vulkan::video_targets::disarm(capability);
++            RVG_OK
++        }
++        #[cfg(not(target_os = "windows"))]
++        {
++            RVG_ERR_UNSUPPORTED
++        }
++    })
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn video_configs_have_stable_sizes_and_invalid_inputs_leave_outputs_untouched() {
++        assert_eq!(size_of::<RvgVideoTargetConfig>(), 32);
++        assert_eq!(size_of::<RvgVideoEndpointConfig>(), 44);
++        let mut output = 0x1234usize as *mut RvgVideoEndpoint;
++        let config = RvgVideoEndpointConfig {
++            struct_size: 44,
++            port: 54888,
++            reserved: 0,
++            secret: [0; 32],
++        };
++        // SAFETY: all nonnull inputs/outputs are valid local storage. Invalid
++        // configurations must be rejected without retaining or dereferencing
++        // the sentinel endpoint value in the output slot.
++        unsafe {
++            assert_eq!(
++                rvg_video_endpoint_create(std::ptr::null(), &mut output),
++                RVG_ERR_INVALID_ARGUMENT
++            );
++            assert_eq!(
++                rvg_video_endpoint_create(&config, &mut output),
++                RVG_ERR_INVALID_ARGUMENT
++            );
++            assert_eq!(output as usize, 0x1234);
++            assert_eq!(
++                rvg_video_target_arm(std::ptr::null()),
++                RVG_ERR_INVALID_ARGUMENT
++            );
++            assert_eq!(
++                rvg_video_target_disarm(std::ptr::null()),
++                RVG_ERR_INVALID_ARGUMENT
++            );
++            assert_eq!(
++                rvg_video_target_state(std::ptr::null(), std::ptr::null_mut()),
++                RVG_ERR_INVALID_ARGUMENT
++            );
++        }
++    }
++}
+diff --git a/crates/reims-vgpu-c/tests/c/harness.c b/crates/reims-vgpu-c/tests/c/harness.c
+index 98e9457..5ed3941 100644
+--- a/crates/reims-vgpu-c/tests/c/harness.c
++++ b/crates/reims-vgpu-c/tests/c/harness.c
+@@ -634,6 +634,21 @@ static void check_trace_handlers(void) {
+     rvg_trace_range_handler_release(NULL);
+ }
+ 
++/* The optional video boundary refuses missing inputs without touching outputs.
++ * Extension selection cannot change after check_device has opened a GPU. */
++static void check_video_refusals(void) {
++    RvgVideoEndpoint *endpoint = (RvgVideoEndpoint *)(uintptr_t)0x1234;
++    CHECK_STATUS(rvg_video_gpu_import_enable(), RVG_ERR_UNSUPPORTED);
++    CHECK_STATUS(rvg_video_endpoint_create(NULL, &endpoint), RVG_ERR_INVALID_ARGUMENT);
++    CHECK(endpoint == (RvgVideoEndpoint *)(uintptr_t)0x1234);
++    rvg_video_endpoint_release(NULL);
++    CHECK_STATUS(rvg_video_target_arm(NULL), RVG_ERR_INVALID_ARGUMENT);
++    uint32_t state = 0x1234;
++    CHECK_STATUS(rvg_video_target_state(NULL, &state), RVG_ERR_INVALID_ARGUMENT);
++    CHECK(state == 0x1234);
++    CHECK_STATUS(rvg_video_target_disarm(NULL), RVG_ERR_INVALID_ARGUMENT);
++}
++
+ int main(int argc, char **argv) {
+ #ifdef _WIN32
+     main_thread = GetCurrentThreadId();
+@@ -671,6 +686,7 @@ int main(int argc, char **argv) {
+     check_device();
+     check_iosurface();
+     check_trace_handlers();
++    check_video_refusals();
+     if (failures) {
+         fprintf(stderr, "harness: %d failures\n", failures);
+         return 1;
+diff --git a/crates/reims-vgpu-c/tests/c_harness.rs b/crates/reims-vgpu-c/tests/c_harness.rs
+index 92604e7..1471c7b 100644
+--- a/crates/reims-vgpu-c/tests/c_harness.rs
++++ b/crates/reims-vgpu-c/tests/c_harness.rs
+@@ -117,7 +117,7 @@ fn c_harness_calls_every_function() {
+             Some(&rest[..end])
+         })
+         .collect();
+-    assert_eq!(declared.len(), 37, "{declared:?}");
++    assert_eq!(declared.len(), 43, "{declared:?}");
+     let missing: Vec<&str> = declared
+         .iter()
+         .copied()
+diff --git a/crates/reims-vgpu-core/src/memory/map.rs b/crates/reims-vgpu-core/src/memory/map.rs
+index cd7d88b..218c366 100644
+--- a/crates/reims-vgpu-core/src/memory/map.rs
++++ b/crates/reims-vgpu-core/src/memory/map.rs
+@@ -1,8 +1,8 @@
+ //! The memory map: the guest's physical ranges, validated and sorted at init, and the
+ //! translations and mappings made from them.
+ 
+-use std::num::NonZeroU64;
+ use std::borrow::Cow;
++use std::num::NonZeroU64;
+ use std::sync::Arc;
+ 
+ use crate::guest::records::APV_PAGE_SIZE;
+@@ -67,30 +67,48 @@ impl<P: Platform> MemoryMap<P> {
+             let Some(next) = sum.checked_add(range.physical_length) else {
+                 return Cow::Borrowed(ranges);
+             };
+-            if range.physical_address == 0 || range.physical_length % host_page != 0 ||
+-                (range.physical_length != 0 && !self.ranges.iter().any(|map| {
+-                    if range.physical_address < map.physical_address ||
+-                        range.physical_address >= map.physical_end || end > map.physical_end {
+-                        return false;
+-                    }
+-                    addr_u64(map.virtual_address).checked_add(range.physical_address - map.physical_address)
+-                        .is_some_and(|source| source % host_page == 0)
+-                })) {
++            if range.physical_address == 0
++                || !range.physical_length.is_multiple_of(host_page)
++                || (range.physical_length != 0
++                    && !self.ranges.iter().any(|map| {
++                        if range.physical_address < map.physical_address
++                            || range.physical_address >= map.physical_end
++                            || end > map.physical_end
++                        {
++                            return false;
++                        }
++                        range
++                            .physical_address
++                            .checked_sub(map.physical_address)
++                            .and_then(|offset| addr_u64(map.virtual_address).checked_add(offset))
++                            .is_some_and(|source| source.is_multiple_of(host_page))
++                    }))
++            {
+                 return Cow::Borrowed(ranges);
+             }
+             sum = next;
+         }
+-        if sum != total || ranges.len() < 2 { return Cow::Borrowed(ranges); }
++        if sum != total || ranges.len() < 2 {
++            return Cow::Borrowed(ranges);
++        }
+         let mut grouped: Vec<PhysRange> = Vec::with_capacity(ranges.len());
+         for range in ranges {
+-            if let Some(last) = grouped.last_mut() {
+-                if last.physical_length != 0 && range.physical_length != 0 &&
+-                    last.physical_address.checked_add(last.physical_length) == Some(range.physical_address) &&
+-                    self.ranges.iter().any(|map| last.physical_address >= map.physical_address &&
+-                        range.physical_address + range.physical_length <= map.physical_end) {
+-                    last.physical_length += range.physical_length;
+-                    continue;
+-                }
++            if let Some(last) = grouped.last_mut()
++                && last.physical_length != 0
++                && range.physical_length != 0
++                && last.physical_address.checked_add(last.physical_length)
++                    == Some(range.physical_address)
++                && self.ranges.iter().any(|map| {
++                    last.physical_address >= map.physical_address
++                        && range
++                            .physical_address
++                            .checked_add(range.physical_length)
++                            .is_some_and(|end| end <= map.physical_end)
++                })
++            {
++                // The sum of every input length was checked above.
++                last.physical_length = last.physical_length.wrapping_add(range.physical_length);
++                continue;
+             }
+             grouped.push(*range);
+         }
+@@ -322,13 +340,27 @@ impl<P: Platform> MemoryMap<P> {
+         // Only complete, valid plans take the optional fresh-alias path. Invalid inputs
+         // retain the legacy partial-operation and refusal order below.
+         let fresh_sources = if matches!(grouped, Cow::Owned(_)) && total_length != 0 {
+-            Some(grouped.iter().filter(|r| r.physical_length != 0).map(|r| {
+-                (self.virtual_address_for_physical(r.physical_address, r.physical_length), r.physical_length)
+-            }).collect::<Vec<_>>())
++            Some(
++                grouped
++                    .iter()
++                    .filter(|r| r.physical_length != 0)
++                    .map(|r| {
++                        (
++                            self.virtual_address_for_physical(
++                                r.physical_address,
++                                r.physical_length,
++                            ),
++                            r.physical_length,
++                        )
++                    })
++                    .collect::<Vec<_>>(),
++            )
+         } else {
+             None
+         };
+-        let fresh = fresh_sources.as_ref().and_then(|sources| vm.allocate_shared_ranges(sources));
++        let fresh = fresh_sources
++            .as_ref()
++            .and_then(|sources| vm.allocate_shared_ranges(sources));
+         let batched = fresh.is_some();
+         let Ok(address) = fresh.unwrap_or_else(|| vm.allocate_anywhere(total_length)) else {
+             return None;
+@@ -341,9 +373,15 @@ impl<P: Platform> MemoryMap<P> {
+         let mut mapped: u64 = 0;
+         let mut target = addr_u64(address);
+         static LOGGED_PLANS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+-        if ranges.len() >= 32 && LOGGED_PLANS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 16 {
+-            log::info!("fresh mapping plan: {} bytes, {} input ranges, {} grouped ranges",
+-                total_length, ranges.len(), grouped.len());
++        if ranges.len() >= 32
++            && LOGGED_PLANS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 16
++        {
++            log::info!(
++                "fresh mapping plan: {} bytes, {} input ranges, {} grouped ranges",
++                total_length,
++                ranges.len(),
++                grouped.len()
++            );
+         }
+         let ranges = grouped.as_ref();
+         for request in ranges.iter().filter(|_| !batched) {
+@@ -1083,13 +1121,28 @@ mod tests {
+             let (ram, m) = ram_map(&p, &[(0x4000, 4 * PAGE)]);
+             let bytes = pattern((3 * PAGE) as usize, 7);
+             assert!(ram.write(0x4000, &bytes));
+-            let requests = [pr(0x4000, PAGE), pr(0x4000 + PAGE, PAGE), pr(0x4000 + 2 * PAGE, PAGE)];
++            let requests = [
++                pr(0x4000, PAGE),
++                pr(0x4000 + PAGE, PAGE),
++                pr(0x4000 + 2 * PAGE, PAGE),
++            ];
+             let mapping = m.new_range_mapping(&requests, 3 * PAGE, 1).unwrap();
+-            assert_eq!(p.fake_vm().read(mapping.virtual_address(), 3 * PAGE).unwrap(), bytes);
++            assert_eq!(
++                p.fake_vm()
++                    .read(mapping.virtual_address(), 3 * PAGE)
++                    .unwrap(),
++                bytes
++            );
+             let remaps = p.call_log().calls_to("mach_vm_remap");
+             assert_eq!(remaps.len(), 1);
+-            assert_eq!(remaps[0].args, vec![Arg::Ptr(mapping.virtual_address().addr()),
+-                Arg::Ptr(ram.host_addr(0x4000).unwrap().addr()), Arg::U64(3 * PAGE)]);
++            assert_eq!(
++                remaps[0].args,
++                vec![
++                    Arg::Ptr(mapping.virtual_address().addr()),
++                    Arg::Ptr(ram.host_addr(0x4000).unwrap().addr()),
++                    Arg::U64(3 * PAGE)
++                ]
++            );
+             assert!(!mapping.writable());
+         }
+ 
+diff --git a/crates/reims-vgpu-core/src/platform.rs b/crates/reims-vgpu-core/src/platform.rs
+index 5addf2f..90e6013 100644
+--- a/crates/reims-vgpu-core/src/platform.rs
++++ b/crates/reims-vgpu-core/src/platform.rs
+@@ -57,6 +57,19 @@ pub trait Handle: Send + Sync + 'static {
+ /// Associated types without a selector core sends to them (`Event`, `Fence`, `Function`, the two
+ /// shared handles, the address-range array, the event listener) are bounded by `Handle` alone.
+ pub trait Platform: Sized + Send + Sync + 'static {
++    /// Host integration notification after an IOSurface backing's guest buffer
++    /// and plane textures exist, including after a physical-buffer rebind. The
++    /// default does nothing. Only an explicit host integration reservation
++    /// may retain the target for its bounded GPU operation; unarmed surfaces
++    /// must preserve guest memory, retains, ordering and resource numbering.
++    fn surface_backing_created(
++        &self,
++        _buffer: &Self::Buffer,
++        _textures: &[Self::Texture],
++        _spec: &os::surface::BackingSurfaceSpec,
++    ) {
++    }
++
+     // Metal objects.
+     /// `id<MTLDevice>`.
+     type Device: device::GpuDevice<Self>;
+diff --git a/crates/reims-vgpu-core/src/resources/texture/backing.rs b/crates/reims-vgpu-core/src/resources/texture/backing.rs
+index dae22d2..9315160 100644
+--- a/crates/reims-vgpu-core/src/resources/texture/backing.rs
++++ b/crates/reims-vgpu-core/src/resources/texture/backing.rs
+@@ -110,6 +110,8 @@ impl BackingPlane {
+ pub struct BackingResource<P: Platform> {
+     /// The task, unretained.
+     task: TaskRef<P>,
++    /// Immutable layout for explicit host backing notifications.
++    spec: BackingSurfaceSpec,
+     /// The IOSurface (never checked for nil).
+     io_surface: Option<P::Surface>,
+     /// The validated planes.
+@@ -246,9 +248,11 @@ impl<P: Platform> BackingResource<P> {
+                 textures.push(texture);
+             }
+             drop(texture_descriptor);
++            platform.surface_backing_created(&transfer_buffer, &textures, &spec);
+             Ok(Some(Resource::new(ResourceKind::Backing(
+                 BackingResource {
+                     task,
++                    spec,
+                     io_surface,
+                     planes: own,
+                     transfer_buffer: Mutex::new(Some(transfer_buffer)),
+@@ -266,8 +270,10 @@ impl<P: Platform> BackingResource<P> {
+     /// The lock is a leaf held only to read or store the field: the task and the encoder are
+     /// asked outside it.
+     fn ensure_physical(&self, hold: Hold<'_>) -> RaiseResult<P::Buffer> {
+-        if let Some(b) = self.transfer_buffer.lock().as_ref() {
+-            return Ok(b.clone_ref());
++        let existing = self.transfer_buffer.lock().as_ref().map(Handle::clone_ref);
++        if let Some(buffer) = existing {
++            self.notify_physical(&buffer);
++            return Ok(buffer);
+         }
+         let made = match self.task.upgrade() {
+             Some(t) => Some(t.new_buffer_for_virtual_page(hold, self.page, self.length)?),
+@@ -282,9 +288,16 @@ impl<P: Platform> BackingResource<P> {
+         if let Some(raced) = self.transfer_buffer.lock().replace(made) {
+             keep_forever(raced, Kept::MetalNumbering);
+         }
++        self.notify_physical(&copy);
+         Ok(copy)
+     }
+ 
++    fn notify_physical(&self, buffer: &P::Buffer) {
++        if let Some(platform) = crate::resources::resource::platform_for(&self.task) {
++            platform.surface_backing_created(buffer, &self.textures, &self.spec);
++        }
++    }
++
+     /// The IOSurface.
+     pub fn io_surface(&self) -> Option<P::Surface> {
+         self.io_surface.as_ref().map(Handle::clone_ref)
+@@ -968,6 +981,12 @@ mod tests {
+         assert!(!r.state.host_valid());
+         // A backing whose task is gone.
+         let lone = BackingResource::<P> {
++            spec: BackingSurfaceSpec {
++                pixel_format: 0,
++                planes: Vec::new(),
++                width: 0,
++                height: 0,
++            },
+             task: {
+                 let other: Arc<dyn ResourceHost<P>> = env.rec.sibling();
+                 Arc::downgrade(&other)
+diff --git a/crates/reims-vgpu-vulkan/src/gpu/device.rs b/crates/reims-vgpu-vulkan/src/gpu/device.rs
+index 4a54086..8deaf2a 100644
+--- a/crates/reims-vgpu-vulkan/src/gpu/device.rs
++++ b/crates/reims-vgpu-vulkan/src/gpu/device.rs
+@@ -221,6 +221,16 @@ pub(crate) fn nil_pipeline_descriptor() -> NsErrorText {
+ /// ([`crate::answer`]).
+ static DEVICES: Mutex<Vec<(u64, VulkanDevice)>> = Mutex::new(Vec::new());
+ 
++/// Another reference to a device already opened in this process, by its registry ID.
++/// Isolated tasks run in this process too and share its device and resource ID pools.
++pub(crate) fn opened(registry_id: u64) -> Option<VulkanDevice> {
++    DEVICES
++        .lock()
++        .iter()
++        .find(|(id, _)| *id == registry_id)
++        .map(|(_, device)| device.clone_ref())
++}
++
+ /// The buffers over each surface at its range's address ([`metal_space::surface_buffer`]), by
+ /// the surface's key: a buffer made over the surface while another holds the address shares the
+ /// range of a live one (`newBufferWithIOSurface:`). Each holds its surface, so a key names one
+@@ -1991,6 +2001,15 @@ pub(crate) mod tests {
+         let d = dev();
+         let again = adopt("MTLCopyAllDevices()", d.raw.clone());
+         assert_eq!(again.id(), d.id());
++        let opened = super::opened(d.registry_id).expect("the device is kept for the process");
++        assert_eq!(opened.id(), d.id());
++        assert!(super::opened(u64::MAX).is_none());
++        let reopened = reims_vgpu_core::platform::Platform::open_device(
++            &crate::platform::tests::platform(),
++            d.registry_id,
++        )
++        .expect("an isolated task reopens the host's device");
++        assert_eq!(reopened.id(), d.id());
+         assert!(!d.raw.name().is_empty());
+     }
+ 
+diff --git a/crates/reims-vgpu-vulkan/src/lib.rs b/crates/reims-vgpu-vulkan/src/lib.rs
+index 2d3b3b5..d888d89 100644
+--- a/crates/reims-vgpu-vulkan/src/lib.rs
++++ b/crates/reims-vgpu-vulkan/src/lib.rs
+@@ -24,5 +24,9 @@ pub mod os;
+ pub mod platform;
+ pub mod remap;
+ pub mod swapchain;
++pub mod video_endpoint;
++#[cfg(target_os = "windows")]
++pub mod video_sources;
++pub mod video_targets;
+ 
+ pub use platform::{Obj, VulkanPlatform};
+diff --git a/crates/reims-vgpu-vulkan/src/os/windows/vm.rs b/crates/reims-vgpu-vulkan/src/os/windows/vm.rs
+index f8296f5..a67df93 100644
+--- a/crates/reims-vgpu-vulkan/src/os/windows/vm.rs
++++ b/crates/reims-vgpu-vulkan/src/os/windows/vm.rs
+@@ -4,6 +4,7 @@ use super::api::*;
+ use crate::os::backing::{self as files, Backing, Piece, Registration};
+ use reims_vgpu_core::host::HostPtr;
+ use reims_vgpu_core::num::{ToU64, ToUsize};
++use reims_vgpu_core::platform::os::Clock as _;
+ use reims_vgpu_core::platform::os::vm::{HostAddr, HostVm, KernReturn, VmProt};
+ use reims_vgpu_core::raise::death::{DeathId, DeathKind, fatal};
+ use reims_vgpu_core::sync::Mutex;
+@@ -178,12 +179,15 @@ fn coalesce(first: u64, length: u64) {
+ fn install(first: u64, length: u64, pieces: &[Piece]) -> Result<(), KernReturn> {
+     let mut mapped = 0usize;
+     let mut splits = 0usize;
+-    let started = std::time::Instant::now();
++    let started = crate::os::OsClock::new().now_mono();
+     static PLANS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+-    let diagnostic = length >= 32 * 1024 * 1024
+-        && PLANS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 64;
++    let diagnostic =
++        length >= 32 * 1024 * 1024 && PLANS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 64;
+     if diagnostic {
+-        log::info!("section install begin: {length} bytes, {} views", pieces.len());
++        log::info!(
++            "section install begin: {length} bytes, {} views",
++            pieces.len()
++        );
+     }
+     let result = (|| {
+         for (i, piece) in pieces.iter().enumerate() {
+@@ -193,8 +197,14 @@ fn install(first: u64, length: u64, pieces: &[Piece]) -> Result<(), KernReturn>
+             }
+             map(first + piece.at, piece.length, &piece.backing, piece.prot)?;
+             mapped += 1;
+-            if diagnostic && (mapped % 4096 == 0 || mapped == pieces.len()) {
+-                log::info!("section install progress: {mapped}/{} views, {length} bytes, {:?}", pieces.len(), started.elapsed());
++            if diagnostic && (mapped.is_multiple_of(4096) || mapped == pieces.len()) {
++                log::info!(
++                    "section install progress: {mapped}/{} views, {length} bytes, {:?}",
++                    pieces.len(),
++                    crate::os::OsClock::new()
++                        .now_mono()
++                        .saturating_duration_since(started)
++                );
+             }
+         }
+         Ok(())
+@@ -436,17 +446,21 @@ impl HostVm for WindowsVm {
+             let mut parts = Vec::new();
+             let mut length = 0u64;
+             for &(source, size) in ranges {
+-                if size == 0 || size % page_size() != 0 || source.addr().to_u64() % page_size() != 0 {
++                if size == 0 || size % page_size() != 0 || source.addr().to_u64() % page_size() != 0
++                {
+                     return Err(INVALID_ARGUMENT);
+                 }
+-                let source_parts = files::pieces(source.addr().to_u64(), size).ok_or(INVALID_ADDRESS)?;
++                let source_parts =
++                    files::pieces(source.addr().to_u64(), size).ok_or(INVALID_ADDRESS)?;
+                 for mut piece in source_parts {
+                     piece.at = piece.at.checked_add(length).ok_or(INVALID_ARGUMENT)?;
+                     parts.push(piece);
+                 }
+                 length = length.checked_add(size).ok_or(INVALID_ARGUMENT)?;
+             }
+-            if length == 0 { return Err(INVALID_ARGUMENT); }
++            if length == 0 {
++                return Err(INVALID_ARGUMENT);
++            }
+             let first = reserve(length)?;
+             // Install directly into fresh placeholders. Repeated overwrites would split
+             // and remap the still-unused tail for every fragmented source page.
+@@ -458,13 +472,23 @@ impl HostVm for WindowsVm {
+             {
+                 let mut views = VIEWS.lock();
+                 for piece in &parts {
+-                    views.insert(first + piece.at, View {
+-                        length: piece.length, backing: piece.backing.clone(), prot: piece.prot,
+-                    });
++                    views.insert(
++                        first + piece.at,
++                        View {
++                            length: piece.length,
++                            backing: piece.backing.clone(),
++                            prot: piece.prot,
++                        },
++                    );
+                 }
+             }
+             for piece in &parts {
+-                files::record(first + piece.at, piece.length, piece.backing.clone(), piece.prot);
++                files::record(
++                    first + piece.at,
++                    piece.length,
++                    piece.backing.clone(),
++                    piece.prot,
++                );
+             }
+             Ok(HostPtr::from_addr(first.to_usize()))
+         })())
+@@ -614,7 +638,7 @@ pub(crate) mod tests {
+             unsafe { from.as_ptr::<u32>().write(page as u32) };
+             ranges.push((from, PAGE));
+         }
+-        let started = std::time::Instant::now();
++        let started = crate::os::OsClock::new().now_mono();
+         let alias = vm.allocate_shared_ranges(&ranges).unwrap().unwrap();
+         for page in 0..length / PAGE {
+             // SAFETY: the alias has one page per source entry.
+@@ -622,32 +646,67 @@ pub(crate) mod tests {
+                 let at = alias.wrapping_add(page * PAGE).as_ptr::<u32>();
+                 assert_eq!(u64::from(at.read()), page);
+                 at.write((page as u32) ^ 0x55aa);
+-                assert_eq!(ranges[page.to_usize()].0.as_ptr::<u32>().read(), (page as u32) ^ 0x55aa);
++                assert_eq!(
++                    ranges[page.to_usize()].0.as_ptr::<u32>().read(),
++                    (page as u32) ^ 0x55aa
++                );
+             }
+         }
+         assert!(vm.deallocate(source, length).is_success());
+         for page in 0..length / PAGE {
+             // SAFETY: every alias retains its backing after the original source is gone.
+-            unsafe { assert_eq!(alias.wrapping_add(page * PAGE).as_ptr::<u32>().read(), (page as u32) ^ 0x55aa); }
++            unsafe {
++                assert_eq!(
++                    alias.wrapping_add(page * PAGE).as_ptr::<u32>().read(),
++                    (page as u32) ^ 0x55aa
++                );
++            }
+         }
+         vm.protect_max(alias, length, VmProt::READ).unwrap();
+-        assert!(vm.protect_max(alias, length, VmProt::READ | VmProt::WRITE).is_err());
++        assert!(
++            vm.protect_max(alias, length, VmProt::READ | VmProt::WRITE)
++                .is_err()
++        );
+         assert!(vm.deallocate(alias, length).is_success());
+         assert!(!mapped(alias));
+-        eprintln!("fresh fragmented alias: {} pages in {:?}", ranges.len(), started.elapsed());
++        eprintln!(
++            "fresh fragmented alias: {} pages in {:?}",
++            ranges.len(),
++            crate::os::OsClock::new()
++                .now_mono()
++                .saturating_duration_since(started)
++        );
+     }
+ 
+     #[test]
+     fn fresh_alias_refuses_invalid_sources_without_reserving_memory() {
+         let vm = WindowsVm;
+         assert!(vm.allocate_shared_ranges(&[]).unwrap().is_err());
+-        assert!(vm.allocate_shared_ranges(&[(HostAddr::NULL, PAGE)]).unwrap().is_err());
++        assert!(
++            vm.allocate_shared_ranges(&[(HostAddr::NULL, PAGE)])
++                .unwrap()
++                .is_err()
++        );
+         let source = vm.allocate_anywhere(PAGE).unwrap();
+-        assert!(vm.allocate_shared_ranges(&[(source, PAGE - 1)]).unwrap().is_err());
+-        assert!(vm.allocate_shared_ranges(&[(source.wrapping_add(1), PAGE)]).unwrap().is_err());
++        assert!(
++            vm.allocate_shared_ranges(&[(source, PAGE - 1)])
++                .unwrap()
++                .is_err()
++        );
++        assert!(
++            vm.allocate_shared_ranges(&[(source.wrapping_add(1), PAGE)])
++                .unwrap()
++                .is_err()
++        );
+         vm.protect_max(source, PAGE, VmProt::READ).unwrap();
+-        let alias = vm.allocate_shared_ranges(&[(source, PAGE)]).unwrap().unwrap();
+-        assert!(vm.protect_max(alias, PAGE, VmProt::READ | VmProt::WRITE).is_err());
++        let alias = vm
++            .allocate_shared_ranges(&[(source, PAGE)])
++            .unwrap()
++            .unwrap();
++        assert!(
++            vm.protect_max(alias, PAGE, VmProt::READ | VmProt::WRITE)
++                .is_err()
++        );
+         assert!(vm.deallocate(source, PAGE).is_success());
+         assert!(vm.deallocate(alias, PAGE).is_success());
+     }
+@@ -658,7 +717,7 @@ pub(crate) mod tests {
+         let length = 16 * 1024 * 1024;
+         let source = vm.allocate_anywhere(length).unwrap();
+         let target = vm.allocate_anywhere(length).unwrap();
+-        let started = std::time::Instant::now();
++        let started = crate::os::OsClock::new().now_mono();
+         for page in 0..length / PAGE {
+             let from = HostAddr::from_addr(source.addr() + ((page ^ 1) * PAGE).to_usize());
+             let to = HostAddr::from_addr(target.addr() + (page * PAGE).to_usize());
+@@ -669,11 +728,22 @@ pub(crate) mod tests {
+         assert!(vm.deallocate(source, length).is_success());
+         for page in 0..length / PAGE {
+             // SAFETY: each target page independently retains the section backing it.
+-            let value = unsafe { target.as_ptr::<u32>().add((page * PAGE / 4).to_usize()).read() };
++            let value = unsafe {
++                target
++                    .as_ptr::<u32>()
++                    .add((page * PAGE / 4).to_usize())
++                    .read()
++            };
+             assert_eq!(u64::from(value), page);
+         }
+         assert!(vm.deallocate(target, length).is_success());
+-        eprintln!("fragmented alias: {} pages in {:?}", length / PAGE, started.elapsed());
++        eprintln!(
++            "fragmented alias: {} pages in {:?}",
++            length / PAGE,
++            crate::os::OsClock::new()
++                .now_mono()
++                .saturating_duration_since(started)
++        );
+     }
+ 
+     #[test]
+diff --git a/crates/reims-vgpu-vulkan/src/platform.rs b/crates/reims-vgpu-vulkan/src/platform.rs
+index 8c3c8bc..3641bf5 100644
+--- a/crates/reims-vgpu-vulkan/src/platform.rs
++++ b/crates/reims-vgpu-vulkan/src/platform.rs
+@@ -303,6 +303,15 @@ pub(crate) fn device_options() -> &'static rt::DeviceOptions {
+     static OPTIONS: LazyLock<rt::DeviceOptions> = LazyLock::new(|| {
+         let mut options = rt::DeviceOptions::default();
+         crate::os::add_window_extensions(&mut options);
++        #[cfg(target_os = "windows")]
++        if crate::video_targets::take_gpu_imports() {
++            options
++                .device_extensions
++                .push(c"VK_KHR_external_memory_win32".to_owned());
++            options
++                .device_extensions
++                .push(c"VK_KHR_external_semaphore_win32".to_owned());
++        }
+         options.metal_level = crate::os::METAL_LEVEL;
+         options.gpu_times_from_host = true;
+         options.policy = exact_policy(std::env::var("REIMS_VGPU_EXACT").ok().as_deref());
+@@ -423,6 +432,15 @@ pub(crate) fn default_device_registry_id() -> Option<u64> {
+ }
+ 
+ impl Platform for VulkanPlatform {
++    fn surface_backing_created(
++        &self,
++        buffer: &VulkanBuffer,
++        textures: &[VulkanTexture],
++        spec: &reims_vgpu_core::platform::os::surface::BackingSurfaceSpec,
++    ) {
++        crate::video_targets::observe(buffer, textures, spec);
++    }
++
+     type Device = VulkanDevice;
+     type CommandQueue = VulkanCommandQueue;
+     type CommandBuffer = VulkanCommandBuffer;
+@@ -527,11 +545,15 @@ impl Platform for VulkanPlatform {
+         crate::gpu::rate_map::new_descriptor(desc)
+     }
+ 
+-    /// The device of the runtime's `Device::all_with` (`MTLCopyAllDevices`) whose registry ID, as
++    /// The already-opened device with this registry ID, or the device of the runtime's
++    /// `Device::all_with` (`MTLCopyAllDevices`) whose registry ID, as
+     /// this platform answers it ([`device::registry_id`]: Metal's for the default device), is
+     /// `registry_id` (+1), or `None`, as where there is no Vulkan loader. In one process it is the
+     /// object every other handle to that device is ([`device::adopt`]).
+     fn open_device(&self, registry_id: u64) -> Option<VulkanDevice> {
++        if let Some(device) = device::opened(registry_id) {
++            return Some(device);
++        }
+         let all = made_devices("MTLCopyAllDevices()", || {
+             rt::Device::all_with(device_options())
+         });
+diff --git a/crates/reims-vgpu-vulkan/src/remap.rs b/crates/reims-vgpu-vulkan/src/remap.rs
+index 782c3b5..2c9a024 100644
+--- a/crates/reims-vgpu-vulkan/src/remap.rs
++++ b/crates/reims-vgpu-vulkan/src/remap.rs
+@@ -361,18 +361,19 @@ impl HostVm for VulkanVm {
+         &self,
+         ranges: &[(HostAddr, u64)],
+     ) -> Option<Result<HostAddr, KernReturn>> {
+-        self.vm.allocate_shared_ranges(ranges).map(|result| result.map(|at| {
+-            let total = ranges.iter().map(|(_, length)| length).sum();
+-            let replaced = self.changed(at, total);
+-            HOLDS.lock().replaced(&replaced);
+-            let mut target = at.addr().to_u64();
+-            let mut mappings = GUEST_MAPPINGS.lock();
+-            for &(source, length) in ranges {
+-                mappings.mapped(target, target + length, source.addr().to_u64());
+-                target += length;
+-            }
+-            at
+-        }))
++        self.vm.allocate_shared_ranges(ranges).map(|result| {
++            result.inspect(|at| {
++                let total = ranges.iter().map(|(_, length)| length).sum();
++                let replaced = self.changed(*at, total);
++                HOLDS.lock().replaced(&replaced);
++                let mut target = at.addr().to_u64();
++                let mut mappings = GUEST_MAPPINGS.lock();
++                for &(source, length) in ranges {
++                    mappings.mapped(target, target + length, source.addr().to_u64());
++                    target += length;
++                }
++            })
++        })
+     }
+ 
+     fn allocate_fixed_overwrite(&self, addr: HostAddr, len: u64) -> Result<(), KernReturn> {
+@@ -532,16 +533,23 @@ mod tests {
+     #[cfg(target_os = "windows")]
+     #[test]
+     fn fresh_alias_reports_and_names_fragmented_sources() {
+-        let vm = VulkanVm { vm: OsVm::new(), report: seen };
++        let vm = VulkanVm {
++            vm: OsVm::new(),
++            report: seen,
++        };
+         let page = vm.page_size();
+         let source = OsVm::new().allocate_anywhere(2 * page).unwrap();
+-        let alias = vm.allocate_shared_ranges(&[(source.wrapping_add(page), page), (source, page)])
+-            .unwrap().unwrap();
++        let alias = vm
++            .allocate_shared_ranges(&[(source.wrapping_add(page), page), (source, page)])
++            .unwrap()
++            .unwrap();
+         assert_eq!(take(), [(alias, 2 * page, true)]);
+         let first = alias.addr().to_u64();
+         let from = source.addr().to_u64();
+-        assert_eq!(as_guests(vec![first..first + 2 * page]),
+-            [from + page..from + 2 * page, from..from + page]);
++        assert_eq!(
++            as_guests(std::iter::once(first..first + 2 * page).collect()),
++            [from + page..from + 2 * page, from..from + page]
++        );
+         assert!(OsVm::new().deallocate(source, 2 * page).is_success());
+         assert!(vm.deallocate(alias, 2 * page).is_success());
+         assert_eq!(take(), [(alias, 2 * page, true)]);
+diff --git a/crates/reims-vgpu-vulkan/src/video_endpoint.rs b/crates/reims-vgpu-vulkan/src/video_endpoint.rs
+new file mode 100644
+index 0000000..8f8fd22
+--- /dev/null
++++ b/crates/reims-vgpu-vulkan/src/video_endpoint.rs
+@@ -0,0 +1,265 @@
++//! Bounded loopback control for host-issued video targets. This channel carries
++//! capabilities, GPU-handle metadata and dimensions only, never pixels or audio. Authentication is
++//! separate from the guest media channel; the host keeps its random key private.
++
++use reims_vgpu_core::platform::os::Clock as _;
++use std::io::{Read, Write};
++use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
++use std::sync::Arc;
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::thread::{self, JoinHandle};
++use std::time::Duration;
++
++use crate::video_targets;
++use std::collections::BTreeSet;
++
++struct Reservations(BTreeSet<video_targets::Capability>);
++impl Drop for Reservations {
++    fn drop(&mut self) {
++        for capability in &self.0 {
++            video_targets::disarm(*capability);
++        }
++    }
++}
++
++/// An owned host loopback endpoint. Dropping it closes its listener and joins
++/// the listener thread and its at most two connection threads. Metadata reads
++/// are bounded, idle reads notice shutdown within 100 ms, and a GPU operation
++/// has its own completion deadline. Request allocation is fixed in size.
++pub struct Endpoint {
++    stopped: Arc<AtomicBool>,
++    listener: Option<JoinHandle<()>>,
++}
++
++impl Endpoint {
++    /// Starts on one explicit nonprivileged loopback port with a nonzero
++    /// 256-bit key. This does not enable GPU memory imports or media transport.
++    pub fn start(port: u16, secret: [u8; 32]) -> std::io::Result<Self> {
++        if port < 1024 || secret == [0; 32] {
++            return Err(std::io::Error::other("invalid video control configuration"));
++        }
++        let socket = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))?;
++        socket.set_nonblocking(true)?;
++        let stopped = Arc::new(AtomicBool::new(false));
++        let stop = Arc::clone(&stopped);
++        let listener = thread::Builder::new()
++            .name("reims-vgpu.video-control".to_owned())
++            .spawn(move || {
++                let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(2);
++                while !stop.load(Ordering::Acquire) {
++                    video_targets::reap_expired();
++                    let mut index = 0;
++                    while index < workers.len() {
++                        if workers[index].is_finished() {
++                            let _ = workers.swap_remove(index).join();
++                        } else {
++                            index += 1;
++                        }
++                    }
++                    match socket.accept() {
++                        Ok((connection, _)) => {
++                            if workers.len() >= 2 {
++                                continue;
++                            }
++                            let stop = Arc::clone(&stop);
++                            let result = thread::Builder::new()
++                                .name("reims-vgpu.video-request".to_owned())
++                                .spawn(move || {
++                                    let _ = serve(connection, secret, &stop);
++                                });
++                            if let Ok(worker) = result {
++                                workers.push(worker);
++                            }
++                        }
++                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
++                            thread::sleep(Duration::from_millis(20))
++                        }
++                        Err(_) => break,
++                    }
++                }
++                for worker in workers {
++                    let _ = worker.join();
++                }
++            })?;
++        Ok(Self {
++            stopped,
++            listener: Some(listener),
++        })
++    }
++}
++
++impl Drop for Endpoint {
++    fn drop(&mut self) {
++        self.stopped.store(true, Ordering::Release);
++        if let Some(thread) = self.listener.take() {
++            let _ = thread.join();
++        }
++    }
++}
++
++fn serve(mut stream: TcpStream, secret: [u8; 32], stop: &AtomicBool) -> std::io::Result<()> {
++    stream.set_nodelay(true)?;
++    stream.set_read_timeout(Some(Duration::from_secs(3)))?;
++    stream.set_write_timeout(Some(Duration::from_secs(3)))?;
++    let mut hello = [0u8; 36];
++    exact(&mut stream, &mut hello, stop)?;
++    let difference = hello[4..]
++        .iter()
++        .zip(secret)
++        .fold(0u8, |value, (a, b)| value | (*a ^ b));
++    if &hello[..4] != b"NMV1" || difference != 0 {
++        return Err(std::io::Error::other("video control authentication failed"));
++    }
++    stream.write_all(b"A")?;
++    #[cfg(target_os = "windows")]
++    let mut source: Option<crate::video_sources::Source> = None;
++    let mut reservations = Reservations(BTreeSet::new());
++    // Every operation is one fixed 25-byte request. Unknown operations never
++    // interpret capability bytes as an address, path, handle or executable.
++    let started = crate::os::OsClock::new().now_mono();
++    for _ in 0..3_000_000 {
++        if crate::os::OsClock::new()
++            .now_mono()
++            .saturating_duration_since(started)
++            >= Duration::from_secs(3600)
++        {
++            break;
++        }
++        if stop.load(Ordering::Acquire) {
++            break;
++        }
++        let mut request = [0u8; 25];
++        exact_for(
++            &mut stream,
++            &mut request[..1],
++            stop,
++            Duration::from_secs(300),
++        )?;
++        exact(&mut stream, &mut request[1..], stop)?;
++        let capability: [u8; 16] = request[1..17].try_into().map_err(std::io::Error::other)?;
++        let answer = match request[0] {
++            #[cfg(target_os = "windows")]
++            b'I' if request[17..] == [0; 8] && source.is_none() => {
++                let mut producer = [0; 8];
++                exact(&mut stream, &mut producer, stop)?;
++                let producer =
++                    u32::try_from(u64::from_le_bytes(producer)).map_err(std::io::Error::other)?;
++                let mut bytes = [0u8; 72];
++                exact(&mut stream, &mut bytes, stop)?;
++                let word = |at: usize| -> std::io::Result<u32> {
++                    Ok(u32::from_le_bytes(
++                        bytes[at..at + 4]
++                            .try_into()
++                            .map_err(std::io::Error::other)?,
++                    ))
++                };
++                let wide = |at: usize| -> std::io::Result<u64> {
++                    Ok(u64::from_le_bytes(
++                        bytes[at..at + 8]
++                            .try_into()
++                            .map_err(std::io::Error::other)?,
++                    ))
++                };
++                let descriptor = crate::video_sources::Descriptor {
++                    uuid: bytes[..16].try_into().map_err(std::io::Error::other)?,
++                    memory: isize::try_from(wide(16)?).unwrap_or(0),
++                    ready: isize::try_from(wide(24)?).unwrap_or(0),
++                    released: isize::try_from(wide(32)?).unwrap_or(0),
++                    allocation_size: wide(40)?,
++                    width: word(48)?,
++                    height: word(52)?,
++                    stride: word(56)?,
++                    memory_type: word(60)?,
++                    usage: word(64)?,
++                    reserved: word(68)?,
++                };
++                let opened = crate::video_sources::Source::from_process(producer, descriptor);
++                match opened {
++                    Ok(opened) => {
++                        source = Some(opened);
++                        0
++                    }
++                    Err(_) => 1,
++                }
++            }
++            #[cfg(target_os = "windows")]
++            b'C' => {
++                let generation =
++                    u64::from_le_bytes(request[17..25].try_into().map_err(std::io::Error::other)?);
++                match source.as_mut() {
++                    Some(source) => {
++                        if source.copy_to(capability, generation).is_ok() {
++                            0
++                        } else {
++                            1
++                        }
++                    }
++                    _ => 1,
++                }
++            }
++            b'A' => {
++                let width =
++                    u32::from_le_bytes(request[17..21].try_into().map_err(std::io::Error::other)?);
++                let height =
++                    u32::from_le_bytes(request[21..25].try_into().map_err(std::io::Error::other)?);
++                if video_targets::arm(capability, width, height).is_ok() {
++                    reservations.0.insert(capability);
++                    0u32
++                } else {
++                    1
++                }
++            }
++            b'Q' if request[17..] == [0; 8] => video_targets::state(capability),
++            b'D' if request[17..] == [0; 8] => {
++                video_targets::disarm(capability);
++                reservations.0.remove(&capability);
++                0
++            }
++            _ => u32::MAX,
++        };
++        stream.write_all(&answer.to_le_bytes())?;
++    }
++    Ok(())
++}
++
++fn exact(stream: &mut TcpStream, bytes: &mut [u8], stop: &AtomicBool) -> std::io::Result<()> {
++    exact_for(stream, bytes, stop, Duration::from_secs(3))
++}
++
++fn exact_for(
++    stream: &mut TcpStream,
++    mut bytes: &mut [u8],
++    stop: &AtomicBool,
++    duration: Duration,
++) -> std::io::Result<()> {
++    let deadline = crate::os::OsClock::new()
++        .now_mono()
++        .saturating_add(duration);
++    while !bytes.is_empty() {
++        if stop.load(Ordering::Acquire) {
++            return Err(std::io::ErrorKind::Interrupted.into());
++        }
++        let now = crate::os::OsClock::new().now_mono();
++        if now >= deadline {
++            return Err(std::io::ErrorKind::TimedOut.into());
++        }
++        stream.set_read_timeout(Some(
++            deadline
++                .saturating_duration_since(now)
++                .min(Duration::from_millis(100)),
++        ))?;
++        match stream.read(bytes) {
++            Ok(0) => return Err(std::io::ErrorKind::UnexpectedEof.into()),
++            Ok(count) => bytes = &mut bytes[count..],
++            Err(error)
++                if matches!(
++                    error.kind(),
++                    std::io::ErrorKind::WouldBlock
++                        | std::io::ErrorKind::TimedOut
++                        | std::io::ErrorKind::Interrupted
++                ) => {}
++            Err(error) => return Err(error),
++        }
++    }
++    Ok(())
++}
+diff --git a/crates/reims-vgpu-vulkan/src/video_sources.rs b/crates/reims-vgpu-vulkan/src/video_sources.rs
+new file mode 100644
+index 0000000..7f0930f
+--- /dev/null
++++ b/crates/reims-vgpu-vulkan/src/video_sources.rs
+@@ -0,0 +1,569 @@
++//! Windows GPU-frame imports for explicitly armed NV12 targets. The frame
++//! remains in device-local memory until GPU blits reach the destination planes
++//! and the guest's coherent backing. No CPU pixel mapping or network payload is
++//! used here. The latter backing update is GPU DMA into guest RAM, not a claim
++//! that every consumer's pixels stay exclusively in VRAM.
++
++use std::sync::LazyLock;
++use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
++use std::time::Duration;
++
++use ash::vk;
++use metal2vulkan_runtime as rt;
++use reims_vgpu_core::platform::Handle as _;
++use reims_vgpu_core::sync::Mutex;
++
++use crate::gpu::device::VulkanDevice;
++use crate::video_targets::{self, Capability};
++
++/// Metadata supplied by the trusted host producer. Handles are already
++/// duplicated into this process and ownership is passed to `Source::open`.
++pub struct Descriptor {
++    /// The producer's CUDA/Vulkan physical-device UUID.
++    pub uuid: [u8; 16],
++    /// Dedicated OPAQUE_WIN32 device-memory handle.
++    pub memory: isize,
++    /// Producer-ready timeline semaphore handle.
++    pub ready: isize,
++    /// Consumer-completed timeline semaphore handle.
++    pub released: isize,
++    /// The exporting allocation's exact byte size.
++    pub allocation_size: u64,
++    /// Luma width.
++    pub width: u32,
++    /// Luma height.
++    pub height: u32,
++    /// Row stride shared by Y and UV, aligned to 256 bytes.
++    pub stride: u32,
++    /// Exporting memory type, on the same physical device.
++    pub memory_type: u32,
++    /// Exact buffer usage of the exported buffer.
++    pub usage: u32,
++    /// Zero in the fixed source-descriptor protocol.
++    pub reserved: u32,
++}
++
++#[link(name = "kernel32")]
++unsafe extern "system" {
++    fn CloseHandle(handle: isize) -> i32;
++    fn OpenProcess(access: u32, inherit: i32, pid: u32) -> isize;
++    fn GetCurrentProcess() -> *mut std::ffi::c_void;
++    fn DuplicateHandle(
++        source: isize,
++        original: isize,
++        target: isize,
++        duplicate: *mut isize,
++        access: u32,
++        inherit: i32,
++        options: u32,
++    ) -> i32;
++}
++
++struct Handles([isize; 3]);
++impl Drop for Handles {
++    fn drop(&mut self) {
++        for handle in self.0 {
++            // SAFETY: the trusted producer supplied owned, process-local handles.
++            if handle != 0 {
++                unsafe { CloseHandle(handle) };
++            }
++        }
++    }
++}
++
++static ACTIVE: AtomicUsize = AtomicUsize::new(0);
++static FAILED: AtomicBool = AtomicBool::new(false);
++struct Slot;
++impl Drop for Slot {
++    fn drop(&mut self) {
++        ACTIVE.fetch_sub(1, Ordering::AcqRel);
++    }
++}
++struct Retained {
++    _gpu: VulkanDevice,
++    _queue: rt::CommandQueue,
++    _wrapped: Option<rt::Buffer>,
++    _slot: Slot,
++}
++// At most two sources can exist. After any in-flight failure new imports are
++// refused until process restart. GPU objects that might still be referenced
++// are kept with their device, never destroyed under a pending GPU command.
++static RETAINED: LazyLock<Mutex<Vec<Retained>>> = LazyLock::new(|| Mutex::new(Vec::new()));
++
++/// One imported GPU frame slot, reused only after the matching completion
++/// timeline value. A source belongs to one authenticated host connection.
++pub struct Source {
++    slot: Option<Slot>,
++    in_flight: bool,
++    gpu: VulkanDevice,
++    raw: ash::Device,
++    queue: rt::CommandQueue,
++    wrapped: Option<rt::Buffer>,
++    buffer: vk::Buffer,
++    memory: vk::DeviceMemory,
++    ready: vk::Semaphore,
++    released: vk::Semaphore,
++    pool: vk::CommandPool,
++    acquire: vk::CommandBuffer,
++    release: vk::CommandBuffer,
++    fence: vk::Fence,
++    family: u32,
++    width: u32,
++    height: u32,
++    stride: u32,
++    generation: u64,
++}
++
++fn check(result: Result<(), vk::Result>) -> Result<(), String> {
++    result.map_err(|error| format!("video GPU Vulkan error {error:?}"))
++}
++
++impl Source {
++    /// Duplicate producer-owned handles inside the consumer process. An
++    /// interrupted metadata request cannot leak remotely duplicated handles:
++    /// no duplication occurs until the entire descriptor has arrived here.
++    /// The caller authenticates this host producer; the guest supplies neither
++    /// its PID nor these handles.
++    pub fn from_process(pid: u32, mut descriptor: Descriptor) -> Result<Self, String> {
++        if pid == 0 {
++            return Err("invalid video producer process".to_owned());
++        }
++        // SAFETY: Win32 owns the returned process handle; Handles closes it.
++        let process = unsafe { OpenProcess(0x40, 0, pid) };
++        if process == 0 {
++            return Err("video producer process unavailable".to_owned());
++        }
++        let _process = Handles([process, 0, 0]);
++        let mut duplicated = Handles([0; 3]);
++        for (index, original) in [descriptor.memory, descriptor.ready, descriptor.released]
++            .into_iter()
++            .enumerate()
++        {
++            // SAFETY: only duplicate-handle access is requested, and output
++            // slots are local writable storage. No producer handle is closed.
++            if unsafe {
++                DuplicateHandle(
++                    process,
++                    original,
++                    GetCurrentProcess() as isize,
++                    &mut duplicated.0[index],
++                    0,
++                    0,
++                    2,
++                )
++            } == 0
++            {
++                return Err("video producer GPU handle unavailable".to_owned());
++            }
++        }
++        descriptor.memory = duplicated.0[0];
++        descriptor.ready = duplicated.0[1];
++        descriptor.released = duplicated.0[2];
++        duplicated.0 = [0; 3];
++        // SAFETY: these are now owned handles of this process, consumed even
++        // when import validation fails.
++        unsafe { Self::open(descriptor) }
++    }
++
++    /// Import a producer's dedicated allocation and timeline semaphores. No
++    /// CPU pixel access occurs. Refuses another GPU, sizes/usages outside the
++    /// protocol, or a device whose raw queue families cannot be shared here.
++    ///
++    /// # Safety
++    /// The three handles are valid owned GPU objects of this process, duplicated
++    /// from the matching producer. This consumes them, including on failure.
++    pub unsafe fn open(descriptor: Descriptor) -> Result<Self, String> {
++        let _handles = Handles([descriptor.memory, descriptor.ready, descriptor.released]);
++        if FAILED.load(Ordering::Acquire) {
++            return Err("video GPU imports disabled after a GPU failure".to_owned());
++        }
++        if ACTIVE.fetch_add(1, Ordering::AcqRel) >= 2 {
++            ACTIVE.fetch_sub(1, Ordering::AcqRel);
++            return Err("video GPU source limit".to_owned());
++        }
++        let slot = Slot;
++        if descriptor.reserved != 0
++            || !(16..=3840).contains(&descriptor.width)
++            || !(16..=2160).contains(&descriptor.height)
++            || descriptor.width & 1 != 0
++            || descriptor.height & 1 != 0
++            || descriptor.stride < descriptor.width
++            || descriptor.stride > 4096
++            || descriptor.stride & 255 != 0
++            || descriptor.memory == 0
++            || descriptor.ready == 0
++            || descriptor.released == 0
++        {
++            return Err("invalid video GPU source".to_owned());
++        }
++        let bytes = u64::from(descriptor.stride) * u64::from(descriptor.height) * 3 / 2;
++        if descriptor.allocation_size < bytes || descriptor.allocation_size > 64 * 1024 * 1024 {
++            return Err("video GPU allocation bound".to_owned());
++        }
++        let registry = crate::platform::default_device_registry_id()
++            .ok_or_else(|| "no video GPU".to_owned())?;
++        let gpu = crate::gpu::device::opened(registry)
++            .ok_or_else(|| "video GPU has not been opened".to_owned())?;
++        // SAFETY: the strong device handle remains in Source; no runtime-owned object is destroyed.
++        let handles = unsafe { gpu.raw.raw() };
++        let mut id = vk::PhysicalDeviceIDProperties::default();
++        let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut id);
++        // SAFETY: live instance/physical device and writable property chain.
++        unsafe {
++            handles
++                .instance
++                .get_physical_device_properties2(handles.physical_device, &mut properties)
++        };
++        if id.device_uuid != descriptor.uuid || handles.queue_families.len() != 1 {
++            return Err("video GPU UUID or queue-family mismatch".to_owned());
++        }
++        let usage = vk::BufferUsageFlags::from_raw(descriptor.usage);
++        if usage.as_raw() != gpu.raw.vk_buffer_usage().as_raw() {
++            return Err("video GPU buffer usages differ".to_owned());
++        }
++        let queue = gpu
++            .raw
++            .new_command_queue_with_max_command_buffer_count(2)
++            .map_err(|e| e.to_string())?;
++        let mut source = Self {
++            slot: Some(slot),
++            in_flight: false,
++            raw: handles.device.clone(),
++            family: handles.queue_family,
++            gpu,
++            queue,
++            wrapped: None,
++            buffer: vk::Buffer::null(),
++            memory: vk::DeviceMemory::null(),
++            ready: vk::Semaphore::null(),
++            released: vk::Semaphore::null(),
++            pool: vk::CommandPool::null(),
++            acquire: vk::CommandBuffer::null(),
++            release: vk::CommandBuffer::null(),
++            fence: vk::Fence::null(),
++            width: descriptor.width,
++            height: descriptor.height,
++            stride: descriptor.stride,
++            generation: 0,
++        };
++        // SAFETY: all creation chains below describe this owned source's objects.
++        unsafe {
++            let mut external = vk::ExternalMemoryBufferCreateInfo::default()
++                .handle_types(vk::ExternalMemoryHandleTypeFlags::OPAQUE_WIN32);
++            let info = vk::BufferCreateInfo::default()
++                .size(bytes)
++                .usage(usage)
++                .push_next(&mut external);
++            source.buffer = source
++                .raw
++                .create_buffer(&info, None)
++                .map_err(|e| format!("video buffer {e:?}"))?;
++            let required = source.raw.get_buffer_memory_requirements(source.buffer);
++            let raw_handles = source.gpu.raw.raw();
++            let types = raw_handles
++                .instance
++                .get_physical_device_memory_properties(raw_handles.physical_device);
++            if descriptor.memory_type >= types.memory_type_count
++                || required.memory_type_bits & (1u32 << descriptor.memory_type) == 0
++                || !types.memory_types
++                    [usize::try_from(descriptor.memory_type).map_err(|_| "video memory type")?]
++                .property_flags
++                .contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
++                || descriptor.allocation_size < required.size
++            {
++                return Err("video GPU memory type or allocation mismatch".to_owned());
++            }
++            let mut import = vk::ImportMemoryWin32HandleInfoKHR::default()
++                .handle_type(vk::ExternalMemoryHandleTypeFlags::OPAQUE_WIN32)
++                .handle(descriptor.memory);
++            let mut dedicated = vk::MemoryDedicatedAllocateInfo::default().buffer(source.buffer);
++            let mut flags = vk::MemoryAllocateFlagsInfo::default()
++                .flags(vk::MemoryAllocateFlags::DEVICE_ADDRESS);
++            let allocate = vk::MemoryAllocateInfo::default()
++                .allocation_size(descriptor.allocation_size)
++                .memory_type_index(descriptor.memory_type)
++                .push_next(&mut import)
++                .push_next(&mut dedicated)
++                .push_next(&mut flags);
++            source.memory = source
++                .raw
++                .allocate_memory(&allocate, None)
++                .map_err(|e| format!("video GPU memory import {e:?}"))?;
++            check(
++                source
++                    .raw
++                    .bind_buffer_memory(source.buffer, source.memory, 0),
++            )?;
++            let bound = rt::VkBufferMemory::new(source.memory, 0, descriptor.memory_type, None);
++            let options = rt::ResourceOptions::new(
++                rt::StorageMode::Private,
++                rt::CpuCacheMode::DefaultCache,
++                rt::HazardTrackingMode::Tracked,
++            );
++            source.wrapped = Some(
++                source
++                    .gpu
++                    .raw
++                    .new_buffer_with_vk_buffer(source.buffer, &info, bound, bytes, options)
++                    .map_err(|e| e.to_string())?,
++            );
++            let imports =
++                ash::khr::external_semaphore_win32::Device::new(raw_handles.instance, &source.raw);
++            for (handle, output) in [
++                (descriptor.ready, &mut source.ready),
++                (descriptor.released, &mut source.released),
++            ] {
++                let mut timeline = vk::SemaphoreTypeCreateInfo::default()
++                    .semaphore_type(vk::SemaphoreType::TIMELINE);
++                *output = source
++                    .raw
++                    .create_semaphore(
++                        &vk::SemaphoreCreateInfo::default().push_next(&mut timeline),
++                        None,
++                    )
++                    .map_err(|e| format!("video semaphore {e:?}"))?;
++                check(
++                    imports.import_semaphore_win32_handle(
++                        &vk::ImportSemaphoreWin32HandleInfoKHR::default()
++                            .semaphore(*output)
++                            .handle_type(vk::ExternalSemaphoreHandleTypeFlags::OPAQUE_WIN32)
++                            .handle(handle),
++                    ),
++                )?;
++            }
++            source.pool = source
++                .raw
++                .create_command_pool(
++                    &vk::CommandPoolCreateInfo::default().queue_family_index(source.family),
++                    None,
++                )
++                .map_err(|e| format!("video command pool {e:?}"))?;
++            let commands = source
++                .raw
++                .allocate_command_buffers(
++                    &vk::CommandBufferAllocateInfo::default()
++                        .command_pool(source.pool)
++                        .level(vk::CommandBufferLevel::PRIMARY)
++                        .command_buffer_count(2),
++                )
++                .map_err(|e| format!("video commands {e:?}"))?;
++            source.acquire = commands[0];
++            source.release = commands[1];
++            source.fence = source
++                .raw
++                .create_fence(&vk::FenceCreateInfo::default(), None)
++                .map_err(|e| format!("video fence {e:?}"))?;
++            for (command, from, to, src, dst) in [
++                (
++                    source.acquire,
++                    vk::QUEUE_FAMILY_EXTERNAL,
++                    source.family,
++                    vk::AccessFlags::empty(),
++                    vk::AccessFlags::TRANSFER_READ,
++                ),
++                (
++                    source.release,
++                    source.family,
++                    vk::QUEUE_FAMILY_EXTERNAL,
++                    vk::AccessFlags::TRANSFER_READ,
++                    vk::AccessFlags::empty(),
++                ),
++            ] {
++                check(
++                    source
++                        .raw
++                        .begin_command_buffer(command, &vk::CommandBufferBeginInfo::default()),
++                )?;
++                let barrier = vk::BufferMemoryBarrier::default()
++                    .src_queue_family_index(from)
++                    .dst_queue_family_index(to)
++                    .buffer(source.buffer)
++                    .size(vk::WHOLE_SIZE)
++                    .src_access_mask(src)
++                    .dst_access_mask(dst);
++                source.raw.cmd_pipeline_barrier(
++                    command,
++                    vk::PipelineStageFlags::ALL_COMMANDS,
++                    vk::PipelineStageFlags::ALL_COMMANDS,
++                    vk::DependencyFlags::empty(),
++                    &[],
++                    &[barrier],
++                    &[],
++                );
++                check(source.raw.end_command_buffer(command))?;
++            }
++        }
++        Ok(source)
++    }
++
++    /// Copy exactly one new producer generation into its armed target. Pixels
++    /// move through GPU commands. The coherent guest backing also receives a
++    /// GPU copy, so CPU consumers and later guest paging see correct pixels.
++    pub fn copy_to(&mut self, capability: Capability, generation: u64) -> Result<(), String> {
++        if self.generation.checked_add(1) != Some(generation) {
++            return Err("video GPU generation mismatch".to_owned());
++        }
++        video_targets::with_target(capability, |buffer, textures, layout| {
++            if layout.width != self.width
++                || layout.height != self.height
++                || buffer.device.registry_id != self.gpu.registry_id
++            {
++                return Err("video GPU target shape/device mismatch".to_owned());
++            }
++            let semaphore = [self.ready];
++            let values = [generation];
++            let wait = vk::SemaphoreWaitInfo::default()
++                .semaphores(&semaphore)
++                .values(&values);
++            // Check the timeline *before* queueing a GPU wait. A disconnected
++            // producer must time out without leaving the render queue stuck.
++            check(unsafe { self.raw.wait_semaphores(&wait, 20_000_000_000) })?;
++            self.in_flight = true;
++            self.transfer_ownership(self.acquire, Some(generation), None)?;
++            let command = self.queue.command_buffer().map_err(|e| e.to_string())?;
++            let mut blit = command.blit_command_encoder().map_err(|e| e.to_string())?;
++            let source = self
++                .wrapped
++                .as_ref()
++                .ok_or_else(|| "closed video GPU source".to_owned())?;
++            for (i, texture) in textures.iter().enumerate() {
++                let divisor = if i == 0 { 1 } else { 2 };
++                let size = rt::Size::new(
++                    u64::from(self.width / divisor),
++                    u64::from(self.height / divisor),
++                    1,
++                );
++                let offset = if i == 0 {
++                    0
++                } else {
++                    u64::from(self.stride) * u64::from(self.height)
++                };
++                blit.copy_from_buffer_to_texture(
++                    source,
++                    offset,
++                    u64::from(self.stride),
++                    0,
++                    size,
++                    &texture.raw,
++                    0,
++                    0,
++                    rt::Origin::new(0, 0, 0),
++                    rt::BlitOption::None,
++                )
++                .map_err(|e| e.to_string())?;
++                blit.copy_from_texture_to_buffer(
++                    &texture.raw,
++                    0,
++                    0,
++                    rt::Origin::new(0, 0, 0),
++                    size,
++                    &buffer.raw,
++                    layout.offsets[i],
++                    layout.strides[i],
++                    0,
++                    rt::BlitOption::None,
++                )
++                .map_err(|e| e.to_string())?;
++            }
++            blit.end_encoding().map_err(|e| e.to_string())?;
++            command.commit().map_err(|e| e.to_string())?;
++            command
++                .wait_until_completed_for(Duration::from_secs(20))
++                .map_err(|_| "video GPU target copy deadline".to_owned())?;
++            if command.status() != rt::CommandBufferStatus::Completed {
++                return Err("video GPU target command failed".to_owned());
++            }
++            self.transfer_ownership(self.release, None, Some(generation))?;
++            self.in_flight = false;
++            self.generation = generation;
++            Ok(())
++        })
++        .ok_or_else(|| "video GPU target is absent or released".to_owned())?
++    }
++
++    fn transfer_ownership(
++        &self,
++        command: vk::CommandBuffer,
++        wait: Option<u64>,
++        signal: Option<u64>,
++    ) -> Result<(), String> {
++        let waits = if wait.is_some() {
++            vec![self.ready]
++        } else {
++            Vec::new()
++        };
++        let signals = if signal.is_some() {
++            vec![self.released]
++        } else {
++            Vec::new()
++        };
++        let wait_values: Vec<_> = wait.into_iter().collect();
++        let signal_values: Vec<_> = signal.into_iter().collect();
++        let stages = vec![vk::PipelineStageFlags::ALL_COMMANDS; waits.len()];
++        let commands = [command];
++        let mut timeline = vk::TimelineSemaphoreSubmitInfo::default()
++            .wait_semaphore_values(&wait_values)
++            .signal_semaphore_values(&signal_values);
++        let info = vk::SubmitInfo::default()
++            .wait_semaphores(&waits)
++            .wait_dst_stage_mask(&stages)
++            .command_buffers(&commands)
++            .signal_semaphores(&signals)
++            .push_next(&mut timeline);
++        check(unsafe { self.raw.reset_fences(&[self.fence]) })?;
++        // SAFETY: the runtime lends its queue under its own submission lock;
++        // this callback makes no runtime call or wait for a later submission.
++        let submitted = unsafe {
++            self.queue.with_vk_queue(|queue, family| {
++                if family != self.family {
++                    return Err("video queue family changed".to_owned());
++                }
++                check(self.raw.queue_submit(queue, &[info], self.fence))
++            })
++        };
++        submitted?;
++        check(unsafe {
++            self.raw
++                .wait_for_fences(&[self.fence], true, 20_000_000_000)
++        })
++    }
++}
++
++impl Drop for Source {
++    fn drop(&mut self) {
++        if self.in_flight {
++            FAILED.store(true, Ordering::Release);
++            if let Some(slot) = self.slot.take() {
++                RETAINED.lock().push(Retained {
++                    _gpu: self.gpu.clone_ref(),
++                    _queue: self.queue.clone(),
++                    _wrapped: self.wrapped.take(),
++                    _slot: slot,
++                });
++            }
++            return;
++        }
++        drop(self.wrapped.take());
++        // SAFETY: these objects belong only to this source and its completed commands.
++        unsafe {
++            if self.fence != vk::Fence::null() {
++                self.raw.destroy_fence(self.fence, None);
++            }
++            if self.pool != vk::CommandPool::null() {
++                self.raw.destroy_command_pool(self.pool, None);
++            }
++            if self.ready != vk::Semaphore::null() {
++                self.raw.destroy_semaphore(self.ready, None);
++            }
++            if self.released != vk::Semaphore::null() {
++                self.raw.destroy_semaphore(self.released, None);
++            }
++            if self.buffer != vk::Buffer::null() {
++                self.raw.destroy_buffer(self.buffer, None);
++            }
++            if self.memory != vk::DeviceMemory::null() {
++                self.raw.free_memory(self.memory, None);
++            }
++        }
++    }
++}
+diff --git a/crates/reims-vgpu-vulkan/src/video_targets.rs b/crates/reims-vgpu-vulkan/src/video_targets.rs
+new file mode 100644
+index 0000000..f406486
+--- /dev/null
++++ b/crates/reims-vgpu-vulkan/src/video_targets.rs
+@@ -0,0 +1,389 @@
++//! Explicit host-armed video targets over guest IOSurface backings.
++//!
++//! No guest texture ID is required. An authored codec owns a separate metadata
++//! page before its two NV12 planes. A random capability in that page identifies
++//! only a target the host armed, for at most twenty seconds. Unarmed surfaces
++//! follow the ordinary path. This registry performs no video copy, changes no
++//! pixels. Only explicitly armed targets are retained until disarm or their
++//! twenty-second deadline; ordinary unarmed surfaces retain nothing here.
++
++use reims_vgpu_core::platform::os::{Clock as _, MonoTime};
++use std::collections::BTreeMap;
++use std::sync::LazyLock;
++use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
++use std::time::Duration;
++
++use reims_vgpu_core::platform::os::surface::BackingSurfaceSpec;
++use reims_vgpu_core::sync::Mutex;
++
++use crate::gpu::resource::{VulkanBuffer, VulkanTexture};
++use reims_vgpu_core::platform::Handle as _;
++
++/// The explicit metadata ABI marker, not an application or shader identity.
++pub const MAGIC: &[u8; 16] = b"NativeMacVideo01";
++/// The separate metadata page, never part of the video pixels.
++pub const HEADER_BYTES: u64 = 4096;
++/// Metadata is beyond CoreVideo's planar header, inside the alignment page.
++pub const METADATA_OFFSET: usize = 1024;
++/// NV12, video range, eight-bit 4:2:0.
++pub const PIXEL_FORMAT: u32 = u32::from_be_bytes(*b"420v");
++const LIMIT: usize = 64;
++const DEADLINE: Duration = Duration::from_secs(20);
++
++/// A random host-issued resource capability. All-zero is refused.
++pub type Capability = [u8; 16];
++
++/// The validated layout of the two planes in the guest's shared buffer.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct Layout {
++    /// Luma width in bytes and pixels.
++    pub width: u32,
++    /// Luma height in rows.
++    pub height: u32,
++    /// Y then UV byte offsets, both past the metadata page.
++    pub offsets: [u64; 2],
++    /// Y then UV bytes per row.
++    pub strides: [u64; 2],
++}
++
++struct Slot {
++    width: u32,
++    height: u32,
++    armed: MonoTime,
++    target: Option<Target>,
++}
++
++struct Target {
++    buffer: VulkanBuffer,
++    textures: [VulkanTexture; 2],
++    layout: Layout,
++}
++
++static ENABLED: AtomicBool = AtomicBool::new(false);
++static GPU_IMPORTS: AtomicU8 = AtomicU8::new(0);
++static TARGETS: LazyLock<Mutex<BTreeMap<Capability, Slot>>> =
++    LazyLock::new(|| Mutex::new(BTreeMap::new()));
++
++/// Explicitly request Windows GPU import extensions before the process first
++/// creates a device. A request after options were frozen is refused.
++pub fn enable_gpu_imports() -> bool {
++    GPU_IMPORTS
++        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
++            (state < 2).then_some(1)
++        })
++        .is_ok()
++}
++
++/// Freezes the one process-wide selection as device options are constructed.
++#[cfg(target_os = "windows")]
++pub(crate) fn take_gpu_imports() -> bool {
++    let state = GPU_IMPORTS
++        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
++            Some(if state < 2 { state + 2 } else { state })
++        })
++        .unwrap_or_else(|state| state);
++    state == 1 || state == 3
++}
++
++/// Why the host's target reservation was refused.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum Refusal {
++    /// A zero capability, odd/out-of-bounds dimensions or capability reuse.
++    Invalid,
++    /// All bounded slots are live or awaiting their initial binding.
++    Full,
++}
++
++/// Arms one exact NV12 target before the guest creates its backing. No Metal
++/// counterpart: this is an explicit host integration, not a device capability.
++/// The caller supplies a fresh unpredictable capability and keeps it private.
++pub fn arm(capability: Capability, width: u32, height: u32) -> Result<(), Refusal> {
++    if capability == [0; 16]
++        || !(16..=3840).contains(&width)
++        || !(16..=2160).contains(&height)
++        || !width.is_multiple_of(2)
++        || !height.is_multiple_of(2)
++    {
++        return Err(Refusal::Invalid);
++    }
++    reap_expired();
++    let mut slots = TARGETS.lock();
++    if slots.contains_key(&capability) {
++        return Err(Refusal::Invalid);
++    }
++    if slots.len() >= LIMIT {
++        return Err(Refusal::Full);
++    }
++    slots.insert(
++        capability,
++        Slot {
++            width,
++            height,
++            armed: crate::os::OsClock::new().now_mono(),
++            target: None,
++        },
++    );
++    ENABLED.store(true, Ordering::Release);
++    Ok(())
++}
++
++/// Removes the host reservation and releases its explicit GPU target hold.
++pub fn disarm(capability: Capability) {
++    let removed = { TARGETS.lock().remove(&capability) };
++    drop(removed);
++}
++
++/// A host query: 0 absent/expired, 1 awaiting binding, 2 bound to live objects.
++pub fn state(capability: Capability) -> u32 {
++    reap_expired();
++    let slots = TARGETS.lock();
++    slots
++        .get(&capability)
++        .map_or(0, |slot| if slot.target.is_some() { 2 } else { 1 })
++}
++
++/// Runs a host operation while strong references keep a bound buffer and its
++/// planes alive. The registry lock is not held across the operation. No pixels
++/// are read or written by this function. `None` means absent or released.
++pub fn with_target<R>(
++    capability: Capability,
++    run: impl FnOnce(&VulkanBuffer, &[VulkanTexture; 2], Layout) -> R,
++) -> Option<R> {
++    reap_expired();
++    let (buffer, textures, layout) = {
++        let slots = TARGETS.lock();
++        let target = slots.get(&capability)?.target.as_ref()?;
++        let buffer = target.buffer.clone_ref();
++        let textures = [
++            target.textures[0].clone_ref(),
++            target.textures[1].clone_ref(),
++        ];
++        (buffer, textures, target.layout)
++    };
++    Some(run(&buffer, &textures, layout))
++}
++
++fn take_expired(slots: &mut BTreeMap<Capability, Slot>, now: MonoTime) -> Vec<Slot> {
++    let keys: Vec<_> = slots
++        .iter()
++        .filter(|(_, slot)| now.saturating_duration_since(slot.armed) >= DEADLINE)
++        .map(|(key, _)| *key)
++        .collect();
++    keys.into_iter()
++        .filter_map(|key| slots.remove(&key))
++        .collect()
++}
++
++/// Reap the explicit GPU holds after their deadline. Removed objects are
++/// dropped outside the registry lock: GPU deallocators may take other locks.
++/// The owned endpoint calls this on its bounded listener loop even when idle.
++pub(crate) fn reap_expired() {
++    if !ENABLED.load(Ordering::Acquire) {
++        return;
++    }
++    let removed = {
++        let mut slots = TARGETS.lock();
++        take_expired(&mut slots, crate::os::OsClock::new().now_mono())
++    };
++    drop(removed);
++}
++
++fn describe(
++    bytes: &[u8; 64],
++    spec: &BackingSurfaceSpec,
++    length: u64,
++) -> Option<(Capability, Layout)> {
++    if &bytes[..16] != MAGIC
++        || u32::from_le_bytes(bytes[32..36].try_into().ok()?) != 1
++        || bytes[48..] != [0; 16]
++        || spec.pixel_format != PIXEL_FORMAT
++        || spec.planes.len() != 2
++    {
++        return None;
++    }
++    let capability: Capability = bytes[16..32].try_into().ok()?;
++    let width = u32::from_le_bytes(bytes[36..40].try_into().ok()?);
++    let height = u32::from_le_bytes(bytes[40..44].try_into().ok()?);
++    if capability == [0; 16]
++        || width != spec.width
++        || height != spec.height
++        || u32::from_le_bytes(bytes[44..48].try_into().ok()?) != PIXEL_FORMAT
++    {
++        return None;
++    }
++    let mut offsets = [0; 2];
++    let mut strides = [0; 2];
++    let mut end = HEADER_BYTES;
++    for (i, plane) in spec.planes.iter().enumerate() {
++        let divisor = if i == 0 { 1 } else { 2 };
++        if plane.width != width / divisor
++            || plane.height != height / divisor
++            || plane.bytes_per_element != i32::try_from(divisor).ok()?
++            || plane.bytes_per_row < i32::try_from(width).ok()?
++        {
++            return None;
++        }
++        let offset = u64::from(plane.offset);
++        let stride = u64::try_from(plane.bytes_per_row).ok()?;
++        let stop = offset.checked_add(stride.checked_mul(u64::from(plane.height))?)?;
++        if offset < end || stop > length {
++            return None;
++        }
++        offsets[i] = offset;
++        strides[i] = stride;
++        end = stop;
++    }
++    Some((
++        capability,
++        Layout {
++            width,
++            height,
++            offsets,
++            strides,
++        },
++    ))
++}
++
++/// The optional core notification: inspect only the fixed metadata header of
++/// an exact two-plane NV12 backing. No pixel bytes are accessed or copied.
++pub(crate) fn observe(
++    buffer: &VulkanBuffer,
++    textures: &[VulkanTexture],
++    spec: &BackingSurfaceSpec,
++) {
++    if !ENABLED.load(Ordering::Acquire) || textures.len() != 2 || spec.pixel_format != PIXEL_FORMAT
++    {
++        return;
++    }
++    let length = buffer.raw.length();
++    if length < HEADER_BYTES {
++        return;
++    }
++    let Some(pointer) = buffer.raw.contents() else {
++        return;
++    };
++    let mut bytes = [0u8; 64];
++    for (i, byte) in bytes.iter_mut().enumerate() {
++        // SAFETY: the retained shared buffer covers the header. Guest writes
++        // may race it, so snapshot volatile bytes and validate the whole ABI.
++        *byte = unsafe { pointer.as_ptr().add(METADATA_OFFSET + i).read_volatile() };
++    }
++    let Some((capability, layout)) = describe(&bytes, spec, length) else {
++        return;
++    };
++    reap_expired();
++    let mut slots = TARGETS.lock();
++    let Some(slot) = slots.get_mut(&capability) else {
++        return;
++    };
++    if slot.width != layout.width || slot.height != layout.height || slot.target.is_some() {
++        return;
++    }
++    slot.target = Some(Target {
++        buffer: buffer.clone_ref(),
++        textures: [textures[0].clone_ref(), textures[1].clone_ref()],
++        layout,
++    });
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use reims_vgpu_core::platform::os::surface::BackingPlaneSpec;
++
++    fn fixture() -> ([u8; 64], BackingSurfaceSpec, u64) {
++        let mut header = [0; 64];
++        header[..16].copy_from_slice(MAGIC);
++        header[16..32].fill(7);
++        for (offset, value) in [(32, 1u32), (36, 320), (40, 180), (44, PIXEL_FORMAT)] {
++            header[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
++        }
++        let planes = [(320, 180, 1, 4096), (160, 90, 2, 61696)]
++            .into_iter()
++            .map(|(width, height, bpe, offset)| BackingPlaneSpec {
++                width,
++                height,
++                bytes_per_element: bpe,
++                bytes_per_row: 320,
++                base: offset,
++                offset,
++            })
++            .collect();
++        (
++            header,
++            BackingSurfaceSpec {
++                pixel_format: PIXEL_FORMAT,
++                planes,
++                width: 320,
++                height: 180,
++            },
++            90496,
++        )
++    }
++
++    #[test]
++    fn exact_header_and_disjoint_planes_describe_the_target() {
++        let (header, spec, length) = fixture();
++        let (capability, layout) = describe(&header, &spec, length).unwrap();
++        assert_eq!(capability, [7; 16]);
++        assert_eq!(layout.offsets, [4096, 61696]);
++        assert_eq!(layout.strides, [320, 320]);
++    }
++
++    #[test]
++    fn wrong_header_dimensions_and_unknown_version_are_refused() {
++        let (mut header, spec, length) = fixture();
++        header[36..40].copy_from_slice(&318u32.to_le_bytes());
++        assert!(describe(&header, &spec, length).is_none());
++        header[36..40].copy_from_slice(&320u32.to_le_bytes());
++        header[32] = 2;
++        assert!(describe(&header, &spec, length).is_none());
++    }
++
++    #[test]
++    fn pixel_overlap_short_stride_and_out_of_buffer_planes_are_refused() {
++        let (header, mut spec, length) = fixture();
++        spec.planes[0].offset = 0;
++        assert!(describe(&header, &spec, length).is_none());
++        spec.planes[0].offset = 4096;
++        spec.planes[1].offset = 61695;
++        assert!(describe(&header, &spec, length).is_none());
++        spec.planes[1].offset = 61696;
++        spec.planes[1].bytes_per_row = 319;
++        assert!(describe(&header, &spec, length).is_none());
++        spec.planes[1].bytes_per_row = 320;
++        assert!(describe(&header, &spec, length - 1).is_none());
++    }
++
++    #[test]
++    fn absent_target_never_calls_the_operation() {
++        assert_eq!(
++            with_target([0; 16], |_, _, _| panic!("unarmed target")),
++            None::<()>
++        );
++        assert_eq!(arm([0; 16], 320, 180), Err(Refusal::Invalid));
++        assert_eq!(arm([1; 16], 319, 180), Err(Refusal::Invalid));
++    }
++
++    #[test]
++    fn reservations_expire_at_the_exact_monotonic_deadline() {
++        let mut slots = BTreeMap::new();
++        let start = MonoTime::from_nanos(1_000);
++        slots.insert(
++            [9; 16],
++            Slot {
++                width: 320,
++                height: 180,
++                armed: start,
++                target: None,
++            },
++        );
++        assert!(take_expired(&mut slots, start.saturating_add(Duration::from_secs(19))).is_empty());
++        assert_eq!(slots.len(), 1);
++        assert_eq!(
++            take_expired(&mut slots, start.saturating_add(DEADLINE)).len(),
++            1
++        );
++        assert!(slots.is_empty());
++    }
++}

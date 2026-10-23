@@ -19,14 +19,14 @@ template<class T> T load(HMODULE module,const char* name){
     return reinterpret_cast<T>(address);
 }
 #define VK_ENTRIES(X) \
- X(CreateInstance) X(DestroyInstance) X(EnumeratePhysicalDevices) X(GetPhysicalDeviceProperties2) \
+ X(CreateInstance) X(DestroyInstance) X(EnumeratePhysicalDevices) X(GetPhysicalDeviceProperties2) X(GetPhysicalDeviceFeatures2) \
  X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceQueueFamilyProperties) X(GetPhysicalDeviceExternalBufferProperties) \
  X(GetPhysicalDeviceExternalSemaphoreProperties) X(CreateDevice) X(DestroyDevice) X(GetDeviceProcAddr) X(GetDeviceQueue) \
  X(CreateBuffer) X(DestroyBuffer) X(GetBufferMemoryRequirements) X(AllocateMemory) X(FreeMemory) X(BindBufferMemory) \
  X(CreateImage) X(DestroyImage) X(GetImageMemoryRequirements) X(BindImageMemory) \
  X(CreateSemaphore) X(DestroySemaphore) X(CreateCommandPool) X(DestroyCommandPool) X(AllocateCommandBuffers) \
  X(BeginCommandBuffer) X(EndCommandBuffer) X(CmdPipelineBarrier) X(CmdCopyBufferToImage) X(CmdCopyImageToBuffer) \
- X(CreateFence) X(DestroyFence) X(ResetFences) X(WaitForFences) X(QueueSubmit) X(DeviceWaitIdle) X(MapMemory) X(UnmapMemory)
+ X(CreateFence) X(DestroyFence) X(ResetFences) X(WaitForFences) X(WaitSemaphores) X(QueueSubmit) X(DeviceWaitIdle) X(MapMemory) X(UnmapMemory)
 #define CU_ENTRIES(X) \
  X(cuDeviceGetUuid) X(cuImportExternalMemory) X(cuDestroyExternalMemory) X(cuExternalMemoryGetMappedBuffer) X(cuMemFree_v2) \
  X(cuImportExternalSemaphore) X(cuDestroyExternalSemaphore) X(cuWaitExternalSemaphoresAsync) X(cuSignalExternalSemaphoresAsync) \
@@ -63,8 +63,16 @@ struct GpuFrameInterop::State {
     CUstream stream=nullptr;
     unsigned width,height;
     size_t bytes;
+    bool exporting;
+    unsigned stride;
+    uint64_t generation=0,allocationSize=0;
+    uint32_t sharedMemoryType=0,sharedUsage=0;
+    std::array<uint8_t,16> deviceUuid{};
+    std::array<HANDLE,3> exports{};
     bool submitted=false;
-    State(unsigned w,unsigned h):width(w),height(h),bytes(static_cast<size_t>(w)*h*3/2){}
+    State(unsigned w,unsigned h,bool exportingFrames):width(w),height(h),bytes(static_cast<size_t>(w)*h*3/2),exporting(exportingFrames),stride(exportingFrames?(w+255)&~255u:w){
+        if(exporting)bytes=static_cast<size_t>(stride)*height*3/2;
+    }
     ~State(){
         // The owning worker's watchdog bounds a device failure. Nothing is
         // freed while either API can still refer to the shared allocation.
@@ -75,6 +83,7 @@ struct GpuFrameInterop::State {
         if(cudaReleased&&cuDestroyExternalSemaphore)cuDestroyExternalSemaphore(cudaReleased);
         if(destination&&cuMemFree_v2)cuMemFree_v2(destination);
         if(imported&&cuDestroyExternalMemory)cuDestroyExternalMemory(imported);
+        for(auto handle:exports)if(handle)CloseHandle(handle);
         if(device){
             if(fence)DestroyFence(device,fence,nullptr);
             if(pool)DestroyCommandPool(device,pool,nullptr);
@@ -102,14 +111,18 @@ struct GpuFrameInterop::State {
     void semaphore(VkSemaphore& output,CUexternalSemaphore& external){
         VkExportSemaphoreCreateInfo exportInfo{VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO};
         exportInfo.handleTypes=VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+        VkSemaphoreTypeCreateInfo type{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};type.semaphoreType=VK_SEMAPHORE_TYPE_TIMELINE;
+        if(exporting)exportInfo.pNext=&type;
         VkSemaphoreCreateInfo info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};info.pNext=&exportInfo;
         vkCheck(CreateSemaphore(device,&info,nullptr,&output));
         VkSemaphoreGetWin32HandleInfoKHR handleInfo{VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR};
         handleInfo.semaphore=output;handleInfo.handleType=VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
         HANDLE handle=nullptr;vkCheck(getSemaphore(device,&handleInfo,&handle));
         CUDA_EXTERNAL_SEMAPHORE_HANDLE_DESC descriptor{};
-        descriptor.type=CU_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32;descriptor.handle.win32.handle=handle;
-        auto status=cuImportExternalSemaphore(&external,&descriptor);CloseHandle(handle);cuCheck(status);
+        descriptor.type=exporting?CU_EXTERNAL_SEMAPHORE_HANDLE_TYPE_TIMELINE_SEMAPHORE_WIN32:CU_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32;descriptor.handle.win32.handle=handle;
+        auto status=cuImportExternalSemaphore(&external,&descriptor);
+        if(exporting)exports[&output==&ready?1:2]=handle;else CloseHandle(handle);
+        cuCheck(status);
     }
     void initialize(CUdevice selected){
         vulkan=LoadLibraryExW(L"vulkan-1.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);
@@ -121,13 +134,13 @@ struct GpuFrameInterop::State {
 #define LOAD_CU(name) name=load<t##name*>(cuda,#name);
         CU_ENTRIES(LOAD_CU)
 #undef LOAD_CU
-        VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};app.apiVersion=VK_API_VERSION_1_1;
+        VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};app.apiVersion=exporting?VK_API_VERSION_1_2:VK_API_VERSION_1_1;
         VkInstanceCreateInfo instanceInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};instanceInfo.pApplicationInfo=&app;
         vkCheck(CreateInstance(&instanceInfo,nullptr,&instance));
         uint32_t count=0;vkCheck(EnumeratePhysicalDevices(instance,&count,nullptr));
         if(!count||count>64)throw std::runtime_error("Unbounded Vulkan device enumeration");
         std::vector<VkPhysicalDevice> devices(count);vkCheck(EnumeratePhysicalDevices(instance,&count,devices.data()));
-        CUuuid uuid{};cuCheck(cuDeviceGetUuid(&uuid,selected));
+        CUuuid uuid{};cuCheck(cuDeviceGetUuid(&uuid,selected));memcpy(deviceUuid.data(),uuid.bytes,16);
         for(auto candidate:devices){
             VkPhysicalDeviceIDProperties id{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
             VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};properties.pNext=&id;
@@ -140,12 +153,18 @@ struct GpuFrameInterop::State {
         if(!physical)throw std::runtime_error("CUDA/Vulkan device UUID mismatch");
         VkPhysicalDeviceExternalBufferInfo query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_BUFFER_INFO};
         query.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        // Match the runtime's general Metal-buffer usages, including BDA.
+        // The importing device checks this exact set before wrapping it.
+        if(exporting)query.usage=static_cast<VkBufferUsageFlags>(0x201ff);
+        sharedUsage=query.usage;
         query.handleType=VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
         VkExternalBufferProperties properties{VK_STRUCTURE_TYPE_EXTERNAL_BUFFER_PROPERTIES};
         GetPhysicalDeviceExternalBufferProperties(physical,&query,&properties);
         if(!(properties.externalMemoryProperties.externalMemoryFeatures&VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT))throw std::runtime_error("Vulkan buffer is not exportable");
         VkPhysicalDeviceExternalSemaphoreInfo semaphoreQuery{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO};
         semaphoreQuery.handleType=VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+        VkSemaphoreTypeCreateInfo timelineQuery{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};timelineQuery.semaphoreType=VK_SEMAPHORE_TYPE_TIMELINE;
+        if(exporting)semaphoreQuery.pNext=&timelineQuery;
         VkExternalSemaphoreProperties semaphoreProperties{VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES};
         GetPhysicalDeviceExternalSemaphoreProperties(physical,&semaphoreQuery,&semaphoreProperties);
         if(!(semaphoreProperties.externalSemaphoreFeatures&VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT))throw std::runtime_error("Vulkan semaphore is not exportable");
@@ -161,6 +180,14 @@ struct GpuFrameInterop::State {
         const char* extensions[]={VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME};
         VkDeviceCreateInfo deviceInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};deviceInfo.queueCreateInfoCount=1;deviceInfo.pQueueCreateInfos=&queueInfo;
         deviceInfo.enabledExtensionCount=2;deviceInfo.ppEnabledExtensionNames=extensions;
+        VkPhysicalDeviceVulkan12Features features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+        if(exporting){
+            VkPhysicalDeviceFeatures2 supported{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};supported.pNext=&features;
+            GetPhysicalDeviceFeatures2(physical,&supported);
+            if(!features.timelineSemaphore||!features.bufferDeviceAddress)throw std::runtime_error("GPU timeline/BDA unavailable");
+            features={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};features.timelineSemaphore=VK_TRUE;features.bufferDeviceAddress=VK_TRUE;
+            deviceInfo.pNext=&features;
+        }
         vkCheck(CreateDevice(physical,&deviceInfo,nullptr,&device));GetDeviceQueue(device,family,0,&queue);
         getMemory=reinterpret_cast<PFN_vkGetMemoryWin32HandleKHR>(GetDeviceProcAddr(device,"vkGetMemoryWin32HandleKHR"));
         getSemaphore=reinterpret_cast<PFN_vkGetSemaphoreWin32HandleKHR>(GetDeviceProcAddr(device,"vkGetSemaphoreWin32HandleKHR"));
@@ -171,15 +198,23 @@ struct GpuFrameInterop::State {
         VkMemoryRequirements requirement{};GetBufferMemoryRequirements(device,shared,&requirement);
         VkMemoryDedicatedAllocateInfo dedicated{VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO};dedicated.buffer=shared;
         VkExportMemoryAllocateInfo exportInfo{VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO};exportInfo.pNext=&dedicated;exportInfo.handleTypes=query.handleType;
+        VkMemoryAllocateFlagsInfo address{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO};address.flags=VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+        if(exporting)dedicated.pNext=&address;
         VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};allocate.pNext=&exportInfo;allocate.allocationSize=requirement.size;
         allocate.memoryTypeIndex=memoryType(requirement.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        allocationSize=requirement.size;sharedMemoryType=allocate.memoryTypeIndex;
         vkCheck(AllocateMemory(device,&allocate,nullptr,&sharedMemory));vkCheck(BindBufferMemory(device,shared,sharedMemory,0));
         VkMemoryGetWin32HandleInfoKHR handleInfo{VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR};handleInfo.memory=sharedMemory;handleInfo.handleType=query.handleType;
         HANDLE handle=nullptr;vkCheck(getMemory(device,&handleInfo,&handle));
         CUDA_EXTERNAL_MEMORY_HANDLE_DESC descriptor{};descriptor.type=CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32;
         descriptor.handle.win32.handle=handle;descriptor.size=requirement.size;descriptor.flags=1; // CUDA dedicated allocation.
-        auto importedStatus=cuImportExternalMemory(&imported,&descriptor);CloseHandle(handle);cuCheck(importedStatus);
+        auto importedStatus=cuImportExternalMemory(&imported,&descriptor);
+        if(exporting)exports[0]=handle;else CloseHandle(handle);
+        cuCheck(importedStatus);
         CUDA_EXTERNAL_MEMORY_BUFFER_DESC mapped{};mapped.size=bytes;cuCheck(cuExternalMemoryGetMappedBuffer(&destination,imported,&mapped));
+        semaphore(ready,cudaReady);semaphore(released,cudaReleased);cuCheck(cuStreamCreate(&stream,CU_STREAM_NON_BLOCKING));
+        // Export mode never allocates a CPU readback or local plane images.
+        if(exporting)return;
         bufferInfo.pNext=nullptr;bufferInfo.usage=VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         vkCheck(CreateBuffer(device,&bufferInfo,nullptr,&readback));GetBufferMemoryRequirements(device,readback,&requirement);
         allocate.pNext=nullptr;allocate.allocationSize=requirement.size;
@@ -194,7 +229,6 @@ struct GpuFrameInterop::State {
             allocate.allocationSize=requirement.size;allocate.memoryTypeIndex=memoryType(requirement.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
             vkCheck(AllocateMemory(device,&allocate,nullptr,&planeMemory[i]));vkCheck(BindImageMemory(device,planes[i],planeMemory[i],0));
         }
-        semaphore(ready,cudaReady);semaphore(released,cudaReleased);cuCheck(cuStreamCreate(&stream,CU_STREAM_NON_BLOCKING));
         VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};poolInfo.queueFamilyIndex=family;
         vkCheck(CreateCommandPool(device,&poolInfo,nullptr,&pool));
         VkCommandBufferAllocateInfo commands{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};commands.commandPool=pool;commands.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;commands.commandBufferCount=1;
@@ -231,6 +265,7 @@ struct GpuFrameInterop::State {
         vkCheck(EndCommandBuffer(command));
     }
     std::vector<uint8_t> validate(CUdeviceptr source,unsigned pitch){
+        if(exporting)throw std::runtime_error("Readback forbidden in GPU export mode");
         if(!source||pitch<width)throw std::runtime_error("Invalid NVDEC surface pitch");
         if(submitted){
             CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS wait{};cuCheck(cuWaitExternalSemaphoresAsync(&cudaReleased,&wait,1,stream));
@@ -249,12 +284,41 @@ struct GpuFrameInterop::State {
         std::vector<uint8_t> result(bytes);memcpy(result.data(),mapped,bytes);UnmapMemory(device,readbackMemory);
         return result;
     }
+    std::vector<uint8_t> descriptor()const{
+        if(!exporting)throw std::runtime_error("Not a GPU export source");
+        std::vector<uint8_t> result(72);memcpy(result.data(),deviceUuid.data(),16);
+        auto wide=[&](size_t at,uint64_t value){for(unsigned i=0;i<8;i++)result[at+i]=static_cast<uint8_t>(value>>(8*i));};
+        auto word=[&](size_t at,uint32_t value){for(unsigned i=0;i<4;i++)result[at+i]=static_cast<uint8_t>(value>>(8*i));};
+        for(size_t i=0;i<exports.size();i++)wide(16+8*i,reinterpret_cast<uintptr_t>(exports[i]));
+        wide(40,allocationSize);word(48,width);word(52,height);word(56,stride);word(60,sharedMemoryType);word(64,sharedUsage);
+        return result;
+    }
+    uint64_t publish(CUdeviceptr source,unsigned pitch){
+        if(!exporting||!source||pitch<width||generation==UINT64_MAX)throw std::runtime_error("Invalid GPU frame publication");
+        // A bounded CPU timeline query precedes any GPU wait. A dead consumer
+        // cannot strand a CUDA stream behind an unsignalled semaphore.
+        if(generation){
+            VkSemaphoreWaitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};wait.semaphoreCount=1;wait.pSemaphores=&released;wait.pValues=&generation;
+            vkCheck(WaitSemaphores(device,&wait,20000000000ULL));
+            CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS acquire{};acquire.params.fence.value=generation;
+            cuCheck(cuWaitExternalSemaphoresAsync(&cudaReleased,&acquire,1,stream));
+        }
+        CUDA_MEMCPY2D copy{};copy.srcMemoryType=copy.dstMemoryType=CU_MEMORYTYPE_DEVICE;
+        copy.srcDevice=source;copy.srcPitch=pitch;copy.dstDevice=destination;copy.dstPitch=stride;
+        copy.WidthInBytes=width;copy.Height=height*3/2;cuCheck(cuMemcpy2DAsync_v2(&copy,stream));
+        CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signal{};signal.params.fence.value=++generation;
+        cuCheck(cuSignalExternalSemaphoresAsync(&cudaReady,&signal,1,stream));
+        // NVDEC may unmap/reuse its input only after its device copy finishes.
+        cuCheck(cuStreamSynchronize(stream));return generation;
+    }
 };
 
-GpuFrameInterop::GpuFrameInterop(CUdevice device,unsigned width,unsigned height):state(std::make_unique<State>(width,height)){
+GpuFrameInterop::GpuFrameInterop(CUdevice device,unsigned width,unsigned height,bool exportFrames):state(std::make_unique<State>(width,height,exportFrames)){
     if(width<16||height<16||width>3840||height>2160||width%2||height%2)throw std::runtime_error("Bounded even NV12 dimensions required");
     state->initialize(device);
 }
 GpuFrameInterop::~GpuFrameInterop()=default;
 std::vector<uint8_t> GpuFrameInterop::validate(CUdeviceptr source,unsigned pitch){return state->validate(source,pitch);}
 CUstream GpuFrameInterop::outputStream() const{return state->stream;}
+std::vector<uint8_t> GpuFrameInterop::exportDescriptor()const{return state->descriptor();}
+uint64_t GpuFrameInterop::publish(CUdeviceptr source,unsigned pitch){return state->publish(source,pitch);}

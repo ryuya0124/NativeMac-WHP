@@ -101,6 +101,17 @@
       "applyAfter": "patches/reims-fresh-shared-aliases.patch",
       "sourceRevision": "18fca9c",
       "scope": "first 64 shared alias installs of at least 32 MiB; no guest addresses or shader inputs"
+    },
+    "sharedGpuVideo": {
+      "patch": "patches/reims-shared-gpu-video.patch",
+      "baseCommit": "1b9a256573aa84b3aaaac5935dcdf0289e8256da",
+      "candidateCommit": "c92cfb7",
+      "applyAlso": "patches/reims-msvc.patch",
+      "runtimeCommit": "90004070fabb5678de958a25e7f2aac6acda2b74",
+      "status": "experimental: Intel VM byte/PTS checks and ordinary Safari shared-GPU playback pass; low display fps and full-library regression failures remain",
+      "verification": "docs/verification/video-shared-gpu-guest.json",
+      "noCpuDecodeFallback": true,
+      "vramExclusive": false
     }
   },
   "amdVanilla": {

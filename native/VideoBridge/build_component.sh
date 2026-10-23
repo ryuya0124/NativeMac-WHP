@@ -22,7 +22,7 @@ for operation in ['decoder','encoder']:
 Path('NativeMacNVDECProbe.bundle/Contents/Info.plist').write_bytes(plistlib.dumps(info))
 PY
 clang++ -arch x86_64 -O2 -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pthread -bundle VTDecoder.mm VTEncoder.mm VideoTransport.cpp \
-    -framework Foundation -framework VideoToolbox -framework CoreMedia -framework CoreVideo -lcompression \
+    -framework Foundation -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework Metal -framework IOSurface -lcompression \
     -o "$bundle/Contents/MacOS/NativeMacNVDECProbe"
 codesign --force --sign - "$bundle"
 codesign --verify --strict "$bundle"

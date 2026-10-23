@@ -8,6 +8,8 @@ param(
     [switch]$DevelopmentSigning,
     [switch]$HostMetalEntry,
     [switch]$HostMemoryArchitecture,
+    [switch]$SharedGpuVideo,
+    [switch]$ExactHalfBlend,
     [ValidateSet('legacy','compat')][string]$MetalTransport,
     [ValidateSet('1920x1080','2560x1440','3840x2160')][string]$DisplayResolution,
     [ValidateRange(30,240)][int]$DisplayRefreshHz
@@ -16,6 +18,11 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $defaults = Get-Content (Join-Path $projectRoot 'vm/defaults.json') -Raw | ConvertFrom-Json
 if (!$PSBoundParameters.ContainsKey('DevelopmentSigning') -and $defaults.developmentSigning) { $DevelopmentSigning = $true }
+if ($Gpu -and !$FirmwareOnly) {
+    if (!$PSBoundParameters.ContainsKey('SharedGpuVideo') -and $defaults.sharedGpuVideo) { $SharedGpuVideo = $true }
+    if (!$PSBoundParameters.ContainsKey('ExactHalfBlend') -and $defaults.gpuExactHalfBlend) { $ExactHalfBlend = $true }
+}
+if ($SharedGpuVideo -and (!$Gpu -or $FirmwareOnly -or !$defaults.systemVideoBridge)) { throw '-SharedGpuVideo requires -Gpu, a full guest and the system video service.' }
 if ($HostMetalEntry -and (!$DevelopmentSigning -or !$Gpu)) { throw '-HostMetalEntry requires development signing and -Gpu.' }
 if ($HostMemoryArchitecture -and !$HostMetalEntry) { throw '-HostMemoryArchitecture requires -HostMetalEntry.' }
 if (!$DisplayRefreshHz) {
@@ -111,10 +118,30 @@ Write-Host "Starting WHP VM: RAM ${MemoryGiB} GiB, ${Processors} cores, $Display
 # The OpenVMM worker inherits this per-launch setting. No machine environment is changed.
 $previousResolution = $env:NATIVEMAC_DISPLAY_RESOLUTION
 $previousRefresh = $env:REIMS_VGPU_WINDOW_REFRESH
+$previousGpuControl = $env:NATIVEMAC_VIDEO_CONTROL_FILE
+$previousExact = $env:REIMS_VGPU_EXACT
+$ownedGpuControl = $null
 $videoSession = $null
 try {
     $env:NATIVEMAC_DISPLAY_RESOLUTION = $DisplayResolution
     $env:REIMS_VGPU_WINDOW_REFRESH = [string]$DisplayRefreshHz
+    if ($ExactHalfBlend) {
+        $forms = @($env:REIMS_VGPU_EXACT -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        if ('half_blend' -notin $forms -and 'all' -notin $forms) { $forms += 'half_blend' }
+        $env:REIMS_VGPU_EXACT = $forms -join ','
+        Write-Host 'GPU compatibility: exact half blending enabled for this launch.'
+    }
+    if ($SharedGpuVideo -and !$env:NATIVEMAC_VIDEO_CONTROL_FILE) {
+        $controlDirectory = Join-Path $projectRoot 'artifacts/video-service'
+        New-Item -ItemType Directory -Path $controlDirectory -Force | Out-Null
+        $ownedGpuControl = Join-Path $controlDirectory ("gpu-control-" + [guid]::NewGuid().ToString('N') + '.bin')
+        $bytes = New-Object byte[] 36
+        [BitConverter]::GetBytes([uint32]54888).CopyTo($bytes, 0)
+        $random = [Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $secret = New-Object byte[] 32; $random.GetBytes($secret); $secret.CopyTo($bytes, 4) } finally { $random.Dispose() }
+        [IO.File]::WriteAllBytes($ownedGpuControl, $bytes)
+        $env:NATIVEMAC_VIDEO_CONTROL_FILE = $ownedGpuControl
+    }
     if ($Gpu -and $defaults.systemVideoBridge) {
         Write-Host 'Preparing the VM-owned hardware video service before GPU startup.'
         $videoSession = & (Join-Path $PSScriptRoot 'Start-VideoBridge.ps1') -LauncherPid $PID
@@ -130,6 +157,9 @@ try {
     }
     $env:NATIVEMAC_DISPLAY_RESOLUTION = $previousResolution
     $env:REIMS_VGPU_WINDOW_REFRESH = $previousRefresh
+    $env:NATIVEMAC_VIDEO_CONTROL_FILE = $previousGpuControl
+    $env:REIMS_VGPU_EXACT = $previousExact
+    if ($ownedGpuControl -and (Test-Path -LiteralPath $ownedGpuControl)) { Remove-Item -LiteralPath $ownedGpuControl }
 }
 if ($LASTEXITCODE -ne 0) { throw "VM exited with code $LASTEXITCODE" }
 } finally {

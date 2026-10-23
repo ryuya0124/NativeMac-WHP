@@ -13,10 +13,12 @@ import socketserver
 import struct
 import threading
 import time
+import queue
 
 from stream import Decoder
 from cuda_identity import selected_device
 from lz4.block import compress as lz4_compress
+from gpu_control import GpuControl
 
 MAX_PACKET = 8 * 1024 * 1024
 
@@ -52,9 +54,10 @@ class Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, port, ffmpeg, worker=None,encoder_worker=None,gpu_index=0):
+    def __init__(self, port, ffmpeg, worker=None,encoder_worker=None,gpu_index=0,gpu_worker=None,gpu_control=None):
         self.ffmpeg, self.worker, self.encoder_worker = ffmpeg, worker, encoder_worker
         self.gpu_index=gpu_index
+        self.gpu_worker,self.gpu_control=gpu_worker,gpu_control
         self.slots = threading.BoundedSemaphore(2)
         super().__init__(('127.0.0.1', port), Handler)
 
@@ -68,10 +71,12 @@ class Handler(socketserver.BaseRequestHandler):
             except OSError: pass
             return
         decoder = None
+        gpu_control=None;target_ready=queue.Queue(1)
         feed_errors = []
         client_closed = threading.Event()
-        started=time.monotonic();frames=0;raw_bytes=wire_bytes=0
+        started=time.monotonic();frames=0;dropped_frames=0;raw_bytes=wire_bytes=0
         receive_seconds=compression_seconds=write_seconds=0.0
+        gpu_prepare_seconds=gpu_copy_seconds=0.0
         completed=False
         try:
             self.request.settimeout(20)
@@ -81,7 +86,7 @@ class Handler(socketserver.BaseRequestHandler):
                 raise ValueError('Session must be an object')
             encode=request.get('operation')=='encode'
             fields={'version','operation','codec','width','height','bitrate','frameRate','keyInterval'} if encode else {'version', 'codec', 'width', 'height', 'configuration'}
-            extras={'profile'} if encode else {'compression'}
+            extras={'profile'} if encode else {'compression','output'}
             if not fields<=set(request)<=fields|extras:
                 raise ValueError('Invalid session fields')
             if type(request['version']) is not int or request['version'] != 1 or request['codec'] not in (('h264','hevc') if encode else ('h264','hevc','vp9')):
@@ -92,6 +97,10 @@ class Handler(socketserver.BaseRequestHandler):
             compression=request.get('compression')
             if compression not in (None,'lz4-raw'):raise ValueError('Unsupported transport compression')
             compress=lz4_compress if compression else None
+            output=request.get('output')
+            if output not in (None,'shared-gpu-v1'):raise ValueError('Unsupported video output')
+            gpu_frames=not encode and output=='shared-gpu-v1' and self.server.gpu_worker is not None and self.server.gpu_control is not None
+            if gpu_frames:gpu_control=GpuControl(self.server.gpu_control)
             settings=None
             if encode:
                 if not self.server.encoder_worker:raise ValueError('NVENC API worker is not configured')
@@ -100,16 +109,49 @@ class Handler(socketserver.BaseRequestHandler):
                 settings['profile']=request.get('profile',0)
                 if type(settings['profile']) is not int or settings['profile'] not in ((0,1,2) if request['codec']=='h264' else (0,)):raise ValueError('Unsupported encoder profile')
             decoder = Decoder(self.server.ffmpeg, request['codec'], request['width'],
-                              request['height'], configuration,worker=self.server.encoder_worker if encode else self.server.worker,encoder=encode,encoder_settings=settings,gpu_index=self.server.gpu_index)
+                              request['height'], configuration,worker=self.server.encoder_worker if encode else self.server.gpu_worker if gpu_frames else self.server.worker,encoder=encode,encoder_settings=settings,gpu_index=self.server.gpu_index,gpu_frames=gpu_frames)
             print(json.dumps({'stage':'encode-start' if encode else 'decode-start','codec':request['codec'],'width':request['width'],'height':request['height'],
-                              'backend':'api' if self.server.worker else 'cli'}),flush=True)
-            write_message(self.request, b'A'+decoder.configuration if encode else b'A')
+                              'backend':'api' if self.server.worker else 'cli','output':'shared-gpu-v1' if gpu_frames else 'cpu-nv12'}),flush=True)
+            write_message(self.request, b'A'+decoder.configuration if encode else b'V' if gpu_frames else b'A')
             self.request.settimeout(300)
 
+            # Read target-ready metadata independently of worker input
+            # backpressure. Otherwise a second compressed packet waiting for
+            # the first GPU slot would hide that first target's readiness.
+            gpu_input=queue.Queue(65);queued_bytes=0;input_lock=threading.Lock()
+            def gpu_writer():
+                nonlocal queued_bytes
+                try:
+                    while not decoder.closed.is_set():
+                        try:body=gpu_input.get(timeout=.1)
+                        except queue.Empty:continue
+                        with input_lock:queued_bytes-=len(body)
+                        if body==b'F':decoder.finish();return
+                        if body==b'G':decoder.flush();continue
+                        timestamp,=struct.unpack('!q',body[1:9])
+                        decoder.send(body[10:],timestamp,bool(body[9]))
+                except (EOFError,OSError,ValueError,RuntimeError,TimeoutError) as error:
+                    if not client_closed.is_set():feed_errors.append(type(error).__name__+': '+str(error)[:160])
+                    decoder.close()
+            if gpu_frames:threading.Thread(target=gpu_writer,daemon=True).start()
+
             def feed():
+                nonlocal queued_bytes
                 try:
                     while True:
                         body = read_message(self.request, decoder.size+10 if encode else MAX_PACKET + 10)
+                        if gpu_frames and body[:1]==b'T' and len(body)==33:
+                            try:target_ready.put((body[1:17],body[17:]),timeout=1)
+                            except queue.Full:raise ValueError('Duplicate GPU target readiness')
+                            continue
+                        if gpu_frames:
+                            if body not in (b'F',b'G') and (len(body)<11 or body[:1]!=b'P' or body[9] not in (0,1)):raise ValueError('Invalid GPU input packet')
+                            with input_lock:
+                                if queued_bytes+len(body)>64*1024*1024:raise ValueError('GPU input byte limit')
+                                queued_bytes+=len(body)
+                            try:gpu_input.put_nowait(body)
+                            except queue.Full:raise ValueError('GPU input packet limit')
+                            continue
                         if body == b'F':
                             decoder.finish()
                             return
@@ -139,6 +181,28 @@ class Handler(socketserver.BaseRequestHandler):
                 if metadata.get('barrier'):
                     write_message(self.request,b'G')
                     continue
+                if metadata.get('dropped'):
+                    write_message(self.request,b'K'+struct.pack('!q',metadata['pts']))
+                    frames+=1;dropped_frames+=1;continue
+                if gpu_frames:
+                    if not gpu_control.imported:gpu_control.import_source(decoder.process.pid,decoder.gpu_source)
+                    preparing=time.monotonic()
+                    capability=gpu_control.arm(request['width'],request['height'])
+                    write_message(self.request,b'T'+struct.pack('!q',metadata['pts'])+capability)
+                    deadline=time.monotonic()+20
+                    while True:
+                        if client_closed.is_set() or decoder.closed.is_set():raise PeerClosed('Client closed while preparing GPU target')
+                        try:ready=target_ready.get(timeout=.1);break
+                        except queue.Empty:
+                            if time.monotonic()>=deadline:raise TimeoutError('GPU target readiness deadline')
+                    requested,actual=ready
+                    if requested!=capability:raise ValueError('GPU target capability mismatch')
+                    gpu_prepare_seconds+=time.monotonic()-preparing
+                    copying=time.monotonic()
+                    gpu_control.copy(capability,actual,metadata['generation'])
+                    gpu_copy_seconds+=time.monotonic()-copying
+                    write_message(self.request,b'S'+struct.pack('!q',metadata['pts'])+actual)
+                    frames+=1;wire_bytes+=50;continue
                 numerator, denominator = metadata['timeBase']
                 ns = (metadata['pts'] * numerator * 1000000000) // denominator
                 raw_bytes+=len(pixels)
@@ -156,6 +220,7 @@ class Handler(socketserver.BaseRequestHandler):
             if feed_errors or decoder.errors or decoder.process.wait(timeout=5):
                 raise RuntimeError('Hardware stream failed')
             write_message(self.request, b'E' + struct.pack('!I', frames))
+            if gpu_frames:self.request.shutdown(socket.SHUT_RD)
             sender.join(timeout=2)
             print(json.dumps({'stage':'encode-complete' if encode else 'decode-complete','frames':frames,'seconds':round(time.monotonic()-started,4)}),flush=True)
             completed=True
@@ -171,10 +236,13 @@ class Handler(socketserver.BaseRequestHandler):
                 except OSError:
                     pass
         finally:
+            if gpu_control:gpu_control.close()
             if decoder:
                 decoder.close()
                 print(json.dumps({'stage':'session-closed','frames':frames,'rawPixelBytes':raw_bytes,'wirePayloadBytes':wire_bytes,
+                                  'droppedFrames':dropped_frames,'decodedFrames':frames-dropped_frames,
                                   'receiveWaitSeconds':round(receive_seconds,4),'compressionSeconds':round(compression_seconds,4),
+                                  'gpuTargetPrepareSeconds':round(gpu_prepare_seconds,4),'gpuTargetCopySeconds':round(gpu_copy_seconds,4),
                                   'socketWriteSeconds':round(write_seconds,4),'seconds':round(time.monotonic()-started,4)}),flush=True)
             try:
                 self.request.shutdown(socket.SHUT_RDWR)
@@ -190,14 +258,18 @@ if __name__ == '__main__':
     parser.add_argument('--worker', type=Path, help='Optional locally built hardware-only API worker')
     parser.add_argument('--encoder-worker',type=Path,help='Locally built NVENC API worker')
     parser.add_argument('--gpu-name',help='Actual selected Windows Vulkan renderer; required if multiple CUDA adapters exist')
+    parser.add_argument('--gpu-worker',type=Path,help='Dedicated shared-GPU NVDEC worker, explicit opt-in')
+    parser.add_argument('--gpu-control-file',type=Path,help='Private host-only GPU metadata endpoint configuration')
     args = parser.parse_args()
     if not args.ffmpeg.is_file():
         parser.error('FFmpeg executable missing')
     if args.worker and not args.worker.is_file():parser.error('Native worker executable missing')
     if args.encoder_worker and not args.encoder_worker.is_file():parser.error('NVENC worker executable missing')
+    if bool(args.gpu_worker)!=bool(args.gpu_control_file):parser.error('GPU output requires both worker and private control configuration')
+    if args.gpu_worker and (not args.gpu_worker.is_file() or not args.gpu_control_file.is_file()):parser.error('GPU output dependency missing')
     print(json.dumps({'stage':'hardware-device-initialization'}),flush=True)
     gpu_index,gpu_name=selected_device(args.gpu_name)
     print(json.dumps({'listener': '127.0.0.1', 'port': args.port,'gpu':gpu_name,'cudaOrdinal':gpu_index,
                       'sessions': 2, 'softwareFallback': False}), flush=True)
-    with Server(args.port, args.ffmpeg, args.worker.resolve() if args.worker else None,args.encoder_worker.resolve() if args.encoder_worker else None,gpu_index) as server:
+    with Server(args.port, args.ffmpeg, args.worker.resolve() if args.worker else None,args.encoder_worker.resolve() if args.encoder_worker else None,gpu_index,args.gpu_worker.resolve() if args.gpu_worker else None,args.gpu_control_file.resolve() if args.gpu_control_file else None) as server:
         server.serve_forever()

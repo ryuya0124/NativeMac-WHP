@@ -15,6 +15,20 @@ This repository contains source and patches. Apple installation media, guest dis
 5. Build the patched MacHyperVSupportMonterey target for x86_64 on a Mac using Xcode, MacKernelSDK and Lilu SDK. Put the bundle in `artifacts/machyperv/MacHyperVSupportMonterey.kext`.
 6. Compile `native/Acpi/SSDT-NM-VMBUS.dsl` using iasl 20250807 and place `SSDT-NM-VMBUS.aml` in `artifacts/`.
 
+The shared-GPU video candidate uses the Reims snapshot
+`1b9a256573aa84b3aaaac5935dcdf0289e8256da`, followed by
+`patches/reims-msvc.patch` and `patches/reims-shared-gpu-video.patch`.
+Its Metal2Vulkan dependency is the separately documented resident-search
+revision `90004070fabb5678de958a25e7f2aac6acda2b74`; use a local Cargo
+dependency override to that checkout, not the older manifest's Git pin.
+Build the Vulkan C library and the current OpenVMM PCI source together.
+The additive import API must exist before enabling `sharedGpuVideo`.
+Build the dedicated NVDEC export worker with `-GpuExportOnly`, Vulkan and
+NVDEC headers, and rebuild/install the guest VideoBridge with Metal and
+IOSurface frameworks. See `native/VideoBridge/README.md`. This is a candidate
+patch: full Windows regression and the Mac behaviour-lock suite are not green
+qualifications. The public report records the outstanding failures.
+
 ## Apple media and installation
 
 Obtain the original Intel macOS 26.6.2 recovery BaseSystem.dmg and its verified chunklist from Apple. Place BaseSystem.dmg in `backend/media/`. The tested original is 960530321 bytes. Boot preparation exposes the original file through a synthetic read-only FAT filesystem; it does not convert the DMG.

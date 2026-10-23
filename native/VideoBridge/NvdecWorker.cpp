@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 #include <array>
-#ifdef NATIVEMAC_GPU_INTEROP_PROBE
+#if defined(NATIVEMAC_GPU_INTEROP_PROBE) || defined(NATIVEMAC_GPU_FRAME_EXPORT)
 #include "GpuFrameInterop.h"
 #endif
 #include <dynlink_cuda.h>
@@ -26,7 +26,7 @@ static uint64_t be(const uint8_t *p,size_t n){uint64_t v=0;while(n--)v=v*256+*p+
 static void put(uint8_t *p,uint64_t v,size_t n){while(n){p[--n]=static_cast<uint8_t>(v);v>>=8;}}
 static std::vector<uint8_t> read(size_t limit,bool allowEmpty=false){uint8_t h[4];exact(h,4,false);size_t n=static_cast<size_t>(be(h,4));if((!n&&!allowEmpty)||n>limit)throw std::runtime_error("message limit");std::vector<uint8_t>b(n);exact(b.data(),n,false);return b;}
 static void write(std::vector<uint8_t> b){uint8_t h[4];put(h,b.size(),4);exact(h,4,true);exact(b.data(),b.size(),true);if(fflush(stdout))throw std::runtime_error("output flush failed");}
-struct VP9Header {bool existing=false,visible=false;unsigned slot=0,refresh=0;};
+struct VP9Header {bool existing=false,visible=false,key=false;unsigned slot=0,refresh=0;};
 static VP9Header vp9Header(const uint8_t *data,size_t size){
     size_t bit=0;
     auto take=[&](unsigned count){unsigned value=0;while(count--){if(bit/8>=size)throw std::runtime_error("truncated VP9 header");value=value*2+((data[bit/8]>>(7-bit%8))&1);bit++;}return value;};
@@ -36,7 +36,7 @@ static VP9Header vp9Header(const uint8_t *data,size_t size){
     VP9Header header;header.existing=take(1)!=0;
     if(header.existing){header.slot=take(3);header.visible=true;if(size!=1)throw std::runtime_error("invalid VP9 redisplay length");return header;}
     bool inter=take(1)!=0;header.visible=take(1)!=0;bool resilient=take(1)!=0;
-    if(!inter){header.refresh=255;return header;}
+    if(!inter){header.key=true;header.refresh=255;return header;}
     bool intraOnly=!header.visible&&take(1)!=0;
     if(!resilient)take(2);
     if(intraOnly&&take(24)!=0x498342)throw std::runtime_error("invalid VP9 intra sync code");
@@ -63,13 +63,13 @@ struct Decoder {
     std::vector<uint8_t> vp9Picture;
     std::array<int,8> vp9References{{-1,-1,-1,-1,-1,-1,-1,-1}};
     VP9Header vp9Current;unsigned vp9Decoded=0;
-#ifdef NATIVEMAC_GPU_INTEROP_PROBE
+#if defined(NATIVEMAC_GPU_INTEROP_PROBE) || defined(NATIVEMAC_GPU_FRAME_EXPORT)
     CUdevice selectedDevice=0;
     std::unique_ptr<GpuFrameInterop> interop;
 #endif
     Decoder(unsigned w,unsigned h,cudaVideoCodec selected,const std::vector<uint8_t>& config,int gpu):width(w),height(h),codec(selected){
         check(api_cuInit(0));CUdevice device;check(api_cuDeviceGet(&device,gpu));check(api_cuCtxCreate_v2(&context,0,device));
-#ifdef NATIVEMAC_GPU_INTEROP_PROBE
+#if defined(NATIVEMAC_GPU_INTEROP_PROBE) || defined(NATIVEMAC_GPU_FRAME_EXPORT)
         selectedDevice=device;
 #endif
         CUVIDPARSERPARAMS parameters{};parameters.CodecType=codec;parameters.ulMaxNumDecodeSurfaces=1;
@@ -88,7 +88,7 @@ struct Decoder {
         parse(annex,0,0);
     }
     ~Decoder(){
-#ifdef NATIVEMAC_GPU_INTEROP_PROBE
+#if defined(NATIVEMAC_GPU_INTEROP_PROBE) || defined(NATIVEMAC_GPU_FRAME_EXPORT)
         interop.reset();
 #endif
         if(parser)api_cuvidDestroyVideoParser(parser);if(decoder)api_cuvidDestroyDecoder(decoder);if(context)api_cuCtxDestroy_v2(context);
@@ -111,6 +111,11 @@ struct Decoder {
         if(codec==cudaVideoCodec_VP9){
             for(auto [offset,length]:vp9Frames(annex)){
                 vp9Current=vp9Header(annex.data()+offset,length);vp9Decoded=0;
+                // A newly created adaptive stream can start with pictures
+                // that depend on an earlier stream's reference slots. They
+                // cannot be decoded honestly. Report a terminal dropped
+                // sample until a real bitstream keyframe initializes NVDEC.
+                if(!decoder&&!vp9Current.key)continue;
                 if(vp9Current.existing){
                     int surface=vp9References[vp9Current.slot];
                     if(surface<0)throw std::runtime_error("uninitialized VP9 reference slot");
@@ -122,8 +127,11 @@ struct Decoder {
                     if(vp9Decoded!=1)throw std::runtime_error("expected one VP9 decode per coded frame");
                 }
             }
-            if(vp9Picture.empty())throw std::runtime_error("expected one visible VP9 picture per sample");
-            write(std::move(vp9Picture));vp9Picture.clear();emitted++;
+            if(vp9Picture.empty()){
+                if(decoder)throw std::runtime_error("expected one visible VP9 picture per sample");
+                std::vector<uint8_t> dropped(9);dropped[0]='K';put(dropped.data()+1,static_cast<uint64_t>(currentPts),8);write(std::move(dropped));
+            }else{write(std::move(vp9Picture));vp9Picture.clear();}
+            emitted++;
         }else parse(annex,CUVID_PKT_TIMESTAMP|CUVID_PKT_ENDOFPICTURE,currentPts);
         if(emitted!=before+1)throw std::runtime_error("expected exactly one progressive picture per sample");
     }
@@ -137,7 +145,7 @@ struct Decoder {
         }
         if(f->codec!=s->codec||!f->progressive_sequence||f->bit_depth_luma_minus8||f->bit_depth_chroma_minus8||f->chroma_format!=cudaVideoChromaFormat_420||
            area.left<0||area.top<0||area.right>static_cast<int>(f->coded_width)||area.bottom>static_cast<int>(f->coded_height)||
-           area.right-area.left!=static_cast<int>(s->width)||area.bottom-area.top!=static_cast<int>(s->height))throw std::runtime_error("unsupported sequence: display "+std::to_string(area.right-area.left)+"x"+std::to_string(area.bottom-area.top)+" coded "+std::to_string(f->coded_width)+"x"+std::to_string(f->coded_height)+" expected "+std::to_string(s->width)+"x"+std::to_string(s->height)+" progressive="+std::to_string(f->progressive_sequence)+" lumaBits="+std::to_string(f->bit_depth_luma_minus8)+" chroma="+std::to_string(f->chroma_format));
+           area.right-area.left!=static_cast<int>(s->width)||area.bottom-area.top!=static_cast<int>(s->height))throw std::runtime_error("unsupported sequence: display "+std::to_string(area.right-area.left)+"x"+std::to_string(area.bottom-area.top)+" coded "+std::to_string(f->coded_width)+"x"+std::to_string(f->coded_height)+" expected "+std::to_string(s->width)+"x"+std::to_string(s->height)+" progressive="+std::to_string(f->progressive_sequence)+" lumaBits="+std::to_string(f->bit_depth_luma_minus8)+" chroma="+std::to_string(f->chroma_format)+" vp9Key="+std::to_string(s->vp9Current.key));
         if(s->decoder){
             if(f->coded_width!=s->codedWidth||f->coded_height!=s->codedHeight||f->min_num_decode_surfaces>s->surfaces)throw std::runtime_error("midstream sequence reconfiguration unsupported");
             return static_cast<int>(s->surfaces);
@@ -166,8 +174,15 @@ struct Decoder {
     }catch(const std::exception&e){s->error=e.what();return 0;}}
     static int CUDAAPI display(void *user,CUVIDPARSERDISPINFO *f){auto s=static_cast<Decoder*>(user);unsigned long long device=0;bool mapped=false;try{
         CUVIDPROCPARAMS processing{};processing.progressive_frame=f->progressive_frame;processing.top_field_first=f->top_field_first;processing.unpaired_field=1;
-#ifdef NATIVEMAC_GPU_INTEROP_PROBE
-        if(!s->interop)s->interop=std::make_unique<GpuFrameInterop>(s->selectedDevice,s->width,s->height);
+#if defined(NATIVEMAC_GPU_INTEROP_PROBE) || defined(NATIVEMAC_GPU_FRAME_EXPORT)
+        if(!s->interop){
+#ifdef NATIVEMAC_GPU_FRAME_EXPORT
+            s->interop=std::make_unique<GpuFrameInterop>(s->selectedDevice,s->width,s->height,true);
+            auto descriptor=s->interop->exportDescriptor();descriptor.insert(descriptor.begin(),'H');write(descriptor);
+#else
+            s->interop=std::make_unique<GpuFrameInterop>(s->selectedDevice,s->width,s->height);
+#endif
+        }
         // NVDEC's post-processing copy and the CUDA device copy must be on
         // the same stream; a nonblocking consumer must not race stream 0.
         processing.output_stream=s->interop->outputStream();
@@ -178,6 +193,10 @@ struct Decoder {
         // with zero display delay and exactly one visible picture per sample,
         // so its presentation timestamp belongs to the current input sample.
         int64_t pts=s->codec==cudaVideoCodec_VP9?s->currentPts:f->timestamp;
+#ifdef NATIVEMAC_GPU_FRAME_EXPORT
+        std::vector<uint8_t> body(17);body[0]='S';put(body.data()+1,static_cast<uint64_t>(pts),8);
+        put(body.data()+9,s->interop->publish(device,pitch),8);
+#else
         std::vector<uint8_t> body(static_cast<size_t>(s->width)*s->height*3/2+9);body[0]='R';put(body.data()+1,static_cast<uint64_t>(pts),8);
 #ifdef NATIVEMAC_GPU_INTEROP_PROBE
         auto verified=s->interop->validate(device,pitch);
@@ -186,6 +205,7 @@ struct Decoder {
         CUDA_MEMCPY2D copy{};copy.srcMemoryType=CU_MEMORYTYPE_DEVICE;copy.srcDevice=device;copy.srcPitch=pitch;
         copy.dstMemoryType=CU_MEMORYTYPE_HOST;copy.dstHost=body.data()+9;copy.dstPitch=s->width;copy.WidthInBytes=s->width;copy.Height=s->height*3/2;
         check(api_cuMemcpy2D_v2(&copy));
+#endif
 #endif
         check(api_cuvidUnmapVideoFrame64(s->decoder,device));mapped=false;
         if(s->codec==cudaVideoCodec_VP9){
@@ -198,6 +218,11 @@ int main(int argc,char**argv){_setmode(_fileno(stdin),_O_BINARY);_setmode(_filen
 #ifdef NATIVEMAC_GPU_INTEROP_PROBE
     if(argc==2&&std::string(argv[1])=="--interop-info"){
         puts("{\"mode\":\"nvdec-cuda-vulkan-plane-validation\",\"validationReadback\":true,\"guestIntegrated\":false}");return 0;
+    }
+#endif
+#ifdef NATIVEMAC_GPU_FRAME_EXPORT
+    if(argc==2&&std::string(argv[1])=="--interop-info"){
+        puts("{\"mode\":\"nvdec-cuda-shared-gpu-buffer\",\"validationReadback\":false,\"guestIntegrated\":false}");return 0;
     }
 #endif
     if(argc!=5&&argc!=6)throw std::runtime_error("usage: nvdec-worker reserved-directory h264|hevc|vp9 width height [host-selected-gpu]");

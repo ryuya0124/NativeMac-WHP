@@ -105,10 +105,17 @@ def main():
     def stopping():return not scope.parent_alive() or (args.stop_file and args.stop_file.exists())
     try:
         with (logs/'host.log').open('ab',buffering=0) as host_log:
+            gpu_options=[]
+            gpu_control=os.environ.get('NATIVEMAC_VIDEO_CONTROL_FILE')
+            if gpu_control:
+                control=Path(gpu_control)
+                gpu_worker=root/'artifacts/video-worker/NativeMacNvdecGpuWorker.exe'
+                if not control.is_absolute() or not control.is_file() or not gpu_worker.is_file():raise RuntimeError('Shared GPU video dependencies missing')
+                gpu_options=['--gpu-worker',str(gpu_worker),'--gpu-control-file',str(control)]
             children.append(scope.start([sys.executable,str(root/'native/VideoBridge/server.py'),'--ffmpeg',str(args.ffmpeg.resolve()),
                 '--worker',str(root/'artifacts/video-worker/NativeMacNvdecWorker.exe'),
                 '--encoder-worker',str(root/'artifacts/video-worker/NativeMacCodecWorker.exe'),
-                '--gpu-name',renderer['hostGPUName'],'--port',str(args.port)],stdout=host_log,stderr=host_log))
+                '--gpu-name',renderer['hostGPUName'],'--port',str(args.port),*gpu_options],stdout=host_log,stderr=host_log))
             if args.audio:
                 children.append(scope.start([sys.executable,str(root/'native/AudioBridge/server.py'),'--port',str(args.port+1)],stdout=host_log,stderr=host_log))
             children.append(scope.start([sys.executable,str(root/'native/MediaTransport/transport.py'),'host','--config',str(args.transport_config.resolve())],stdout=host_log,stderr=host_log))

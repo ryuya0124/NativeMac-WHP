@@ -20,7 +20,9 @@ import matroska
 
 
 class Decoder:
-    def __init__(self, ffmpeg, codec, width, height, configuration,worker=None,encoder=False,encoder_settings=None,gpu_index=0):
+    def __init__(self, ffmpeg, codec, width, height, configuration,worker=None,encoder=False,encoder_settings=None,gpu_index=0,gpu_frames=False):
+        if gpu_frames and (worker is None or encoder):raise ValueError('GPU frames require the dedicated NVDEC worker')
+        self.gpu_frames=gpu_frames;self.gpu_source=None;self.gpu_generation=0
         if codec=='vp9':
             if encoder or worker is None:raise ValueError('VP9 requires the native decoder worker')
             if type(width) is not int or type(height) is not int or not 16<=width<=3840 or not 16<=height<=2160 or width%2 or height%2:raise ValueError('Invalid VP9 dimensions')
@@ -111,6 +113,8 @@ class Decoder:
                 if body==b'A':
                     if not self.encoder:self.ready.set()
                     continue
+                if self.gpu_frames and body[:1]==b'H' and len(body)==73 and self.gpu_source is None:
+                    self.gpu_source=body[1:];continue
                 if self.encoder and body[:1]==b'C' and 7<len(body)<=65537:
                     self.configuration=body[1:];self.ready.set();continue
                 if body[:1]==b'D' and len(body)==5:continue
@@ -119,6 +123,17 @@ class Decoder:
                 if body[:1]==b'E' and len(body)==5:
                     complete=struct.unpack('!I',body[1:])[0]==count
                     break
+                if not self.encoder and body[:1]==b'K' and len(body)==9:
+                    pts,=struct.unpack('!q',body[1:])
+                    self._put(self.raw,b'');self._put(self.metadata,{'pts':pts,'dropped':True,'timeBase':(1,1000000000)})
+                    count+=1;self.last_progress=time.monotonic();continue
+                if self.gpu_frames:
+                    if body[:1]!=b'S' or len(body)!=17 or self.gpu_source is None:raise RuntimeError('Invalid GPU codec output')
+                    pts,generation=struct.unpack('!qQ',body[1:])
+                    if generation!=self.gpu_generation+1:raise RuntimeError('GPU codec generation mismatch')
+                    self.gpu_generation=generation
+                    self._put(self.raw,b'');self._put(self.metadata,{'pts':pts,'generation':generation,'gpu':True,'timeBase':(1,1000000000)})
+                    count+=1;self.last_progress=time.monotonic();continue
                 if body[:1]!=b'R' or (len(body)<11 if self.encoder else len(body)!=self.size+9):raise RuntimeError('Invalid native codec output')
                 pts,=struct.unpack('!q',body[1:9])
                 self._put(self.raw,body[10:] if self.encoder else body[9:]);self._put(self.metadata,{'pts':pts,'dts':pts,'duration':0,'key':bool(body[9]) if self.encoder else False,'timeBase':(1,1000000000)})
@@ -186,7 +201,7 @@ class Decoder:
         with self.write_lock:
             deadline=time.monotonic()+20
             with self.credits:
-                while self.pending>=64 and not self.closed.is_set():
+                while self.pending>=(1 if self.gpu_frames else 64) and not self.closed.is_set():
                     remaining=deadline-time.monotonic()
                     if remaining<=0:raise TimeoutError('Codec input backpressure deadline exceeded')
                     self.credits.wait(timeout=min(.2,remaining))

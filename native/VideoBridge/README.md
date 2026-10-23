@@ -148,6 +148,50 @@ Its standalone results are not evidence of ordinary-app acceleration.
 
 ## GPU sharing qualification
 
+The experimental service path now connects the exported GPU buffer to the
+Intel guest's NV12 IOSurfaces and ordinarily launched Safari. It uses a
+separate `NativeMacNvdecGpuWorker.exe`, built with `-GpuExportOnly` instead
+of `-InteropProbeOnly`, and the additive Reims integration in
+`patches/reims-shared-gpu-video.patch`. The copy stays on the selected
+CUDA/Vulkan UUID. GPU DMA also updates coherent guest RAM for CPU readers
+and later paging; this is not VRAM-exclusive playback.
+
+`Start-VM.ps1 -SharedGpuVideo -ExactHalfBlend` creates a private, per-launch
+host control configuration and starts/stops the codec service with the VM.
+The development defaults enable these switches. Explicit
+`-SharedGpuVideo:$false` selects the older CPU-frame route. The guest and
+host negotiate `shared-gpu-v1`; logs record the actual selected route. Missing
+GPU dependencies fail startup, rather than claiming GPU transfer. TLS carries
+compressed samples and small frame messages, never decoded pixels on this
+path. The GPU control port is host loopback only, separately authenticated;
+OS handles and the host key are never sent to the guest.
+
+Each frame gets a fresh capability, a twenty-second target deadline and
+strong resource holds through GPU completion. Disconnects disarm reservations.
+The CoreVideo pool has at most 24 buffers, reused only after consumers release
+them. Metadata occupies 64 bytes at offset 1024 of the alignment page,
+preserving CoreVideo's planar header. Each acquisition prepares the current
+backing after guest discard/rebind. Completion publishes an IOSurface seed
+change, without CPU frame reads or writes. A VP9 stream starting without its
+references explicitly drops samples until its first real keyframe; drops
+retain the original timestamps and are terminal callbacks.
+
+The current VM uses `defaults write com.apple.universalaccess reduceTransparency -bool true`
+before ordinary apps start. This avoids an
+observed unsupported blended framebuffer-fetch path during desktop login;
+`half_blend` alone does not fix that path. This is a visual-setting workaround,
+not general shader support. Guest preparation/synchronization still limits
+playback: the observed YouTube display notifications were about 19/s at FHD
+and 13/s at 4K, with adaptive counter resets. No 4K60 qualification or new
+Geekbench gain is claimed. NVENC input and PCM audio still use CPU buffers.
+
+The five byte/PTS checks, 3,060 retained-frame checks, thirteen drain/cancel
+cases, two missing-reference VP9 cases and Safari recording/WebCodecs results
+are in `docs/verification/video-shared-gpu-guest.json` (relative to repository
+root). Reims core's 2,304 tests and strict clippy pass, but its full Windows
+gate has unresolved toolchain/runtime failures. The Reims candidate remains
+on its isolated branch, not merged into the owner's checkout.
+
 `GpuFrameInterop.cpp` and the separate `NativeMacNvdecInteropProbe.exe` execute
 NVDEC -> CUDA device copy -> exported device-local Vulkan buffer -> optimal
 R8/RG8 plane images. CUDA/Vulkan UUIDs must match, and two imported binary

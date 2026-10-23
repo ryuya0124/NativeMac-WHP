@@ -6,9 +6,9 @@ Windows上でIntel版macOS 26を動かす、WinUI 3アプリとOpenVMM/WHP用の
 
 GPU名はWindows側でVMが実際に選択したVulkanアダプターから起動ごとに取得します。ゲストへ[名前の自動反映処理](native/GpuIdentityAgent/README.md)を導入すると、標準のAppleドライバーのままMetal APIにも反映されます。「NVIDIA GeForce RTX 5080」と表示した状態でGeekbench Metal全11項目を完走しました（最新[2931点](https://browser.geekbench.com/v7/gpu/317819)、以前の最高3238点）。[直近の検証条件](docs/verification/resident-search-signing.json)を参照してください。
 
-動画は、標準のVideoToolbox／AVFoundationとSafariからWindows側のNVDEC／NVENCへ接続する共通経路を実装しています。H.264／HEVCの8-bit映像に加え、VP9 profile 0の復号を検証しています。映像・音声の転送は直接TLSで、SSHは使いません。仮想音声出力からWindowsへの再生も確認しました。ただしYouTubeはまだ低fpsで、通常の再生経路にはCPUへの読み戻しとコピーが残ります。[導入・解除・検証手順](native/VideoBridge/README.md)を参照してください。
+動画は、標準のVideoToolbox／AVFoundationとSafariからWindows側のNVDEC／NVENCへ接続する共通経路を実装しています。H.264／HEVCの8-bit映像に加え、VP9 profile 0の復号を検証しています。ライブ映像・音声にSSHは使いません。新しい復号経路では、圧縮済みの動画と小さな制御情報を直接TLSで送り、デコード後の画素はGPUでVMへ渡します。NVENCへの未圧縮入力と音声にはCPU／TLS処理が残ります。[導入・解除・検証手順](native/VideoBridge/README.md)を参照してください。
 
-GPU内での受け渡しは別の検証プログラムで実装し、NVDEC → CUDA → 共有VRAM → Vulkanの動画画像まで、147フレーム・98,409,600バイトの画素と表示時刻の一致を確認しました。短い4Kテストを含みますが、Safari／VMのIOSurfaceへの接続は未実装です。通常再生がGPU内で完結した、または4K60になったという結果ではありません。[検証範囲](docs/verification/video-direct-gpu-sharing.json)を参照してください。
+実験的なGPU共有経路をVMのIOSurfaceとSafariへ接続しました。147フレームでVMのCPU／Metal双方から画素一致を確認し、バッファを保持した3,060フレームの試験も通過しました。GPUによるゲストRAMへの書き込みは残るため、VRAM内だけで完結する構成ではありません。YouTubeの表示通知は30秒の観測でFHD約19回/秒、4K約13回/秒で、まだ低fpsです。透明度を下げるVM設定で既知のシェーダー拒否を回避していますが、全体回帰テストには未解決の失敗が残ります。[検証範囲と制限](docs/verification/video-shared-gpu-guest.json)を参照してください。
 
 CPUはWHPで実行し、QEMU実行ファイル・QEMUコア・CPU命令の動的変換を使用しません。Appleの復旧DMGは原本を読み取り専用で参照します。RAM・CPUは起動前に変更できます（設定上限256 GiB・64コア）。現在の割り当てと検証は12 GiB・8コアのままです。実際に確保できる容量はホストの空きメモリなどに依存します。
 
