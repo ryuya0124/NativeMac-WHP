@@ -5,6 +5,7 @@
 #include <sys/fileport.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -59,6 +60,7 @@ int main(){
             reserved=active.fetch_add(1)<2;if(!reserved){active--;reply.status=EBUSY;}
             else{
                 network=socket(AF_INET,SOCK_STREAM,0);sockaddr_in address{};address.sin_family=AF_INET;address.sin_port=htons(54885);address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+                if(network>=0){int yes=1;setsockopt(network,IPPROTO_TCP,TCP_NODELAY,&yes,sizeof(yes));}
                 if(network>=0&&!connect(network,reinterpret_cast<sockaddr*>(&address),sizeof(address))&&!pipe(upstream)&&!pipe(downstream)&&
                     fileport_makeport(downstream[0],&reply.input.name)==KERN_SUCCESS&&fileport_makeport(upstream[1],&reply.output.name)==KERN_SUCCESS){reply.status=0;}
             }

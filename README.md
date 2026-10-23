@@ -6,7 +6,9 @@ Windows上でIntel版macOS 26を動かす、WinUI 3アプリとOpenVMM/WHP用の
 
 GPU名はWindows側でVMが実際に選択したVulkanアダプターから起動ごとに取得します。ゲストへ[名前の自動反映処理](native/GpuIdentityAgent/README.md)を導入すると、標準のAppleドライバーのままMetal APIにも反映されます。「NVIDIA GeForce RTX 5080」と表示した状態でGeekbench Metal全11項目を完走しました（最新[2931点](https://browser.geekbench.com/v7/gpu/317819)、以前の最高3238点）。[直近の検証条件](docs/verification/resident-search-signing.json)を参照してください。
 
-動画は、標準のVideoToolbox／AVFoundationとSafariからWindows側のNVDEC／NVENCへ接続する共通経路を実装しています。Safariの自作動画で録画→MP4生成→再生とWebCodecsを確認しました。開発用VM内の明示的な共通設定が必要です。対応はH.264／HEVCの8-bit映像で、AV1・VP9・HDRや全アプリの互換性は未認定です。[導入・解除・検証手順](native/VideoBridge/README.md)を参照してください。
+動画は、標準のVideoToolbox／AVFoundationとSafariからWindows側のNVDEC／NVENCへ接続する共通経路を実装しています。H.264／HEVCの8-bit映像に加え、VP9 profile 0の復号を検証しています。映像・音声の転送は直接TLSで、SSHは使いません。仮想音声出力からWindowsへの再生も確認しました。ただしYouTubeはまだ低fpsで、通常の再生経路にはCPUへの読み戻しとコピーが残ります。[導入・解除・検証手順](native/VideoBridge/README.md)を参照してください。
+
+GPU内での受け渡しは別の検証プログラムで実装し、NVDEC → CUDA → 共有VRAM → Vulkanの動画画像まで、147フレーム・98,409,600バイトの画素と表示時刻の一致を確認しました。短い4Kテストを含みますが、Safari／VMのIOSurfaceへの接続は未実装です。通常再生がGPU内で完結した、または4K60になったという結果ではありません。[検証範囲](docs/verification/video-direct-gpu-sharing.json)を参照してください。
 
 CPUはWHPで実行し、QEMU実行ファイル・QEMUコア・CPU命令の動的変換を使用しません。Appleの復旧DMGは原本を読み取り専用で参照します。RAM・CPUは起動前に変更できます（設定上限256 GiB・64コア）。現在の割り当てと検証は12 GiB・8コアのままです。実際に確保できる容量はホストの空きメモリなどに依存します。
 
@@ -73,7 +75,7 @@ GUI接続の検証用レポート：
 
 macOSの「システム設定 → ディスプレイ」から、起動時に設定した上限まで解像度を変更できます。4K等倍・WQHD・4K出力の1920×1080 HiDPI表示への切り替えを確認しました。Geekbench 7.1.0 CPUは[シングル2287・マルチ10415](https://browser.geekbench.com/v7/cpu/692080)で完走し、Metal版も全11項目を検証エラー0件で完走しました（[3238点](https://browser.geekbench.com/v7/gpu/317315)、他のベンチマークとの同時実行はありませんが、軽い診断操作を含むため厳密な性能比較用の測定ではありません）。[検証記録](docs/verification/geekbench7.json)を参照してください。また、Intel VM内のXcode 26.5で、変更していないMochiLogのiOS・watchOS Simulator向け[ビルドが成功](docs/verification/mochilog-vm-build.json)しました。
 
-制約：ゲスト画面のWinUIパネル内への埋め込み、音声、長時間の互換性・性能検証は未実装／未実施です。Metal機能はゲストが報告するMetal 2です。GPUが認識されることと、すべてのmacOSアプリが正常動作することは別の検証です。
+制約：ゲスト画面のWinUIパネル内への埋め込み、広範な互換性・長時間の音声映像同期検証は未実装／未実施です。Metal機能はゲストが報告するMetal 2です。GPUが認識されることと、すべてのmacOSアプリが正常動作することは別の検証です。
 
 フロントエンドは32・64・128ビットのMMIOアクセスを32ビットC API操作に分解します。64ビットアクセスを拒否していた実装ではGPUリソース生成に失敗しました。修正後、通常OSのGUIとMetal計算が成功しました。
 

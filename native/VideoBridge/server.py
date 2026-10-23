@@ -16,22 +16,29 @@ import time
 
 from stream import Decoder
 from cuda_identity import selected_device
+from lz4.block import compress as lz4_compress
 
 MAX_PACKET = 8 * 1024 * 1024
 
 
-def read_exact(connection, count):
+class PeerClosed(EOFError):
+    """The client closed between complete protocol messages."""
+
+
+def read_exact(connection, count, clean_eof=False):
     result = bytearray()
     while len(result) < count:
         part = connection.recv(count - len(result))
         if not part:
+            if clean_eof and not result:
+                raise PeerClosed('Client closed')
             raise EOFError('Truncated stream')
         result.extend(part)
     return bytes(result)
 
 
 def read_message(connection, limit):
-    length, = struct.unpack('!I', read_exact(connection, 4))
+    length, = struct.unpack('!I', read_exact(connection, 4, clean_eof=True))
     if not 1 <= length <= limit:
         raise ValueError('Invalid message length')
     return read_exact(connection, length)
@@ -61,22 +68,30 @@ class Handler(socketserver.BaseRequestHandler):
             except OSError: pass
             return
         decoder = None
-        started=time.monotonic();frames=0
+        feed_errors = []
+        client_closed = threading.Event()
+        started=time.monotonic();frames=0;raw_bytes=wire_bytes=0
+        receive_seconds=compression_seconds=write_seconds=0.0
         completed=False
         try:
             self.request.settimeout(20)
+            if not self.request.recv(1,socket.MSG_PEEK):return # A local readiness check has no protocol input.
             request = json.loads(read_message(self.request, 100000))
             if not isinstance(request,dict):
                 raise ValueError('Session must be an object')
             encode=request.get('operation')=='encode'
             fields={'version','operation','codec','width','height','bitrate','frameRate','keyInterval'} if encode else {'version', 'codec', 'width', 'height', 'configuration'}
-            if set(request) != fields and not (encode and set(request)==fields|{'profile'}):
+            extras={'profile'} if encode else {'compression'}
+            if not fields<=set(request)<=fields|extras:
                 raise ValueError('Invalid session fields')
-            if type(request['version']) is not int or request['version'] != 1 or request['codec'] not in ('h264', 'hevc'):
+            if type(request['version']) is not int or request['version'] != 1 or request['codec'] not in (('h264','hevc') if encode else ('h264','hevc','vp9')):
                 raise ValueError('Unsupported session version or codec')
             if type(request['width']) is not int or type(request['height']) is not int:
                 raise ValueError('Dimensions must be integers')
             configuration = b'' if encode else base64.b64decode(request['configuration'], validate=True)
+            compression=request.get('compression')
+            if compression not in (None,'lz4-raw'):raise ValueError('Unsupported transport compression')
+            compress=lz4_compress if compression else None
             settings=None
             if encode:
                 if not self.server.encoder_worker:raise ValueError('NVENC API worker is not configured')
@@ -90,7 +105,6 @@ class Handler(socketserver.BaseRequestHandler):
                               'backend':'api' if self.server.worker else 'cli'}),flush=True)
             write_message(self.request, b'A'+decoder.configuration if encode else b'A')
             self.request.settimeout(300)
-            feed_errors = []
 
             def feed():
                 try:
@@ -106,14 +120,19 @@ class Handler(socketserver.BaseRequestHandler):
                             raise ValueError('Invalid compressed packet')
                         timestamp, = struct.unpack('!q', body[1:9])
                         decoder.send(body[10:], timestamp, bool(body[9]))
+                except PeerClosed:
+                    client_closed.set()
+                    decoder.close()
                 except (EOFError, OSError, ValueError, RuntimeError, TimeoutError) as error:
-                    feed_errors.append(type(error).__name__)
+                    feed_errors.append(type(error).__name__+': '+str(error)[:160])
                     decoder.close()
 
             sender = threading.Thread(target=feed, daemon=True)
             sender.start()
             while True:
+                before=time.monotonic()
                 frame = decoder.receive(timeout=300)
+                receive_seconds+=time.monotonic()-before
                 if frame is None:
                     break
                 pixels, metadata = frame
@@ -122,7 +141,17 @@ class Handler(socketserver.BaseRequestHandler):
                     continue
                 numerator, denominator = metadata['timeBase']
                 ns = (metadata['pts'] * numerator * 1000000000) // denominator
-                write_message(self.request, b'R' + struct.pack('!q', ns) + (bytes([metadata['key']]) if encode else b'') + pixels)
+                raw_bytes+=len(pixels)
+                tag=b'R';payload=pixels
+                if compress:
+                    before=time.monotonic()
+                    packed=compress(pixels,mode='fast',acceleration=1,store_size=False)
+                    compression_seconds+=time.monotonic()-before
+                    if len(packed)<len(pixels):tag=b'L';payload=packed
+                wire_bytes+=len(payload)
+                before=time.monotonic()
+                write_message(self.request, tag + struct.pack('!q', ns) + (bytes([metadata['key']]) if encode else b'') + payload)
+                write_seconds+=time.monotonic()-before
                 frames += 1
             if feed_errors or decoder.errors or decoder.process.wait(timeout=5):
                 raise RuntimeError('Hardware stream failed')
@@ -130,15 +159,23 @@ class Handler(socketserver.BaseRequestHandler):
             sender.join(timeout=2)
             print(json.dumps({'stage':'encode-complete' if encode else 'decode-complete','frames':frames,'seconds':round(time.monotonic()-started,4)}),flush=True)
             completed=True
-        except (EOFError, OSError, ValueError, RuntimeError, TimeoutError):
-            try:
-                write_message(self.request, b'X')
-            except OSError:
-                pass
+        except (EOFError, OSError, ValueError, RuntimeError, TimeoutError) as error:
+            cancelled=client_closed.is_set() and not feed_errors and decoder is not None and not decoder.errors
+            print(json.dumps({'stage':'session-cancelled' if cancelled else 'session-error','error': 'Client closed' if cancelled else str(error)[:160],
+                              'workerErrors':decoder.errors[:4] if decoder else [],
+                              'inputErrors':feed_errors[:4],
+                              'frames':frames}),flush=True)
+            if not cancelled:
+                try:
+                    write_message(self.request, b'X')
+                except OSError:
+                    pass
         finally:
             if decoder:
                 decoder.close()
-                if not completed:print(json.dumps({'stage':'session-closed','frames':frames,'seconds':round(time.monotonic()-started,4)}),flush=True)
+                print(json.dumps({'stage':'session-closed','frames':frames,'rawPixelBytes':raw_bytes,'wirePayloadBytes':wire_bytes,
+                                  'receiveWaitSeconds':round(receive_seconds,4),'compressionSeconds':round(compression_seconds,4),
+                                  'socketWriteSeconds':round(write_seconds,4),'seconds':round(time.monotonic()-started,4)}),flush=True)
             try:
                 self.request.shutdown(socket.SHUT_RDWR)
             except OSError:

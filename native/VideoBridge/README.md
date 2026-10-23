@@ -6,8 +6,10 @@ wrapper after the explicit system profile is enabled. This is an authored
 paravirtual codec component, not an NVIDIA macOS kernel driver.
 
 The qualified path is 8-bit progressive 4:2:0 H.264 / HEVC, even dimensions up to
-3840×2160. H.264 Main / Constrained Baseline / High and HEVC Main encoding are
-mapped to actual NVENC profiles. AV1, VP9, 10-bit/HDR, alpha, midstream coded-size
+3840×2160. VP9 profile 0 decoding also covers reference-surface redisplay and an
+authored invisible-keyframe/redisplay superframe. H.264 Main / Constrained
+Baseline / High and HEVC Main encoding map to actual NVENC profiles. AV1,
+VP9 encoding, 10-bit/HDR, alpha, midstream coded-size
 changes and arbitrary application-specific codecs are not implemented. Apps
 that explicitly disable hardware or select a different encoder retain that
 choice. This is not a claim that every application or media format works.
@@ -19,8 +21,9 @@ choice. This is not a claim that every application or media format works.
 - `server.py` owns bounded workers on Windows loopback. The selected Vulkan
   renderer is read afresh with the same probe used by the VM launcher; CUDA
   matching must identify one unique adapter. No model name or ordinal is fixed.
-- `Run-VideoBridge.py` owns the service and one authenticated SSH reverse
-  forward. Kill-on-close Windows jobs and a handle to the VM launcher prevent
+- `Run-VideoBridge.py` owns the codec, optional audio and direct pinned TLS
+  services. There is no SSH media route or SSH fallback. Kill-on-close Windows
+  jobs and a handle to the VM launcher prevent
   orphan processes; guest startup/reconnection has a bounded retry window.
 - The root guest `GuestBroker.cpp` exposes a fixed Mach service and anonymous
   codec pipes. Sandboxed Safari/WebKit processes use pipes; they do not acquire
@@ -42,9 +45,12 @@ choice. This is not a claim that every application or media format works.
   patched. The scoped development registry check still verifies the exact
   authored component's ad-hoc seal.
 
-NV12 currently crosses CPU-addressable buffers and SSH. Hardware codec work is
-on the GPU, but transport is not zero copy. A relay can limit throughput;
-short 4K checks do not establish sustained 4K playback/encoding frame rates.
+The deployed route still copies NV12 through CPU-addressable buffers, optional
+lossless LZ4 and direct TLS. Hardware codec work runs on the GPU, but media
+transport is not zero copy. Audio uses the separate virtual-output relay in
+[`../AudioBridge`](../AudioBridge/README.md). Short 4K checks do not establish
+sustained 4K playback/encoding frame rates. Actual YouTube playback remains
+slow; a progressing media clock alone is not evidence of rendered frame rate.
 
 ## Build and opt in
 
@@ -87,16 +93,20 @@ Create the ignored local `artifacts/video-service-config.json` on Windows:
 ```json
 {
   "ffmpeg": "C:/local/ffmpeg/bin/ffmpeg.exe",
-  "guestUser": "your-guest-account",
-  "knownHosts": "artifacts/guest-ssh-known_hosts",
-  "sshPort": 59220,
-  "jump": "your-account@your-authorized-relay"
+  "audio": true,
+  "transportConfig": "artifacts/direct-media/host.json"
 }
 ```
 
-The SSH port must already reach the guest's loopback SSH endpoint, directly or
-through the optional jump. Use an already trusted host key and authorized SSH
-identity. Do not put passwords or keys in the configuration. With
+Install host Python's pinned dependency first:
+
+```powershell
+python -m pip install --only-binary=:all: -r native/VideoBridge/requirements-host.txt
+```
+
+Prepare and deploy the direct channel as documented in
+[`../MediaTransport`](../MediaTransport/README.md). Its private keys, client
+secret and guest configuration stay in ignored artifacts. With
 `systemVideoBridge: true`, `Start-VM.ps1` starts/stops the service for both
 WinUI and CLI VM launches. For an existing running VM, start it manually:
 
@@ -111,7 +121,10 @@ Generate owned fixtures with `make_fixture.py` using installed FFmpeg/ffprobe;
 Generated movies, compressed packets, raw frames and guest logs stay local.
 
 `VTStreamProbe` checks every returned NV12 byte and original presentation time
-against an independent NVDEC baseline. It covers full/low-delay streams,
+against an independent baseline. Normal fixtures use separate FFmpeg NVDEC;
+the authored VP9 redisplay/superframe regressions use FFmpeg's software VP9
+reference because its CUVID wrapper omits redisplay outputs. This reference is
+test-only, never a live decoder fallback. The probe covers full/low-delay streams,
 nonterminal drain, early cancellation and cancellation with output in flight.
 `VTEncodeProbe` checks public VT compression, hardware selection, timestamps,
 forced keyframes and sync attachment conventions. `--output-handler` covers
@@ -132,6 +145,36 @@ restoration, are in `../../docs/verification/video-standard-apps.json`.
 
 The older `host.py` / `roundtrip.py` batch transport is retained for diagnostics.
 Its standalone results are not evidence of ordinary-app acceleration.
+
+## GPU sharing qualification
+
+`GpuFrameInterop.cpp` and the separate `NativeMacNvdecInteropProbe.exe` execute
+NVDEC -> CUDA device copy -> exported device-local Vulkan buffer -> optimal
+R8/RG8 plane images. CUDA/Vulkan UUIDs must match, and two imported binary
+semaphores transfer GPU ownership in both directions. NVDEC post-processing
+and the CUDA copy share one stream. A nonblocking consumer on another stream
+can race post-processing and return stale pixels.
+
+This executable reads the plane images back **after** Vulkan consumes them,
+solely to validate every byte and PTS. It is not the production worker, a
+guest IOSurface bridge, a playback benchmark or proof of CPU-free Safari.
+The normal service never starts it. Build with locally obtained Khronos
+Vulkan-Headers (tested tag `v1.4.341`, commit
+`b5c8f996196ba4aa6d8f97e52b5d3b6e70f7e4e2`):
+
+```powershell
+scripts/Build-VideoWorker.ps1 -FfmpegHeaders C:/local/ffmpeg-headers `
+  -NvdecHeaders C:/local/nv-codec-headers/include/ffnvcodec `
+  -VulkanHeaders C:/local/Vulkan-Headers/include -InteropProbeOnly
+python native/VideoBridge/verify_gpu_interop.py --fixture C:/local/authored/input.json `
+  --baseline C:/local/authored/baseline.nv12 `
+  --worker artifacts/video-worker/NativeMacNvdecInteropProbe.exe `
+  --gpu-name "name of the actual selected Windows renderer"
+```
+
+The verifier retains the normal worker's 1-GiB job, watchdog and queue bounds.
+The checked fixture/baseline are limited to 16/64 MiB and 120 frames. Results
+and precise limits are in `../../docs/verification/video-direct-gpu-sharing.json`.
 
 ## Bounds
 

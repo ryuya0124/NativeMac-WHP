@@ -8,7 +8,7 @@ from pathlib import Path
 import plistlib
 info=plistlib.loads(Path('ProbeCodec-Info.plist').read_bytes())
 for operation in ['decoder','encoder']:
-    for codec in ['avc1','hvc1']:
+    for codec in (['avc1','hvc1','vp09'] if operation=='decoder' else ['avc1','hvc1']):
         matching={'VTCodecType':codec,'VTRating':1000,'VTIsHardwareAccelerated':True,'VTIsParavirtualizationAware':True,'VTAllowSandboxedDecode':True,'VTAllowSandboxedEncode':True}
         entry={'CMClassID':'com.apple.videotoolbox.video'+operation,
           'CMClassImplementationID':'io.nativemac.video'+operation+'.'+codec+'.trial',
@@ -21,8 +21,8 @@ for operation in ['decoder','encoder']:
         info['CMClassImplementations'].append(entry)
 Path('NativeMacNVDECProbe.bundle/Contents/Info.plist').write_bytes(plistlib.dumps(info))
 PY
-clang++ -arch x86_64 -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pthread -bundle VTDecoder.mm VTEncoder.mm VideoTransport.cpp \
-    -framework Foundation -framework VideoToolbox -framework CoreMedia -framework CoreVideo \
+clang++ -arch x86_64 -O2 -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pthread -bundle VTDecoder.mm VTEncoder.mm VideoTransport.cpp \
+    -framework Foundation -framework VideoToolbox -framework CoreMedia -framework CoreVideo -lcompression \
     -o "$bundle/Contents/MacOS/NativeMacNVDECProbe"
 codesign --force --sign - "$bundle"
 codesign --verify --strict "$bundle"

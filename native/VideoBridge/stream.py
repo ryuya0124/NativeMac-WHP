@@ -21,7 +21,12 @@ import matroska
 
 class Decoder:
     def __init__(self, ffmpeg, codec, width, height, configuration,worker=None,encoder=False,encoder_settings=None,gpu_index=0):
-        initial=matroska.header(codec,width,height,configuration if not encoder else b'\1'+b'\0'*6)
+        if codec=='vp9':
+            if encoder or worker is None:raise ValueError('VP9 requires the native decoder worker')
+            if type(width) is not int or type(height) is not int or not 16<=width<=3840 or not 16<=height<=2160 or width%2 or height%2:raise ValueError('Invalid VP9 dimensions')
+            if not isinstance(configuration,bytes) or len(configuration)>65536:raise ValueError('Invalid VP9 configuration')
+            initial=b''
+        else:initial=matroska.header(codec,width,height,configuration if not encoder else b'\1'+b'\0'*6)
         self.encoder=encoder;self.configuration=None
         if encoder and worker is None:raise ValueError('NVENC requires the native API worker')
         if type(gpu_index) is not int or not 0<=gpu_index<64:raise ValueError('Invalid host-selected CUDA ordinal')
@@ -172,7 +177,9 @@ class Decoder:
         if self.encoder:
             if len(data)!=self.size or not 0<=presentation_nanoseconds<1<<63:raise ValueError('Invalid encoder picture')
             packet=b''
-        else:packet=matroska.packet(data,presentation_nanoseconds,keyframe)
+        else:
+            if not data or len(data)>8*1024*1024 or type(presentation_nanoseconds) is not int or not 0<=presentation_nanoseconds<1<<63 or type(keyframe) is not bool:raise ValueError('Invalid compressed packet')
+            packet=b'' if self.native else matroska.packet(data,presentation_nanoseconds,keyframe)
         if self.native:
             body=b'P'+struct.pack('!qB',presentation_nanoseconds,keyframe)+data
             packet=struct.pack('!I',len(body))+body
@@ -207,6 +214,7 @@ class Decoder:
                 try:return source.get(timeout=min(.2,max(.001,deadline-time.monotonic())))
                 except queue.Empty:
                     if done.is_set() and source.empty():return None
+            if self.closed.is_set():raise RuntimeError('Codec worker closed')
             raise TimeoutError('Codec frame deadline exceeded')
         pixels=take(self.raw,self.raw_done)
         metadata=take(self.metadata,self.metadata_done)

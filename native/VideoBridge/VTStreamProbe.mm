@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <vector>
+#include <chrono>
 extern "C" OSStatus NativeMacNVDECCreate(FourCharCode,CFAllocatorRef,VTVideoDecoderRef*);
 extern "C" OSStatus VTRegisterVideoDecoderWithInfo(FourCharCode,CFDictionaryRef,VTVideoDecoderFunction_CreateInstance);
 struct Results {
@@ -49,22 +50,27 @@ int main(int argc,char **argv){@autoreleasepool{
     bool discovery=argc==4&&!strcmp(argv[3],"--discover");
     bool activeCancel=argc==4&&!strcmp(argv[3],"--cancel-active");
     bool cancel=activeCancel||(argc==4&&!strcmp(argv[3],"--cancel"));
-    bool lowDelay=argc==4&&!strcmp(argv[3],"--low-delay");
+    bool serial=argc==4&&!strcmp(argv[3],"--serial");
+    bool lowDelay=serial||(argc==4&&!strcmp(argv[3],"--low-delay"));
     bool drainMidstream=argc==4&&!strcmp(argv[3],"--drain-midstream");
     if(argc==4&&!discovery&&!cancel&&!lowDelay&&!drainMidstream)return 64;
     signal(SIGALRM,deadlineExceeded);alarm(cancel?8:45);
-    NSDictionary *input=[NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:@(argv[1])] options:0 error:nil];
+    NSData *inputData=[NSData dataWithContentsOfFile:@(argv[1])];
+    if(!inputData)return 65;
+    NSDictionary *input=[NSJSONSerialization JSONObjectWithData:inputData options:0 error:nil];
     Results r;r.width=[input[@"width"] unsignedIntegerValue];r.height=[input[@"height"] unsignedIntegerValue];
     r.baseline=[NSData dataWithContentsOfFile:@(argv[2])];
     NSArray *packets=input[@"packets"];NSData *config=[[NSData alloc] initWithBase64EncodedString:input[@"configuration"] options:0];
     if(!input||!config||!r.baseline||!packets.count)return 65;
-    bool hevc=[input[@"codec"] isEqualToString:@"hevc"];FourCharCode codec=hevc?kCMVideoCodecType_HEVC:kCMVideoCodecType_H264;
+    bool hevc=[input[@"codec"] isEqualToString:@"hevc"],vp9=[input[@"codec"] isEqualToString:@"vp9"];
+    FourCharCode codec=vp9?kCMVideoCodecType_VP9:hevc?kCMVideoCodecType_HEVC:kCMVideoCodecType_H264;
     for(NSDictionary *packet in packets)r.baselineOrder.push_back([packet[@"pts"] longLongValue]);
     std::sort(r.baselineOrder.begin(),r.baselineOrder.end());
-    NSDictionary *extensions=@{(__bridge NSString*)kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms:@{hevc?@"hvcC":@"avcC":config}};
+    NSDictionary *extensions=@{(__bridge NSString*)kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms:@{vp9?@"vpcC":hevc?@"hvcC":@"avcC":config}};
     CMVideoFormatDescriptionRef format=nullptr;
-    OSStatus status=CMVideoFormatDescriptionCreate(nullptr,discovery&&!hevc?'nmq3':codec,(int32_t)r.width,(int32_t)r.height,(__bridge CFDictionaryRef)extensions,&format);
+    OSStatus status=CMVideoFormatDescriptionCreate(nullptr,discovery&&!hevc&&!vp9?'nmq3':codec,(int32_t)r.width,(int32_t)r.height,(__bridge CFDictionaryRef)extensions,&format);
     NSDictionary *registration=@{@"VTIsHardwareAccelerated":@YES,@"VTIsParavirtualizationAware":@YES,@"VTRating":@1000};
+    if(vp9)VTRegisterSupplementalVideoDecoderIfAvailable(codec);
     OSStatus registered=discovery?0:VTRegisterVideoDecoderWithInfo(codec,(__bridge CFDictionaryRef)registration,NativeMacNVDECCreate);
     VTDecompressionSessionRef session=nullptr;
     VTDecompressionOutputCallbackRecord callback={decoded,&r};
@@ -75,7 +81,9 @@ int main(int argc,char **argv){@autoreleasepool{
     if(hardware)CFRelease(hardware);
     OSStatus submitted=created;unsigned sent=0;
     std::vector<int64_t> expected;
+    std::vector<double> roundTrips;
     if(!created)for(NSDictionary *packet in packets){
+        auto started=std::chrono::steady_clock::now();
         NSData *bytes=[[NSData alloc] initWithBase64EncodedString:packet[@"data"] options:0];
         int64_t pts=[packet[@"pts"] longLongValue];expected.push_back(pts);
         CMBlockBufferRef block=nullptr;CMSampleBufferRef sample=nullptr;
@@ -95,6 +103,11 @@ int main(int argc,char **argv){@autoreleasepool{
         }
         if(sample)CFRelease(sample);if(block)CFRelease(block);
         if(submitted)break;sent++;
+        if(serial){
+            submitted=VTDecompressionSessionWaitForAsynchronousFrames(session);
+            roundTrips.push_back(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count());
+            if(submitted)break;
+        }
         if(drainMidstream&&sent==packets.count/2){
             submitted=VTDecompressionSessionFinishDelayedFrames(session);
             if(!submitted)submitted=VTDecompressionSessionWaitForAsynchronousFrames(session);
@@ -110,10 +123,12 @@ int main(int argc,char **argv){@autoreleasepool{
     bool timestamps=expected==r.timestamps;
     bool passed=!registered&&!created&&!queried&&hardwareTrue&&!drained&&!waited&&!r.mismatch&&
         !submitted&&!r.errors&&(cancel?sent==(activeCancel?60u:12u)&&r.frames+r.dropped==sent:r.frames==packets.count&&timestamps&&!r.dropped);
+    std::sort(roundTrips.begin(),roundTrips.end());
     NSDictionary *report=@{@"registrationStatus":@(registered),@"createStatus":@(created),@"hardwarePropertyStatus":@(queried),
         @"hardwareProperty":@(hardwareTrue),@"submitted":@(sent),@"submitStatus":@(submitted),@"drainStatus":@(drained),@"waitStatus":@(waited),
         @"decodedFrames":@(r.frames),@"droppedFrames":@(r.dropped),@"callbackErrors":@(r.errors),@"comparedBytes":@(r.frames*r.width*r.height*3/2),@"mismatchingBytes":@(r.mismatch),
-        @"timestampsMatchOriginalSamples":@(timestamps),@"passed":@(passed),@"ordinaryAppIntegration":@NO,@"componentDiscovery":@(discovery),@"cancelledEarly":@(cancel),@"midstreamDrain":@(drainMidstream),@"temporalProcessingRequested":@(!lowDelay)};
+        @"timestampsMatchOriginalSamples":@(timestamps),@"passed":@(passed),@"ordinaryAppIntegration":@NO,@"componentDiscovery":@(discovery),@"cancelledEarly":@(cancel),@"midstreamDrain":@(drainMidstream),@"temporalProcessingRequested":@(!lowDelay),
+        @"width":@(r.width),@"height":@(r.height),@"serialRoundTrip":@(serial),@"roundTripMedianMs":roundTrips.empty()?NSNull.null:@(roundTrips[roundTrips.size()/2])};
     NSData *json=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingSortedKeys error:nil];fwrite(json.bytes,1,json.length,stdout);puts("");
     if(session){VTDecompressionSessionInvalidate(session);CFRelease(session);}if(format)CFRelease(format);
     return passed?0:1;

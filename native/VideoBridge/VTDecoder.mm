@@ -17,6 +17,8 @@
 #include <vector>
 #include <os/log.h>
 #include "VideoTransport.h"
+#include <compression.h>
+#include <chrono>
 
 static constexpr OSStatus failed = -12909;
 static constexpr int64_t timestampBias = 1000000000000000LL;
@@ -32,6 +34,7 @@ struct State {
     std::deque<std::vector<uint8_t>> output;
     std::atomic<bool> stopped{false},finished{false},ready{false},ended{false};
     std::atomic<unsigned> emitted{0},errors{0},barriers{0};
+    uint64_t readNs=0,unpackNs=0,pixelNs=0,emitNs=0;
     size_t pendingCount=0;
     ~State(){if(writer>=0&&writer!=fd)close(writer);if(fd>=0)close(fd);}
 };
@@ -63,16 +66,32 @@ static void failPending(State *s, bool cancelled=false){
     s->drained.notify_all();
 }
 static void emitReady(State *s);
+static uint64_t elapsed(std::chrono::steady_clock::time_point start){
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count());
+}
 static void receiveFrames(StateHandle owner){@autoreleasepool{
     State *s=owner.get();
     std::vector<uint8_t> body;
     unsigned received=0;bool complete=false;
-    while(!s->stopped&&readMessage(s,body,s->width*s->height*3/2+9)){
+    while(!s->stopped){
+        auto readStart=std::chrono::steady_clock::now();
+        bool read=readMessage(s,body,s->width*s->height*3/2+9);
+        s->readNs+=elapsed(readStart);
+        if(!read)break;
         if(body==std::vector<uint8_t>{'G'}){s->barriers++;s->drained.notify_all();continue;}
         if(body[0]=='E'&&body.size()==5){
             uint32_t count;memcpy(&count,body.data()+1,4);complete=ntohl(count)==received;break;
         }
-        if(body[0]!='R'||body.size()!=s->width*s->height*3/2+9){s->errors++;break;}
+        size_t pixels=s->width*s->height*3/2;
+        if(body[0]=='L'&&body.size()>9){
+            auto unpackStart=std::chrono::steady_clock::now();
+            std::vector<uint8_t> raw(pixels+9);raw[0]='R';memcpy(raw.data()+1,body.data()+1,8);
+            size_t decoded=compression_decode_buffer(raw.data()+9,pixels,body.data()+9,body.size()-9,nullptr,COMPRESSION_LZ4_RAW);
+            if(decoded!=pixels){s->errors++;break;}
+            body=std::move(raw);
+            s->unpackNs+=elapsed(unpackStart);
+        }
+        if(body[0]!='R'||body.size()!=pixels+9){s->errors++;break;}
         std::unique_lock lock(s->pendingMutex);
         s->drained.wait(lock,[&]{return s->output.size()<4||s->stopped;});
         if(s->stopped)break;
@@ -82,6 +101,7 @@ static void receiveFrames(StateHandle owner){@autoreleasepool{
         emitReady(s);
     }
     if(!complete&&!s->stopped)s->errors++;
+    os_log(OS_LOG_DEFAULT,"NativeMac video timings frames=%u read_ms=%llu unpack_ms=%llu pixel_ms=%llu emit_ms=%llu",s->emitted.load(),(unsigned long long)(s->readNs/1000000),(unsigned long long)(s->unpackNs/1000000),(unsigned long long)(s->pixelNs/1000000),(unsigned long long)(s->emitNs/1000000));
     s->ended=true;s->drained.notify_all();
 }}
 // The single receiver owns output emission. Decode reports asynchronous work;
@@ -98,6 +118,7 @@ static void emitReady(State *s){
         int64_t pts=static_cast<int64_t>(OSSwapBigToHostInt64(wire));
         VTVideoDecoderFrame frame=nullptr;
         bool suppress=false;
+        int64_t firstPending=0,lastPending=0;
         {std::lock_guard lock(s->pendingMutex);
             auto found=s->pending.lower_bound(pts-100);
             if(found!=s->pending.end()&&found->first<=pts+100){
@@ -105,13 +126,15 @@ static void emitReady(State *s){
                 s->pendingCount--;
                 if(found->second.empty())s->pending.erase(found);
             }
+            if(!frame&&!s->pending.empty()){firstPending=s->pending.begin()->first;lastPending=s->pending.rbegin()->first;}
         }
-        if(!frame){s->errors++;continue;}
+        if(!frame){os_log_error(OS_LOG_DEFAULT,"NativeMac video output has no matching frame pts=%lld first=%lld last=%lld",(long long)pts,(long long)firstPending,(long long)lastPending);s->errors++;continue;}
         if(suppress){
             if(VTDecoderSessionEmitDecodedFrame(s->session,frame,0,kVTDecodeInfo_FrameDropped,nullptr))s->errors++;
             s->drained.notify_all();continue;
         }
         CVPixelBufferRef pixel=nullptr;
+        auto pixelStart=std::chrono::steady_clock::now();
         OSStatus status=CVPixelBufferPoolCreatePixelBuffer(nullptr,VTDecoderSessionGetPixelBufferPool(s->session),&pixel);
         if(!status){
             status=CVPixelBufferLockBaseAddress(pixel,0);
@@ -127,9 +150,12 @@ static void emitReady(State *s){
                 CVPixelBufferUnlockBaseAddress(pixel,0);
             }
         }
+        s->pixelNs+=elapsed(pixelStart);
+        auto emitStart=std::chrono::steady_clock::now();
         OSStatus emitted=VTDecoderSessionEmitDecodedFrame(s->session,frame,status,0,status?nullptr:pixel);
+        s->emitNs+=elapsed(emitStart);
         if(pixel)CFRelease(pixel);
-        if(status||emitted)s->errors++;else s->emitted++;
+        if(status||emitted){os_log_error(OS_LOG_DEFAULT,"NativeMac video output failed pixel=%d emit=%d",(int)status,(int)emitted);s->errors++;}else s->emitted++;
         s->drained.notify_all();
     }
 }
@@ -172,12 +198,14 @@ static OSStatus start(VTVideoDecoderRef object,VTVideoDecoderSession session,CMV
     if(dimensions.width<16||dimensions.height<16||dimensions.width>3840||dimensions.height>2160||dimensions.width%2||dimensions.height%2)return failed;
     s->width=dimensions.width;s->height=dimensions.height;
     auto codec=CMFormatDescriptionGetMediaSubType(format);
-    NSString *codecName=(codec==kCMVideoCodecType_H264||codec=='nmq3')?@"h264":codec==kCMVideoCodecType_HEVC?@"hevc":nil;
+    NSString *codecName=(codec==kCMVideoCodecType_H264||codec=='nmq3')?@"h264":codec==kCMVideoCodecType_HEVC?@"hevc":codec==kCMVideoCodecType_VP9?@"vp9":nil;
     if(!codecName)return failed;
     NSDictionary *extensions=(__bridge NSDictionary*)CMFormatDescriptionGetExtensions(format);
     NSDictionary *atoms=extensions[(__bridge NSString*)kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms];
-    NSData *config=atoms[[codecName isEqualToString:@"h264"]?@"avcC":@"hvcC"];
-    if(![config isKindOfClass:NSData.class]||config.length<7||config.length>65536)return failed;
+    bool vp9=codec==kCMVideoCodecType_VP9;
+    NSData *config=atoms[vp9?@"vpcC":[codecName isEqualToString:@"h264"]?@"avcC":@"hvcC"];
+    if(vp9&&!config)config=[NSData data];
+    if(![config isKindOfClass:NSData.class]||(!vp9&&config.length<7)||config.length>65536)return failed;
     NSDictionary *attributes=@{(__bridge NSString*)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
         (__bridge NSString*)kCVPixelBufferWidthKey:@(s->width),(__bridge NSString*)kCVPixelBufferHeightKey:@(s->height),
         (__bridge NSString*)kCVPixelBufferIOSurfacePropertiesKey:@{}};
@@ -188,7 +216,7 @@ static OSStatus start(VTVideoDecoderRef object,VTVideoDecoderSession session,CMV
     setsockopt(s->fd,IPPROTO_TCP,TCP_NODELAY,&yes,sizeof(yes));
     timeval deadline{20,0};setsockopt(s->fd,SOL_SOCKET,SO_SNDTIMEO,&deadline,sizeof(deadline));
     setsockopt(s->fd,SOL_SOCKET,SO_RCVTIMEO,&deadline,sizeof(deadline));
-    NSDictionary *hello=@{@"version":@1,@"codec":codecName,@"width":@(s->width),@"height":@(s->height),@"configuration":[config base64EncodedStringWithOptions:0]};
+    NSDictionary *hello=@{@"version":@1,@"codec":codecName,@"width":@(s->width),@"height":@(s->height),@"configuration":[config base64EncodedStringWithOptions:0],@"compression":@"lz4-raw"};
     NSData *json=[NSJSONSerialization dataWithJSONObject:hello options:0 error:nil];
     std::vector<uint8_t> body(static_cast<const uint8_t*>(json.bytes),static_cast<const uint8_t*>(json.bytes)+json.length);
     const auto request=body;
@@ -211,6 +239,7 @@ static OSStatus start(VTVideoDecoderRef object,VTVideoDecoderSession session,CMV
 static OSStatus decode(VTVideoDecoderRef object,VTVideoDecoderFrame frame,CMSampleBufferRef sample,VTDecodeFrameFlags requested,VTDecodeInfoFlags *flags){
     StateHandle owner=handle(reinterpret_cast<CMBaseObjectRef>(object));auto *s=owner.get();
     auto reject=[&](OSStatus status){
+        os_log_error(OS_LOG_DEFAULT,"NativeMac video decode rejected status=%d ready=%d stopped=%d ended=%d",(int)status,s->ready.load(),s->stopped.load(),s->ended.load());
         if(flags)*flags=kVTDecodeInfo_FrameDropped;
         // A failed decode return belongs to the framework. Emitting the same
         // frame as well would provide two terminal notifications.
@@ -303,7 +332,7 @@ static const VTVideoDecoderVTable table={{nullptr,&baseWrapper.value},reinterpre
 
 extern "C" OSStatus NativeMacNVDECCreate(FourCharCode codec,CFAllocatorRef allocator,VTVideoDecoderRef *out){
     if(!out)return kVTParameterErr;*out=nullptr;
-    if(codec!=kCMVideoCodecType_H264&&codec!=kCMVideoCodecType_HEVC&&codec!='nmq3')return kVTVideoDecoderUnsupportedDataFormatErr;
+    if(codec!=kCMVideoCodecType_H264&&codec!=kCMVideoCodecType_HEVC&&codec!=kCMVideoCodecType_VP9&&codec!='nmq3')return kVTVideoDecoderUnsupportedDataFormatErr;
     CMBaseObjectRef object=nullptr;
     OSStatus status=CMDerivedObjectCreate(allocator,&table.base,VTVideoDecoderGetClassID(),&object);
     if(status)return status;

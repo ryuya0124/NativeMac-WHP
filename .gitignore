@@ -18,3 +18,5 @@ backend/
 .env.*
 *.pem
 *.key
+native/AudioBridge/NativeMacAudioRelay.app/
+native/AudioBridge/AudioRelay-development.entitlements

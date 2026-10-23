@@ -1,4 +1,46 @@
-# Current checkpoint (2026-10-23, standard-application hardware video)
+# Current checkpoint (2026-10-24, direct transport and GPU sharing foundation)
+
+The production codec/audio service now uses direct certificate-pinned TLS,
+never SSH media or an SSH fallback. SSH is authorized only for maintenance
+commands/deployment and authored test media. The M4 is not a media/GPU server.
+Do not recreate the deleted monitor. Keep 12 GiB, 8 CPUs and the 4K60 display.
+
+VP9 profile-0 decoding now preserves redisplay timestamps and covers an
+authored invisible-keyframe/redisplay superframe. Three codec families use
+NVDEC; encoding remains H.264/HEVC NVENC. Host Python needs the pinned binary
+LZ4 dependency. The live route still reads pixels into CPU memory, compresses
+losslessly, sends direct TLS, then fills guest pixel buffers. It is not zero
+copy. YouTube remains low fps. An adaptive VP9 start with coded/display sizes
+both 0x0 is still refused; do not call adaptive playback fixed.
+
+The separate Windows-only GPU interop worker performs NVDEC -> CUDA device
+copy -> exported device-local Vulkan buffer -> optimal R8/RG8 images, matching
+all 147 frames / 98,409,600 bytes and original PTS in five authored cases,
+including short FHD/4K. CUDA/Vulkan UUID equality and binary semaphores are
+required. NVDEC output processing and CUDA consumption must use the same
+stream; an earlier nonblocking stream race failed byte comparison. Its final
+readback is only for verification. The service does not launch this worker.
+No guest integration, sustained 4K frame rate or new Geekbench gain is claimed.
+
+The guest accepts a separate metadata page before NV12 planes through public
+IOSurface/CVPixelBuffer/Metal creation. Its public plane texture resource IDs
+are both 0, so they cannot identify a host copy destination. A capability-based
+backing observer is being developed in an isolated Reims worktree; it is not
+merged or deployed. Existing backend dirty checkouts remain preserved. Finish
+the host/guest binding, lifetime, GPU copy and coherence checks before enabling
+the direct-GPU path for Safari. Do not silently label the CPU/TLS path as GPU
+sharing. Source/build details and honest limits are in native/VideoBridge and
+docs/verification/video-direct-gpu-sharing.json.
+
+The separate virtual audio relay selects only BlackHole2ch_UID, sends PCM via
+direct TLS and plays it through Windows WinMM. The user confirmed audible
+output. The exact official BlackHole driver and the narrowly scoped
+development-VM TCC entitlement are documented in native/AudioBridge. No
+physical microphone or TCC database change was made. Full cold-boot/long-term
+A/V synchronization remains unqualified. The latest successful Geekbench
+Metal score remains 2931; the failed discrete-memory trial was not installed.
+
+# Historical checkpoint (2026-10-23, standard-application hardware video)
 
 The common VideoToolbox / AVFoundation / Safari route now uses the actual
 Windows-selected renderer's NVDEC and NVENC, without a per-app launcher.

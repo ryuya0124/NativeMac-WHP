@@ -48,8 +48,12 @@ static void registerNativeMacCodecs(void){
     Factory decoder=NativeMacNVDECCreate;
     Register decoderRegistration=(Register)dlsym(RTLD_DEFAULT,"VTRegisterVideoDecoderWithInfo");
     if(decoder&&decoderRegistration){
+        // VP9 is supplemental on Intel macOS. Initialize that registry before
+        // installing our factory; its deferred initialization otherwise hides
+        // a successfully registered VP9 decoder at first session creation.
+        VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_VP9);
         NSDictionary *info=@{@"VTIsHardwareAccelerated":@YES,@"VTIsParavirtualizationAware":@YES,@"VTAllowSandboxedDecode":@YES,@"VTRating":@1000};
-        for(NSNumber *number in @[@(kCMVideoCodecType_H264),@(kCMVideoCodecType_HEVC)]){
+        for(NSNumber *number in @[@(kCMVideoCodecType_H264),@(kCMVideoCodecType_HEVC),@(kCMVideoCodecType_VP9)]){
             OSStatus registered=decoderRegistration(number.unsignedIntValue,(__bridge CFDictionaryRef)info,decoder);
             if(registered)fprintf(stderr,"NativeMac decoder registration failed: %d\n",(int)registered);
         }
