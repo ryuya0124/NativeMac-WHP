@@ -4,9 +4,9 @@ Windows上でIntel版macOS 26を動かす、WinUI 3アプリとOpenVMM/WHP用の
 
 **macOS 26.6.2 build 25G83（Intel）の通常OSが起動し、初期設定画面を表示しました。ゲストのMetal計算4096個をRTX 5080で実行し、全結果の一致を確認しました。**
 
-GPU名はWindows側でVMが実際に選択したVulkanアダプターから起動ごとに取得します。ゲストへ[名前の自動反映処理](native/GpuIdentityAgent/README.md)を導入すると、標準のAppleドライバーのままMetal APIにも反映されます。「NVIDIA GeForce RTX 5080」と表示した状態でGeekbench Metal全11項目を完走しました（[2378点](https://browser.geekbench.com/v7/gpu/317477)）。前回の3238点より低く、差の原因は未特定です。[名前反映の検証条件](docs/verification/gpu-metal-identity.json)を参照してください。
+GPU名はWindows側でVMが実際に選択したVulkanアダプターから起動ごとに取得します。ゲストへ[名前の自動反映処理](native/GpuIdentityAgent/README.md)を導入すると、標準のAppleドライバーのままMetal APIにも反映されます。「NVIDIA GeForce RTX 5080」と表示した状態でGeekbench Metal全11項目を完走しました（最新[2931点](https://browser.geekbench.com/v7/gpu/317819)、以前の最高3238点）。[直近の検証条件](docs/verification/resident-search-signing.json)を参照してください。
 
-動画は、専用テスト内のVideoToolbox→NVDEC経路でH.264の90フレームを完走し、画素と時刻の一致を確認しています。通常アプリでの自動選択は署名検査で止まり、途中終了にも未解決の問題があります。Safariや通常の録画でNVDEC／NVENCが使える状態にはまだ達していません。[動画経路の現状と再現手順](native/VideoBridge/README.md)を参照してください。
+動画は、標準のVideoToolbox／AVFoundationとSafariからWindows側のNVDEC／NVENCへ接続する共通経路を実装しています。Safariの自作動画で録画→MP4生成→再生とWebCodecsを確認しました。開発用VM内の明示的な共通設定が必要です。対応はH.264／HEVCの8-bit映像で、AV1・VP9・HDRや全アプリの互換性は未認定です。[導入・解除・検証手順](native/VideoBridge/README.md)を参照してください。
 
 CPUはWHPで実行し、QEMU実行ファイル・QEMUコア・CPU命令の動的変換を使用しません。Appleの復旧DMGは原本を読み取り専用で参照します。RAM・CPUは起動前に変更できます（設定上限256 GiB・64コア）。現在の割り当てと検証は12 GiB・8コアのままです。実際に確保できる容量はホストの空きメモリなどに依存します。
 

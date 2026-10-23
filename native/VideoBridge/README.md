@@ -1,136 +1,144 @@
-# Host hardware video transport
+# Standard-app hardware video bridge
 
-`host.py` exposes bounded NVENC/NVDEC batch processing on a Windows loopback
-listener. `roundtrip.py` creates NV12 frames in the Intel VM, sends them for
-hardware encoding and decoding, and checks returned luma and chroma pixels.
-FFmpeg's explicit `*_nvenc` and `*_cuvid` paths have no software fallback.
+The Intel development guest can use the Windows renderer's NVDEC/NVENC through
+ordinary VideoToolbox, AVFoundation and Safari APIs. Apps need no custom launch
+wrapper after the explicit system profile is enabled. This is an authored
+paravirtual codec component, not an NVIDIA macOS kernel driver.
 
-The batch transport does **not** register a VideoToolbox codec, accelerate
-ordinary macOS applications or repair Safari. Hardware labels in its responses
-describe the host codec worker. The explicit VideoToolbox streaming experiment
-below is separate and remains incomplete.
+The qualified path is 8-bit progressive 4:2:0 H.264 / HEVC, even dimensions up to
+3840×2160. H.264 Main / Constrained Baseline / High and HEVC Main encoding are
+mapped to actual NVENC profiles. AV1, VP9, 10-bit/HDR, alpha, midstream coded-size
+changes and arbitrary application-specific codecs are not implemented. Apps
+that explicitly disable hardware or select a different encoder retain that
+choice. This is not a claim that every application or media format works.
 
-Start on Windows with an installed FFmpeg containing NVENC and CUVID:
+## How it works
 
-```powershell
-python native/VideoBridge/host.py --port 54880
-```
+- `NvdecWorker.cpp` calls NVIDIA's NVDEC API directly. `CodecWorker.cpp` uses
+  matching FFmpeg API headers/DLLs and the hardware-only NVENC encoders.
+- `server.py` owns bounded workers on Windows loopback. The selected Vulkan
+  renderer is read afresh with the same probe used by the VM launcher; CUDA
+  matching must identify one unique adapter. No model name or ordinal is fixed.
+- `Run-VideoBridge.py` owns the service and one authenticated SSH reverse
+  forward. Kill-on-close Windows jobs and a handle to the VM launcher prevent
+  orphan processes; guest startup/reconnection has a bounded retry window.
+- The root guest `GuestBroker.cpp` exposes a fixed Mach service and anonymous
+  codec pipes. Sandboxed Safari/WebKit processes use pipes; they do not acquire
+  general networking or a relaxed sandbox. Readiness uses libdispatch because
+  direct poll/kevent calls are rejected by WebKit's syscall filter.
+- `VideoBridgeEntry.m` registers factories lazily when video APIs are called.
+  Catalog-loaded components borrow its pre-sandbox Mach capability. The
+  low-latency selection maps to NVENC ULL / zero delay / no B frames, rather
+  than Apple's exclusive conferencing selector. Unsupported properties still
+  fail. avc1/hvc1 parameter sets remain out of band; sync samples omit NotSync.
+- Root-owned system, background and GUI launch jobs set the same helper for
+  future standard launches and XPC children. A one-shot GUI initializer checks
+  restored Safari's image metadata. If the helper is missing, it requests a
+  graceful Safari relaunch through NSWorkspace; restarting only WebKit's GPU
+  service does not refresh the parent's cached XPC environment. Already
+  configured Safari is left running. Unknown metadata and a refused quit are
+  reported, never force-quit. Session/window restoration remains Safari's
+  normal behavior. No app/benchmark binary or sealed system volume is
+  patched. The scoped development registry check still verifies the exact
+  authored component's ad-hoc seal.
 
-Expose that loopback port through an authenticated SSH forward. For a relay
-Mac, the Windows connection can use
-`-R 127.0.0.1:54881:127.0.0.1:54880`; the guest connection uses
-`-L 127.0.0.1:54882:127.0.0.1:54881` to the same relay. Both listeners stay on
-loopback. Use existing authorized SSH identities; never commit their keys.
-The test harness should terminate only the tunnel process it starts.
+NV12 currently crosses CPU-addressable buffers and SSH. Hardware codec work is
+on the GPU, but transport is not zero copy. A relay can limit throughput;
+short 4K checks do not establish sustained 4K playback/encoding frame rates.
 
-Run in the guest:
+## Build and opt in
 
-```bash
-python3 roundtrip.py --base http://127.0.0.1:54882
-python3 roundtrip.py --width 854 --height 480 --frames 12
-python3 roundtrip.py --width 1920 --height 1080 --frames 3
-python3 roundtrip.py --width 3840 --height 2160 --frames 2
-```
+This component ABI is restricted to the measured Darwin 25.6 x86-64 guest.
+Do not install this profile on a physical Mac. The VM must boot with the
+explicit `developmentSigning` setting (`amfi=0x80`). Windows signing policy,
+macOS SSV and shader translator limits are unchanged.
 
-The measured RTX 5080 path passes H.264 and HEVC for these small batches.
-See [aggregate evidence](../../docs/verification/video-hardware-transport.json).
-These checks do not measure sustained throughput, rate control, arbitrary
-input streams, reordering, HDR or browser integration.
-
-Requests are serialized, limited to 64 MiB, even NV12 dimensions up to
-3840×2160 and 120 frames. Each FFmpeg worker runs in its own kill-on-close
-Windows job with a 20-second / 1-GiB bound. That video-worker bound is separate
-from the shader translator's unchanged 20-second / 500-MiB boundary. CUDA
-initialization and FHD/4K decode surfaces can exceed 512 MiB. Temporary files
-are owned by one request and removed on completion. The remote caller supplies
-no executable, filesystem path or command options.
-
-## Experimental VideoToolbox streaming
-
-`stream.py`, `matroska.py` and `server.py` keep one Windows NVDEC worker alive
-across compressed packets. `VTDecoder.mm` implements an authored decoder for
-an Intel guest test process; `VTStreamProbe.mm` registers it explicitly and
-uses ordinary H.264 VideoToolbox session/decode/finish APIs with hardware
-required and temporal processing enabled. These are private component
-interfaces, with BSD-licensed WebKit declarations under `spi/`.
-
-The checked 320×180 / 90-frame B-frame test completes: all 7,776,000 NV12 bytes
-match an independent CUDA/CUVID decode, original sample timestamps match,
-callbacks report zero errors and the hardware decoder property is true.
-The Windows worker also separately produces frames before EOF, preserving
-reordering within CUVID's 100 ns timestamp clock. This checks decoded bytes
-and timing; it does not qualify RGB color conversion, HDR or playback speed.
-See [streaming evidence](../../docs/verification/video-vt-stream.json).
-
-This is **not ready for ordinary applications**:
-
-- With normal policy, automatic component selection rejects the ad-hoc probe's signature
-  (`SecStaticCodeCheckValidity = -67050`), even though the registry scans its
-  metadata and a standalone authored program can load its factory. Signature
-  enforcement was not changed for that baseline. The new opt-in
-  `RegistrySigning.m` process interposer relaxes only the extra Apple-anchor
-  requirement for the root-owned authored probe at its exact installation
-  path. It still checks its ad-hoc seal. A discovery run using the authored
-  `nmq3` subtype now completes all 90 frames, with hardware required, matching
-  all 7,776,000 NV12 bytes and original timestamps. Unrelated code retains its
-  rejection; a changed probe executable is rejected with -67061. The original
-  executable was restored and its seal verified after that negative test.
-  This does not qualify normal H.264 discovery or Safari integration.
-- Low-delay calls and early session invalidation still fail the bounded
-  regression tests. Only finishing the complete temporal stream is qualified.
-  Midstream drain/reset, seeking, preroll and format changes remain unsupported.
-- The VideoToolbox encoder side is absent. NVENC is tested through the separate
-  Windows worker, not ordinary VM recording/encoding applications.
-- Only H.264 is qualified for the streaming VT component. HEVC/4K batch results
-  do not qualify HEVC streaming or sustained 4K playback. Frames currently pass
-  through CPU-addressable NV12 copies and SSH forwards; this is not zero copy.
-
-Create a synthetic fixture on Windows, using installed FFmpeg/ffprobe paths:
+Build Windows workers with Visual Studio C++ / Windows SDK 10.0.26100:
 
 ```powershell
-python native/VideoBridge/make_fixture.py --ffmpeg C:/path/ffmpeg.exe `
-  --ffprobe C:/path/ffprobe.exe --out artifacts/my-video-fixture
-python native/VideoBridge/server.py --ffmpeg C:/path/ffmpeg.exe --port 54883
+scripts/Build-VideoWorker.ps1 -FfmpegHeaders C:/local/exact-ffmpeg-headers `
+  -NvdecHeaders C:/local/nv-codec-headers/include/ffnvcodec
 ```
 
-The fixture uses NVENC GPU 0, two B frames and a 30-frame GOP; its independent
-byte baseline uses CUVID GPU 0. This was tested on the RTX 5080 at that index;
-automatic CUDA-device matching to the VM's selected renderer is not implemented.
-The destination directory must be new. Do not commit generated movies, packets
-or raw pixels.
+The measured FFmpeg headers are revision `199c479b9a`: avcodec 61.4.100 and
+avutil 59.10.100, exactly checked against the locally installed DLLs.
+NVDEC declarations were built from NVIDIA nv-codec-headers revision
+`71acc268a541f7d7f33cf0387229e3015cfb4977`. Vendor headers, DLLs and executables
+are local dependencies and are not distributed here.
 
-For the streaming service, forward Windows loopback 54883 to relay loopback
-54884, then guest loopback 54885 to relay loopback 54884. Keep all listeners
-on loopback and use authenticated SSH identities, as with the batch service.
-Copy the source directory, `input.json` and `baseline.nv12` into an Intel guest
-test folder, then run:
+Copy this source directory to an owned guest working folder, then:
 
 ```bash
-bash build_probe.sh
-./VTStreamProbe input.json baseline.nv12
+bash build_video_bridge.sh
+sudo bash enable_system_video.sh
 ```
 
-The build prints the SDK ABI measurement first. The qualified x86-64 layout
-has a four-byte class-version field; the implementation pads its class tables
-accordingly. It deliberately rejects other target architectures at compile time.
-`build_probe.sh` does not install any component. `ProbeCodec-Info.plist` uses
-only an authored test codec tag for the automatic-discovery experiment.
-`--low-delay` and `--cancel` reproduce the known failures, with an eight-second
-self-deadline; their timeout is a failure, not a successful cancellation test.
-The full probe has a 45-second self-deadline.
+This installs only the NativeMac component/support directory, its Mach broker,
+and its named launch jobs. The GUI initializer may gracefully relaunch an
+existing Safari missing the helper. Restart other existing consumers once.
+Subsequent standard launches need no per-app environment or wrapper.
+The legacy explicit `run_with_video.sh` remains useful for CLI diagnostics.
+`disable_system_video.sh` removes the common opt-in, matching environment
+values and owned launch jobs; reboot the guest afterwards to clear environment
+values already inherited by long-lived GUI parents.
 
-For the explicit development process, build `RegistrySigning.m` as an ad-hoc
-signed dylib linked with Foundation and Security. Use
-`DYLD_INSERT_LIBRARIES="$PWD/RegistrySigning.dylib" ./VTStreamProbe input.json baseline.nv12 --discover`
-after installing the authored, root-owned `NativeMacNVDECProbe.bundle` under
-`/Library/Video/Plug-Ins`. Do not export the injection into login sessions or
-select this unfinished codec for normal H.264 applications. The interposer's
-`RegistrySigningProbe.m` checks the separate ad-hoc-seal and Apple-anchor
-outcomes without invoking any video decoder.
+Create the ignored local `artifacts/video-service-config.json` on Windows:
 
-The streaming listener permits two codec sessions. Compressed packets are at
-most 8 MiB, configuration at most 64 KiB, and dimensions even up to 3840×2160.
-Host and guest queues are bounded. Each FFmpeg worker retains the separate
-1-GiB job limit, a 20-second pending-work watchdog, 300-second idle deadline
-and one-hour lifetime limit. These video limits do not change shader translation
-limits. A protocol, codec or hardware failure never enables a software decoder.
+```json
+{
+  "ffmpeg": "C:/local/ffmpeg/bin/ffmpeg.exe",
+  "guestUser": "your-guest-account",
+  "knownHosts": "artifacts/guest-ssh-known_hosts",
+  "sshPort": 59220,
+  "jump": "your-account@your-authorized-relay"
+}
+```
+
+The SSH port must already reach the guest's loopback SSH endpoint, directly or
+through the optional jump. Use an already trusted host key and authorized SSH
+identity. Do not put passwords or keys in the configuration. With
+`systemVideoBridge: true`, `Start-VM.ps1` starts/stops the service for both
+WinUI and CLI VM launches. For an existing running VM, start it manually:
+
+```powershell
+python scripts/Run-VideoBridge.py --config artifacts/video-service-config.json
+```
+
+## Verification
+
+Generate owned fixtures with `make_fixture.py` using installed FFmpeg/ffprobe;
+`--gpu-name` must match the selected renderer if multiple CUDA adapters exist.
+Generated movies, compressed packets, raw frames and guest logs stay local.
+
+`VTStreamProbe` checks every returned NV12 byte and original presentation time
+against an independent NVDEC baseline. It covers full/low-delay streams,
+nonterminal drain, early cancellation and cancellation with output in flight.
+`VTEncodeProbe` checks public VT compression, hardware selection, timestamps,
+forced keyframes and sync attachment conventions. `--output-handler` covers
+modern per-frame blocks, and `--profile baseline|main|high` selects real profiles.
+`AVPlayerProbe` and `AVAssetWriterProbe` use public AVFoundation APIs without
+manual component registration. Encoded output also needs independent decoding
+and container timestamp checks; byte counts alone are not qualification.
+
+Open `BrowserVideoProbe.html` in an ordinarily launched Safari and run its
+checks. It records only an authored canvas, plays that MP4 while checking
+changing pixels, and verifies WebCodecs output and two forced keyframes. A
+passing page alone does not prove hardware use: correlate it with native
+NVDEC/NVENC worker sessions. No camera, microphone, account or remote media is
+needed. The optional download contains only the authored recording.
+
+Aggregate measured results, including normal Dock launch and GUI-login
+restoration, are in `../../docs/verification/video-standard-apps.json`.
+
+The older `host.py` / `roundtrip.py` batch transport is retained for diagnostics.
+Its standalone results are not evidence of ordinary-app acceleration.
+
+## Bounds
+
+Two concurrent codec sessions; compressed packets at most 8 MiB; configuration
+at most 64 KiB; bounded host/guest queues. Each native Windows worker is in a
+separate 1-GiB kill-on-close job with a 20-second pending-work watchdog,
+300-second idle timeout and one-hour lifetime. The guest broker bounds relay
+writes/idle/lifetime too. No guest caller supplies executable paths, GPU
+indices, filesystem paths or FFmpeg arguments. A hardware/protocol failure
+never selects a software codec in this bridge.

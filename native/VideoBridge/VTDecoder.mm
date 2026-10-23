@@ -1,8 +1,9 @@
-// Experimental authored VideoToolbox decoder. Explicit probe registration only.
-// No system component replacement, library injection or software video fallback.
+// Authored VideoToolbox decoder, also discoverable by explicitly opted-in consumers.
+// No Apple component replacement or software video fallback.
 #import <Foundation/Foundation.h>
 #include "spi/VTVideoDecoderSPI.h"
 #include <arpa/inet.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <libkern/OSByteOrder.h>
@@ -14,22 +15,25 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <os/log.h>
+#include "VideoTransport.h"
 
 static constexpr OSStatus failed = -12909;
 static constexpr int64_t timestampBias = 1000000000000000LL;
 struct State {
-    int fd=-1;
+    int fd=-1,writer=-1;
     size_t width=0,height=0;
     VTVideoDecoderSession session=nullptr;
     std::thread::id readerID;
     std::mutex writeMutex,pendingMutex;
     std::condition_variable drained;
-    std::map<int64_t,std::deque<VTVideoDecoderFrame>> pending;
+    struct Frame {VTVideoDecoderFrame token;bool suppressOutput;};
+    std::map<int64_t,std::deque<Frame>> pending;
     std::deque<std::vector<uint8_t>> output;
     std::atomic<bool> stopped{false},finished{false},ready{false},ended{false};
-    std::atomic<unsigned> emitted{0},errors{0};
+    std::atomic<unsigned> emitted{0},errors{0},barriers{0};
     size_t pendingCount=0;
-    ~State(){if(fd>=0)close(fd);}
+    ~State(){if(writer>=0&&writer!=fd)close(writer);if(fd>=0)close(fd);}
 };
 using StateHandle=std::shared_ptr<State>;
 static StateHandle &handle(CMBaseObjectRef object){return *static_cast<StateHandle*>(CMBaseObjectGetDerivedStorage(object));}
@@ -37,17 +41,11 @@ static State *state(CMBaseObjectRef object){
     return handle(object).get();
 }
 static bool transfer(int fd,void *data,size_t count,bool sending){
-    auto *bytes=static_cast<uint8_t *>(data);
-    while(count){
-        ssize_t done=sending?send(fd,bytes,count,0):recv(fd,bytes,count,0);
-        if(done<=0)return false;
-        bytes+=done;count-=static_cast<size_t>(done);
-    }
-    return true;
+    return NativeMacVideoTransfer(fd,data,count,sending);
 }
 static bool writeMessage(State *s,const std::vector<uint8_t> &body){
     uint32_t size=htonl(static_cast<uint32_t>(body.size()));
-    return transfer(s->fd,&size,4,true)&&transfer(s->fd,const_cast<uint8_t*>(body.data()),body.size(),true);
+    return transfer(s->writer,&size,4,true)&&transfer(s->writer,const_cast<uint8_t*>(body.data()),body.size(),true);
 }
 static bool readMessage(State *s,std::vector<uint8_t> &body,size_t limit){
     uint32_t size;
@@ -55,19 +53,22 @@ static bool readMessage(State *s,std::vector<uint8_t> &body,size_t limit){
     size=ntohl(size);if(!size||size>limit)return false;
     body.resize(size);return transfer(s->fd,body.data(),size,false);
 }
-static void failPending(State *s){
-    std::map<int64_t,std::deque<VTVideoDecoderFrame>> pending;
+static void failPending(State *s, bool cancelled=false){
+    std::map<int64_t,std::deque<State::Frame>> pending;
     {std::lock_guard lock(s->pendingMutex);pending.swap(s->pending);s->pendingCount=0;}
     for(auto &[pts,frames]:pending){(void)pts;for(auto frame:frames){
-        VTDecoderSessionEmitDecodedFrame(s->session,frame,failed,0,nullptr);s->errors++;
+        VTDecoderSessionEmitDecodedFrame(s->session,frame.token,cancelled?0:failed,kVTDecodeInfo_FrameDropped,nullptr);
+        if(!cancelled)s->errors++;
     }}
     s->drained.notify_all();
 }
+static void emitReady(State *s);
 static void receiveFrames(StateHandle owner){@autoreleasepool{
     State *s=owner.get();
     std::vector<uint8_t> body;
     unsigned received=0;bool complete=false;
     while(!s->stopped&&readMessage(s,body,s->width*s->height*3/2+9)){
+        if(body==std::vector<uint8_t>{'G'}){s->barriers++;s->drained.notify_all();continue;}
         if(body[0]=='E'&&body.size()==5){
             uint32_t count;memcpy(&count,body.data()+1,4);complete=ntohl(count)==received;break;
         }
@@ -77,14 +78,14 @@ static void receiveFrames(StateHandle owner){@autoreleasepool{
         if(s->stopped)break;
         s->output.push_back(std::move(body));received++;
         s->drained.notify_all();
+        lock.unlock();
+        emitReady(s);
     }
     if(!complete&&!s->stopped)s->errors++;
     s->ended=true;s->drained.notify_all();
 }}
-// Emit on the synchronous decoder entry points. Delayed/reordered pictures
-// are buffered codec output, not outstanding asynchronous VT operations.
-// Marking those pictures asynchronous made public Invalidate wait forever
-// before it could call the decoder's invalidation callback.
+// The single receiver owns output emission. Decode reports asynchronous work;
+// output does not depend on a later API call arriving to pump the queue.
 static void emitReady(State *s){
     for(;;){
         std::vector<uint8_t> body;
@@ -96,15 +97,20 @@ static void emitReady(State *s){
         uint64_t wire;memcpy(&wire,body.data()+1,8);
         int64_t pts=static_cast<int64_t>(OSSwapBigToHostInt64(wire));
         VTVideoDecoderFrame frame=nullptr;
+        bool suppress=false;
         {std::lock_guard lock(s->pendingMutex);
             auto found=s->pending.lower_bound(pts-100);
             if(found!=s->pending.end()&&found->first<=pts+100){
-                frame=found->second.front();found->second.pop_front();
+                frame=found->second.front().token;suppress=found->second.front().suppressOutput;found->second.pop_front();
                 s->pendingCount--;
                 if(found->second.empty())s->pending.erase(found);
             }
         }
         if(!frame){s->errors++;continue;}
+        if(suppress){
+            if(VTDecoderSessionEmitDecodedFrame(s->session,frame,0,kVTDecodeInfo_FrameDropped,nullptr))s->errors++;
+            s->drained.notify_all();continue;
+        }
         CVPixelBufferRef pixel=nullptr;
         OSStatus status=CVPixelBufferPoolCreatePixelBuffer(nullptr,VTDecoderSessionGetPixelBufferPool(s->session),&pixel);
         if(!status){
@@ -130,16 +136,23 @@ static void emitReady(State *s){
 static OSStatus invalidate(CMBaseObjectRef object){
     State *s=state(object);if(!s)return 0;
     s->stopped=true;
-    if(s->fd>=0)shutdown(s->fd,SHUT_RDWR);
-    s->drained.notify_all();
-    if(s->ready&&std::this_thread::get_id()!=s->readerID){
-        std::unique_lock lock(s->pendingMutex);
-        if(!s->drained.wait_for(lock,std::chrono::seconds(20),[&]{return s->ended.load();}))return failed;
+    {std::lock_guard guard(s->writeMutex);
+        if(s->fd>=0&&s->writer==s->fd)shutdown(s->fd,SHUT_RDWR);
+        else if(s->writer>=0){close(s->writer);s->writer=-1;}
     }
+    s->drained.notify_all();
+    // Do not join the output thread here: it can be inside EmitDecodedFrame
+    // waiting for the framework lock held by this invalidation callback.
+    // Its shared State handle keeps storage and the socket alive. The public
+    // session's subsequent frame wait accounts for an already emitting frame.
+    // Invalidate precedes the framework's final asynchronous-frame wait. Every
+    // accepted frame still needs a terminal notification, even when cancelled.
+    failPending(s,true);
     return 0;
 }
 static void finalize(CMBaseObjectRef object){invalidate(object);handle(object).~StateHandle();}
 static OSStatus copyProperty(CMBaseObjectRef object,CFStringRef key,CFAllocatorRef,void *out){
+    if(!key||!out)return kVTParameterErr;
     if(CFEqual(key,kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder)){
         auto *s=state(object);*static_cast<CFTypeRef*>(out)=CFRetain(s&&s->ready?kCFBooleanTrue:kCFBooleanFalse);return 0;
     }
@@ -153,6 +166,7 @@ static OSStatus copySupported(VTVideoDecoderRef,CFDictionaryRef *out){@autorelea
     *out=static_cast<CFDictionaryRef>(CFRetain((__bridge CFTypeRef)properties));return 0;
 }}
 static OSStatus start(VTVideoDecoderRef object,VTVideoDecoderSession session,CMVideoFormatDescriptionRef format){@autoreleasepool{
+    os_log(OS_LOG_DEFAULT,"NativeMac video decoder session start");
     State *s=state(reinterpret_cast<CMBaseObjectRef>(object));s->session=session;
     auto dimensions=CMVideoFormatDescriptionGetDimensions(format);
     if(dimensions.width<16||dimensions.height<16||dimensions.width>3840||dimensions.height>2160||dimensions.width%2||dimensions.height%2)return failed;
@@ -169,16 +183,27 @@ static OSStatus start(VTVideoDecoderRef object,VTVideoDecoderSession session,CMV
         (__bridge NSString*)kCVPixelBufferIOSurfacePropertiesKey:@{}};
     OSStatus status=VTDecoderSessionSetPixelBufferAttributes(session,(__bridge CFDictionaryRef)attributes);
     if(status)return status;
-    s->fd=socket(AF_INET,SOCK_STREAM,0);if(s->fd<0)return failed;
+    s->fd=NativeMacVideoOpenSocket(&s->writer);if(s->fd<0){os_log_error(OS_LOG_DEFAULT,"NativeMac video decoder transport connect failed errno=%d",errno);return failed;}
     int yes=1;setsockopt(s->fd,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof(yes));
+    setsockopt(s->fd,IPPROTO_TCP,TCP_NODELAY,&yes,sizeof(yes));
     timeval deadline{20,0};setsockopt(s->fd,SOL_SOCKET,SO_SNDTIMEO,&deadline,sizeof(deadline));
     setsockopt(s->fd,SOL_SOCKET,SO_RCVTIMEO,&deadline,sizeof(deadline));
-    sockaddr_in address{};address.sin_family=AF_INET;address.sin_port=htons(54885);address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
-    if(connect(s->fd,reinterpret_cast<sockaddr*>(&address),sizeof(address)))return failed;
     NSDictionary *hello=@{@"version":@1,@"codec":codecName,@"width":@(s->width),@"height":@(s->height),@"configuration":[config base64EncodedStringWithOptions:0]};
     NSData *json=[NSJSONSerialization dataWithJSONObject:hello options:0 error:nil];
     std::vector<uint8_t> body(static_cast<const uint8_t*>(json.bytes),static_cast<const uint8_t*>(json.bytes)+json.length);
-    if(!writeMessage(s,body)||!readMessage(s,body,256)||body!=std::vector<uint8_t>{'A'})return failed;
+    const auto request=body;
+    for(unsigned retry=0;;++retry){
+        if(!writeMessage(s,request)){os_log_error(OS_LOG_DEFAULT,"NativeMac video decoder hello write failed errno=%d",errno);return failed;}
+        if(!readMessage(s,body,256)){os_log_error(OS_LOG_DEFAULT,"NativeMac video decoder hello read failed errno=%d",errno);return failed;}
+        if(body==std::vector<uint8_t>{'A'})break;
+        if(body!=std::vector<uint8_t>{'B'}||retry>=39)return failed;
+        if(s->writer!=s->fd)close(s->writer);close(s->fd);s->fd=s->writer=-1;std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        s->fd=NativeMacVideoOpenSocket(&s->writer);if(s->fd<0)return failed;
+        setsockopt(s->fd,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof(yes));
+        setsockopt(s->fd,IPPROTO_TCP,TCP_NODELAY,&yes,sizeof(yes));
+        setsockopt(s->fd,SOL_SOCKET,SO_SNDTIMEO,&deadline,sizeof(deadline));
+        setsockopt(s->fd,SOL_SOCKET,SO_RCVTIMEO,&deadline,sizeof(deadline));
+    }
     deadline.tv_sec=300;setsockopt(s->fd,SOL_SOCKET,SO_RCVTIMEO,&deadline,sizeof(deadline));
     std::thread receiver(receiveFrames,handle(reinterpret_cast<CMBaseObjectRef>(object)));
     s->readerID=receiver.get_id();s->ready=true;receiver.detach();return 0;
@@ -187,14 +212,11 @@ static OSStatus decode(VTVideoDecoderRef object,VTVideoDecoderFrame frame,CMSamp
     StateHandle owner=handle(reinterpret_cast<CMBaseObjectRef>(object));auto *s=owner.get();
     auto reject=[&](OSStatus status){
         if(flags)*flags=kVTDecodeInfo_FrameDropped;
-        VTDecoderSessionEmitDecodedFrame(s->session,frame,status,kVTDecodeInfo_FrameDropped,nullptr);return status;
+        // A failed decode return belongs to the framework. Emitting the same
+        // frame as well would provide two terminal notifications.
+        return status;
     };
     if(!s->ready||s->stopped||s->finished||s->ended)return reject(failed);
-    // The CLI worker buffers/reorders pictures. Do not accept low-delay calls
-    // until that separate mode can satisfy its per-frame completion contract.
-    if(!(requested&kVTDecodeFrame_EnableTemporalProcessing))return reject(kVTPropertyNotSupportedErr);
-    if(requested&kVTDecodeFrame_DoNotOutputFrame)return reject(kVTPropertyNotSupportedErr);
-    emitReady(s);
     CMTime time=CMSampleBufferGetPresentationTimeStamp(sample);
     if(!CMTIME_IS_NUMERIC(time))return reject(failed);
     int64_t ns=CMTimeConvertScale(time,1000000000,kCMTimeRoundingMethod_Default).value;
@@ -216,37 +238,36 @@ static OSStatus decode(VTVideoDecoderRef object,VTVideoDecoderFrame frame,CMSamp
     {std::unique_lock lock(s->pendingMutex);
         auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(20);
         while(s->pendingCount>=64&&!s->stopped&&!s->ended){
-            lock.unlock();emitReady(s);lock.lock();
-            if(s->pendingCount<64)break;
-            if(!s->drained.wait_until(lock,deadline,[&]{return !s->output.empty()||s->stopped||s->ended;}))break;
+            if(!s->drained.wait_until(lock,deadline,[&]{return s->pendingCount<64||s->stopped||s->ended;}))break;
         }
-        if(!s->stopped&&!s->ended&&s->pendingCount<64){s->pending[ns].push_back(frame);s->pendingCount++;reserved=true;}
+        if(!s->stopped&&!s->ended&&s->pendingCount<64){s->pending[ns].push_back({frame,(requested&kVTDecodeFrame_DoNotOutputFrame)!=0});s->pendingCount++;reserved=true;}
     }
     if(!reserved)return reject(failed);
     std::lock_guard writeLock(s->writeMutex);
-    if(flags)*flags=0;
+    if(flags)*flags=kVTDecodeInfo_Asynchronous;
     if(!writeMessage(s,body)){
         {std::lock_guard lock(s->pendingMutex);
             auto found=s->pending.find(ns);
             if(found!=s->pending.end()){found->second.pop_back();s->pendingCount--;if(found->second.empty())s->pending.erase(found);}
         }
-        shutdown(s->fd,SHUT_RDWR);return reject(failed);
+        if(s->writer==s->fd)shutdown(s->fd,SHUT_RDWR);else if(s->writer>=0){close(s->writer);s->writer=-1;}
+        return reject(failed);
     }
     return 0;
 }
-// Probe-only drain closes the stream. Midstream drain/reset is not implemented.
-// This component must not be selected for ordinary apps until that is qualified.
+// A nonterminal queue barrier preserves reference pictures for further input.
 static OSStatus finish(VTVideoDecoderRef object){
     StateHandle owner=handle(reinterpret_cast<CMBaseObjectRef>(object));auto *s=owner.get();
-    {std::lock_guard lock(s->writeMutex);if(!s->finished.exchange(true)&&!writeMessage(s,{'F'}))return failed;}
+    if(s->stopped){failPending(s,true);return 0;}
+    unsigned barrier;
+    {std::lock_guard lock(s->writeMutex);barrier=s->barriers.load()+1;if(!writeMessage(s,{'G'}))return failed;}
     auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(20);
     for(;;){
-        emitReady(s);
         std::unique_lock lock(s->pendingMutex);
-        if(s->ended&&s->output.empty())break;
-        if(!s->drained.wait_until(lock,deadline,[&]{return !s->output.empty()||s->ended;}))return failed;
+        if(s->barriers>=barrier&&!s->pendingCount)break;
+        if(s->ended||s->stopped)return failed;
+        if(!s->drained.wait_until(lock,deadline,[&]{return (s->barriers>=barrier&&!s->pendingCount)||s->ended||s->stopped;}))return failed;
     }
-    if(!s->stopped)failPending(s);
     return s->errors?failed:0;
 }
 

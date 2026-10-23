@@ -1,4 +1,78 @@
-# Current checkpoint (2026-10-23 17:05 JST)
+# Current checkpoint (2026-10-23, standard-application hardware video)
+
+The common VideoToolbox / AVFoundation / Safari route now uses the actual
+Windows-selected renderer's NVDEC and NVENC, without a per-app launcher.
+The host selection is a fresh Vulkan name matched to a unique CUDA adapter;
+identical-name ambiguity is rejected. This remains an authored paravirtual
+codec, not an NVIDIA macOS kernel driver or a universal compatibility claim.
+
+The root guest profile installs the bounded native Mach broker, root-owned
+codec bundle / entry and system, background and GUI environment jobs. Safari's
+sandbox uses anonymous pipes and pre-sandbox Mach capabilities; no general
+networking permission is added. Ad-hoc component seals are still checked.
+Default VM settings now explicitly enable development signing and the video
+service. SSV and Windows signing policy remain unchanged. The stock Metal entry
+is retained. Keep the actual current 12-GiB / 8-CPU / 4K60 physical allocation.
+
+Normal Dock-launched Safari passes authored canvas recording -> MP4 playback
+with changing pixels, and WebCodecs 30 frames / two forced keyframes. Native
+worker sessions prove NVENC / NVDEC use. A GUI LaunchServices AVAssetWriter app
+writes 30 frames without registering factories or supplying a dyld wrapper;
+independent NVDEC checks its exact MP4 timestamps and pixels. AVPlayer's
+90-frame public API playback also passes. Direct H.264 / HEVC VT tests cover
+small, FHD and short 4K frames, real encoding profiles, modern output handlers,
+nonterminal drain and 13 lifecycle / cancellation cases. Cancellation deliberately
+drops frames: do not claim whole-input PTS equality for those cancellation cases.
+
+A restored Safari can retain an old per-process XPC bootstrap environment even
+when the GUI domain has the new environment. Restarting only WebKit's GPU does
+not repair it. The one-shot GUI initializer now inspects trusted same-UID Safari
+image metadata (bounded platform vmmap fallback, no memory contents or URLs).
+Only a Safari missing the helper is asked to quit normally and reopen through
+NSWorkspace. Unknown metadata / refused quit is reported; no forced app exit.
+Cold guest reboot + GUI login + browser hardware checks pass. Already configured
+Safari is left running. Other consumers running before initial installation
+need an initial restart. Unrelated apps are not automatically terminated.
+
+The system profile's disable operation was checked against all three launchd
+domains, then enabled again. Reboot after disable is required to clear old
+GUI-parent environment snapshots. Do not boot out an identical Mach broker on
+re-enable: that destroys the sandbox clients' acquired capabilities. The
+installer now preserves an identical live broker and uses the existing launchd
+service instance on an upgrade. No loginwindow restart, LoginHook, authentication
+plugin, system-volume patch or permanent process monitor is installed.
+
+Windows Start-VM uses the shared Start-VideoBridge readiness helper before VMM
+GPU startup, then owns its cleanup. The Python service owns all children in
+kill-on-close Windows jobs and watches an actual VM-launcher process handle.
+Guest reset/reconnect and the shared startup helper are tested. A complete
+second WinUI launch with the final readiness ordering was not repeated; do not
+claim otherwise. Required connection/dependency configuration stays in ignored
+artifacts/video-service-config.json. No passwords or private evidence are public.
+
+Limits: 8-bit progressive 4:2:0 H.264 / HEVC only; no AV1, VP9, 10-bit/HDR, alpha
+or midstream coded-size changes. Four no-B-frame 4K frames pass; sustained 4K60
+and long reordered 4K are not qualified. A larger B-frame setup hit the existing
+1-GiB worker limit and was rejected, not counted as a pass. NV12 copies still
+cross CPU-addressable buffers and authenticated SSH; no zero-copy claim.
+A custom media stack, explicit software selection or an unqualified protected
+launch path can bypass the bridge. Do not describe this as all apps/formats.
+
+Source and sanitized aggregate/source hashes are in
+`docs/verification/video-standard-apps.json`; setup/disable is documented in
+`native/VideoBridge/README.md`. No new Geekbench run was done for this video
+change. The latest prior Metal score remains 2931 / GPU result 317819; its
+conditions are in resident-search-signing.json. The same video profile retains
+4096-value Metal compute and Windows-derived name/registry/superclass identity.
+Prior same-profile FP32/FP16 matmul and convolution checks pass.
+
+Monitoring remains deleted. VM/private process identities are in ignored
+artifacts/vm-session.json. Preserve all pre-existing backend dirty trees; this
+video change did not reset or rebuild them. The earlier checkpoint below is
+historical, including its now-superseded claims that common video was absent
+and that the default signing boot was off.
+
+# Previous checkpoint (2026-10-23 17:05 JST)
 
 The resident-pointer search now performs four fixed binary-search steps rather
 than sixteen, then retains the original bounded residual loop. No shader/app

@@ -13,10 +13,11 @@ param(
     [ValidateRange(30,240)][int]$DisplayRefreshHz
 )
 $ErrorActionPreference = 'Stop'
-if ($HostMetalEntry -and (!$DevelopmentSigning -or !$Gpu)) { throw '-HostMetalEntry requires -DevelopmentSigning and -Gpu.' }
-if ($HostMemoryArchitecture -and !$HostMetalEntry) { throw '-HostMemoryArchitecture requires -HostMetalEntry.' }
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $defaults = Get-Content (Join-Path $projectRoot 'vm/defaults.json') -Raw | ConvertFrom-Json
+if (!$PSBoundParameters.ContainsKey('DevelopmentSigning') -and $defaults.developmentSigning) { $DevelopmentSigning = $true }
+if ($HostMetalEntry -and (!$DevelopmentSigning -or !$Gpu)) { throw '-HostMetalEntry requires development signing and -Gpu.' }
+if ($HostMemoryArchitecture -and !$HostMetalEntry) { throw '-HostMemoryArchitecture requires -HostMetalEntry.' }
 if (!$DisplayRefreshHz) {
     $DisplayRefreshHz = if ($defaults.displayRefreshHz) { [int]$defaults.displayRefreshHz } else { 60 }
 }
@@ -110,11 +111,23 @@ Write-Host "Starting WHP VM: RAM ${MemoryGiB} GiB, ${Processors} cores, $Display
 # The OpenVMM worker inherits this per-launch setting. No machine environment is changed.
 $previousResolution = $env:NATIVEMAC_DISPLAY_RESOLUTION
 $previousRefresh = $env:REIMS_VGPU_WINDOW_REFRESH
+$videoSession = $null
 try {
     $env:NATIVEMAC_DISPLAY_RESOLUTION = $DisplayResolution
     $env:REIMS_VGPU_WINDOW_REFRESH = [string]$DisplayRefreshHz
+    if ($Gpu -and $defaults.systemVideoBridge) {
+        Write-Host 'Preparing the VM-owned hardware video service before GPU startup.'
+        $videoSession = & (Join-Path $PSScriptRoot 'Start-VideoBridge.ps1') -LauncherPid $PID
+    }
     & $exe @options
 } finally {
+    if ($videoSession -and !$videoSession.Process.HasExited) {
+        [System.IO.File]::WriteAllText($videoSession.StopFile, 'stop')
+        if (!$videoSession.Process.WaitForExit(5000)) { $videoSession.Process.Kill() }
+    }
+    if ($videoSession) {
+        foreach ($path in @($videoSession.StopFile, $videoSession.ReadyFile)) { if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path } }
+    }
     $env:NATIVEMAC_DISPLAY_RESOLUTION = $previousResolution
     $env:REIMS_VGPU_WINDOW_REFRESH = $previousRefresh
 }

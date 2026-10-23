@@ -13,6 +13,8 @@
   "hypervisor": "whp",
   "allowCpuTranslation": false,
   "allowSoftwareGpu": false,
+  "developmentSigning": true,
+  "systemVideoBridge": true,
   "gpuTransport": "compat",
   "rejectAstcTextures": true,
   "displayResolution": "1920x1080",

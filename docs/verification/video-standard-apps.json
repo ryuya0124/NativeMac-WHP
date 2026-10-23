@@ -1,0 +1,704 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-10-23T23:44:18+09:00",
+  "scope": "Standard VideoToolbox / AVFoundation / Safari in the qualified Intel development VM; not every application or media format.",
+  "guest": {
+    "os": "macOS 26.6.2",
+    "build": "25G83",
+    "architecture": "x86_64",
+    "darwin": "25.6",
+    "memoryGiB": 12,
+    "processors": 8,
+    "physicalDisplay": [
+      3840,
+      2160,
+      60
+    ],
+    "developmentSigning": true,
+    "systemVideoProfile": true,
+    "stockMetalEntry": true
+  },
+  "host": {
+    "renderer": "NVIDIA GeForce RTX 5080",
+    "identitySource": "Fresh Windows Vulkan renderer probe matched to a unique CUDA adapter; no configured GPU model or ordinal",
+    "decode": "Direct NVDEC nvcuvid/nvcuda API",
+    "encode": "Hardware-only h264_nvenc / hevc_nvenc via exactly matched FFmpeg DLL API",
+    "cpuCodecFallback": false,
+    "zeroCopy": false
+  },
+  "ordinaryApplications": {
+    "safariDockLaunch": {
+      "complete": true,
+      "passed": true,
+      "mediaRecorder": {
+        "bytes": 46193,
+        "decodedFrames": 30,
+        "distinctPixelHashes": 30,
+        "passed": true
+      },
+      "webCodecs": {
+        "frames": 30,
+        "keyframes": 2,
+        "bytes": 17471,
+        "descriptionBytes": 48,
+        "passed": true
+      }
+    },
+    "safariAfterGracefulRefresh": {
+      "complete": true,
+      "passed": true,
+      "mediaRecorder": {
+        "bytes": 45960,
+        "decodedFrames": 31,
+        "distinctPixelHashes": 31,
+        "passed": true
+      },
+      "webCodecs": {
+        "frames": 30,
+        "keyframes": 2,
+        "bytes": 17471,
+        "descriptionBytes": 48,
+        "passed": true
+      }
+    },
+    "safariAfterGuestRebootAndLogin": {
+      "complete": true,
+      "passed": true,
+      "mediaRecorder": {
+        "bytes": 45916,
+        "decodedFrames": 28,
+        "distinctPixelHashes": 28,
+        "passed": true
+      },
+      "webCodecs": {
+        "frames": 30,
+        "keyframes": 2,
+        "bytes": 17471,
+        "descriptionBytes": 48,
+        "passed": true
+      }
+    },
+    "guiLoginInitializer": {
+      "restoredSafariChecked": 1,
+      "gracefullyRelaunched": 1,
+      "mappingUnavailable": 0,
+      "newerServicesSkipped": 0,
+      "failed": 0,
+      "forcedTerminations": 0
+    },
+    "alreadyConfiguredSafariNotRestarted": {
+      "restoredSafariChecked": 1,
+      "gracefullyRelaunched": 0,
+      "mappingUnavailable": 0,
+      "newerServicesSkipped": 0,
+      "failed": 0,
+      "forcedTerminations": 0
+    },
+    "safariFinalCorrelated": {
+      "complete": true,
+      "passed": true,
+      "mediaRecorder": {
+        "bytes": 45960,
+        "decodedFrames": 25,
+        "distinctPixelHashes": 25,
+        "passed": true
+      },
+      "webCodecs": {
+        "frames": 30,
+        "keyframes": 2,
+        "bytes": 17471,
+        "descriptionBytes": 48,
+        "passed": true
+      }
+    },
+    "nativeSessionsDuringFinalBrowserTest": [
+      {
+        "stage": "encode-start",
+        "codec": "h264",
+        "width": 320,
+        "height": 180,
+        "backend": "api"
+      },
+      {
+        "stage": "session-closed",
+        "frames": 83,
+        "seconds": 3.172
+      },
+      {
+        "stage": "decode-start",
+        "codec": "h264",
+        "width": 320,
+        "height": 180,
+        "backend": "api"
+      },
+      {
+        "stage": "session-closed",
+        "frames": 84,
+        "seconds": 3.39
+      },
+      {
+        "stage": "decode-start",
+        "codec": "h264",
+        "width": 320,
+        "height": 180,
+        "backend": "api"
+      },
+      {
+        "stage": "session-closed",
+        "frames": 0,
+        "seconds": 0.375
+      },
+      {
+        "stage": "encode-start",
+        "codec": "h264",
+        "width": 320,
+        "height": 180,
+        "backend": "api"
+      },
+      {
+        "stage": "session-closed",
+        "frames": 30,
+        "seconds": 0.75
+      }
+    ],
+    "defaultLaunchServicesAVAssetWriter": {
+      "publicAVAssetWriter": true,
+      "submittedFrames": 30,
+      "passed": true,
+      "manualEncoderRegistration": false,
+      "underlyingErrorCode": 0,
+      "writerStatus": 2,
+      "hardwareRequired": true,
+      "errorCode": 0
+    },
+    "independentFinalOrdinaryWriter": {
+      "frames": 30,
+      "width": 320,
+      "height": 180,
+      "codec": "h264",
+      "profile": "Main",
+      "exactContainerPTS": true,
+      "meanAbsolutePixelError": 0.09410223765432099,
+      "nativeDecodeJob": {
+        "seconds": 0.219,
+        "peakMiB": 398.691
+      },
+      "passed": true
+    },
+    "idempotentEnableDoesNotRestartSafari": {
+      "restoredSafariChecked": 1,
+      "gracefullyRelaunched": 0,
+      "mappingUnavailable": 0,
+      "newerServicesSkipped": 0,
+      "failed": 0,
+      "forcedTerminations": 0
+    },
+    "avPlayer": {
+      "uniqueFrames": 90,
+      "manualDecoderRegistration": false,
+      "errorCode": 0,
+      "passed": true,
+      "nonemptyFrames": 90,
+      "seconds": 3.1371620893478394,
+      "ended": true,
+      "publicAVPlayer": true,
+      "firstFrameSeconds": 0.13546204566955566,
+      "ready": true
+    },
+    "independentDecodeOfSafariAuthoredRecording": {
+      "bytes": 39109,
+      "frames": 66,
+      "profile": "Constrained Baseline",
+      "width": 320,
+      "height": 180,
+      "hardwareIndependentDecode": true,
+      "keyPackets": 5,
+      "nativeDecodeJob": {
+        "seconds": 0.203,
+        "peakMiB": 397.504
+      },
+      "passed": true
+    },
+    "perAppWrapperUsed": false,
+    "manualFactoryRegistrationInOrdinaryApps": false,
+    "restorationNote": "Cached Safari retains an old XPC bootstrap environment. The one-shot initializer checks only same-UID trusted Apple Safari image metadata; if the helper is missing it requests graceful termination and standard NSWorkspace reopening. Unknown metadata / refused termination is reported; no forced app termination. Other existing consumers need an initial restart."
+  },
+  "componentConformance": {
+    "note": "Direct probes qualify component semantics; they are separate from the ordinary-application measurements above.",
+    "decodeAndEncodeMatrix": [
+      {
+        "callbackErrors": 0,
+        "cancelledEarly": false,
+        "comparedBytes": 7776000,
+        "componentDiscovery": false,
+        "createStatus": 0,
+        "decodedFrames": 90,
+        "drainStatus": 0,
+        "droppedFrames": 0,
+        "hardwareProperty": true,
+        "hardwarePropertyStatus": 0,
+        "midstreamDrain": false,
+        "mismatchingBytes": 0,
+        "ordinaryAppIntegration": false,
+        "passed": true,
+        "registrationStatus": 0,
+        "submitStatus": 0,
+        "submitted": 90,
+        "temporalProcessingRequested": true,
+        "timestampsMatchOriginalSamples": true,
+        "waitStatus": 0
+      },
+      {
+        "callbackErrors": 0,
+        "cancelledEarly": false,
+        "comparedBytes": 37324800,
+        "componentDiscovery": false,
+        "createStatus": 0,
+        "decodedFrames": 12,
+        "drainStatus": 0,
+        "droppedFrames": 0,
+        "hardwareProperty": true,
+        "hardwarePropertyStatus": 0,
+        "midstreamDrain": false,
+        "mismatchingBytes": 0,
+        "ordinaryAppIntegration": false,
+        "passed": true,
+        "registrationStatus": 0,
+        "submitStatus": 0,
+        "submitted": 12,
+        "temporalProcessingRequested": true,
+        "timestampsMatchOriginalSamples": true,
+        "waitStatus": 0
+      },
+      {
+        "callbackErrors": 0,
+        "cancelledEarly": false,
+        "comparedBytes": 49766400,
+        "componentDiscovery": false,
+        "createStatus": 0,
+        "decodedFrames": 4,
+        "drainStatus": 0,
+        "droppedFrames": 0,
+        "hardwareProperty": true,
+        "hardwarePropertyStatus": 0,
+        "midstreamDrain": false,
+        "mismatchingBytes": 0,
+        "ordinaryAppIntegration": false,
+        "passed": true,
+        "registrationStatus": 0,
+        "submitStatus": 0,
+        "submitted": 4,
+        "temporalProcessingRequested": true,
+        "timestampsMatchOriginalSamples": true,
+        "waitStatus": 0
+      },
+      {
+        "complete": 0,
+        "timestampsMatch": true,
+        "hardwareQuery": 0,
+        "submitted": 30,
+        "codec": "h264",
+        "submittedStatus": 0,
+        "registered": 0,
+        "encodedBytes": 107448,
+        "keyframes": 2,
+        "properties": 0,
+        "hardware": true,
+        "componentDiscovery": true,
+        "height": 180,
+        "frames": 30,
+        "width": 320,
+        "callbackErrors": 0,
+        "prepared": 0,
+        "ordinaryAppIntegration": false,
+        "passed": true,
+        "created": 0
+      },
+      {
+        "complete": 0,
+        "timestampsMatch": true,
+        "hardwareQuery": 0,
+        "submitted": 30,
+        "codec": "hevc",
+        "submittedStatus": 0,
+        "registered": 0,
+        "encodedBytes": 101344,
+        "keyframes": 2,
+        "properties": 0,
+        "hardware": true,
+        "componentDiscovery": true,
+        "height": 180,
+        "frames": 30,
+        "width": 320,
+        "callbackErrors": 0,
+        "prepared": 0,
+        "ordinaryAppIntegration": false,
+        "passed": true,
+        "created": 0
+      },
+      {
+        "complete": 0,
+        "timestampsMatch": true,
+        "hardwareQuery": 0,
+        "submitted": 4,
+        "codec": "h264",
+        "submittedStatus": 0,
+        "registered": 0,
+        "encodedBytes": 474750,
+        "keyframes": 2,
+        "properties": 0,
+        "hardware": true,
+        "componentDiscovery": true,
+        "height": 2160,
+        "frames": 4,
+        "width": 3840,
+        "callbackErrors": 0,
+        "prepared": 0,
+        "ordinaryAppIntegration": false,
+        "passed": true,
+        "created": 0
+      },
+      {
+        "complete": 0,
+        "timestampsMatch": true,
+        "hardwareQuery": 0,
+        "submitted": 4,
+        "codec": "hevc",
+        "submittedStatus": 0,
+        "registered": 0,
+        "encodedBytes": 580347,
+        "keyframes": 2,
+        "properties": 0,
+        "hardware": true,
+        "componentDiscovery": true,
+        "height": 2160,
+        "frames": 4,
+        "width": 3840,
+        "callbackErrors": 0,
+        "prepared": 0,
+        "ordinaryAppIntegration": false,
+        "passed": true,
+        "created": 0
+      }
+    ],
+    "modernVTOutputHandler": {
+      "complete": 0,
+      "timestampsMatch": true,
+      "hardwareQuery": 0,
+      "submitted": 30,
+      "codec": "h264",
+      "submittedStatus": 0,
+      "registered": 0,
+      "encodedBytes": 116085,
+      "keyframes": 2,
+      "properties": 0,
+      "hardware": true,
+      "componentDiscovery": true,
+      "height": 180,
+      "frames": 30,
+      "width": 320,
+      "callbackErrors": 0,
+      "prepared": 0,
+      "ordinaryAppIntegration": false,
+      "passed": true,
+      "created": 0
+    },
+    "lifecycle": {
+      "passedCases": 13,
+      "cases": [
+        {
+          "case": "full",
+          "seconds": 0.3985,
+          "submitted": 90,
+          "decoded": 90,
+          "dropped": 0,
+          "mismatchingBytes": 0,
+          "callbackErrors": 0,
+          "passed": true
+        },
+        {
+          "case": "no-temporal",
+          "seconds": 0.3435,
+          "submitted": 90,
+          "decoded": 90,
+          "dropped": 0,
+          "mismatchingBytes": 0,
+          "callbackErrors": 0,
+          "passed": true
+        },
+        {
+          "case": "midstream-drain",
+          "seconds": 0.3352,
+          "submitted": 90,
+          "decoded": 90,
+          "dropped": 0,
+          "mismatchingBytes": 0,
+          "callbackErrors": 0,
+          "passed": true
+        },
+        {
+          "case": "cancel-1",
+          "seconds": 0.1613,
+          "submitted": 12,
+          "decoded": 0,
+          "dropped": 12,
+          "mismatchingBytes": 0,
+          "callbackErrors": 0,
+          "passed": true
+        },
+        {
+          "case": "cancel-2",
+          "seconds": 0.2078,
+          "submitted": 12,
+          "decoded": 0,
+          "dropped": 12,
+          "mismatchingBytes": 0,
+          "callbackErrors": 0,
+          "passed": true
+        },
+        {
+          "case": "cancel-3",
+          "seconds": 0.1507,
+          "submitted": 12,
+          "decoded": 0,
+          "dropped": 12,
+          "mismatchingBytes": 0,
+          "callbackErrors": 0,
+          "passed": true
+        },
+        {
+          "case": "cancel-4",
+          "seconds": 0.1735,
+          "submitted": 12,
+          "decoded": 0,
+          "dropped": 12,
+          "mismatchingBytes": 0,
+          "callbackErrors": 0,
+          "passed": true
+        },
+        {
+          "case": "cancel-5",
+          "seconds": 0.1394,
+          "submitted": 12,
+          "decoded": 0,
+          "dropped": 12,
+          "mismatchingBytes": 0,
+          "callbackErrors": 0,
+          "passed": true
+        },
+        {
+          "case": "cancel-active-1",
+          "seconds": 0.2551,
+          "submitted": 60,
+          "decoded": 40,
+          "dropped": 20,
+          "mismatchingBytes": 0,
+          "callbackErrors": 0,
+          "passed": true
+        },
+        {
+          "case": "cancel-active-2",
+          "seconds": 0.2666,
+          "submitted": 60,
+          "decoded": 39,
+          "dropped": 21,
+          "mismatchingBytes": 0,
+          "callbackErrors": 0,
+          "passed": true
+        },
+        {
+          "case": "cancel-active-3",
+          "seconds": 0.2552,
+          "submitted": 60,
+          "decoded": 40,
+          "dropped": 20,
+          "mismatchingBytes": 0,
+          "callbackErrors": 0,
+          "passed": true
+        },
+        {
+          "case": "cancel-active-4",
+          "seconds": 0.2531,
+          "submitted": 60,
+          "decoded": 44,
+          "dropped": 16,
+          "mismatchingBytes": 0,
+          "callbackErrors": 0,
+          "passed": true
+        },
+        {
+          "case": "cancel-active-5",
+          "seconds": 0.2509,
+          "submitted": 60,
+          "decoded": 41,
+          "dropped": 19,
+          "mismatchingBytes": 0,
+          "callbackErrors": 0,
+          "passed": true
+        }
+      ],
+      "timestampQualification": "All full-stream original PTS match. Cancellation intentionally drops submitted frames; whole-input timestamp equality is false for those cases and is not claimed."
+    },
+    "independentNVDECOutputChecks": [
+      {
+        "codec": "h264",
+        "width": 320,
+        "height": 180,
+        "frames": 30,
+        "bytes": 2592000,
+        "meanAbsolutePixelError": 0.09173225308641976,
+        "containerTimestampsChecked": false,
+        "independentNvdecJob": {
+          "seconds": 0.172,
+          "peakMiB": 398.344
+        },
+        "passed": true
+      },
+      {
+        "codec": "hevc",
+        "width": 320,
+        "height": 180,
+        "frames": 30,
+        "bytes": 2592000,
+        "meanAbsolutePixelError": 0.11639699074074074,
+        "containerTimestampsChecked": false,
+        "independentNvdecJob": {
+          "seconds": 0.172,
+          "peakMiB": 415.699
+        },
+        "passed": true
+      },
+      {
+        "codec": "h264",
+        "width": 3840,
+        "height": 2160,
+        "frames": 4,
+        "bytes": 49766400,
+        "meanAbsolutePixelError": 0.07611482847865227,
+        "containerTimestampsChecked": false,
+        "independentNvdecJob": {
+          "seconds": 0.281,
+          "peakMiB": 786.602
+        },
+        "passed": true
+      },
+      {
+        "codec": "hevc",
+        "width": 3840,
+        "height": 2160,
+        "frames": 4,
+        "bytes": 49766400,
+        "meanAbsolutePixelError": 0.08056909882973251,
+        "containerTimestampsChecked": false,
+        "independentNvdecJob": {
+          "seconds": 0.25,
+          "peakMiB": 857.555
+        },
+        "passed": true
+      },
+      {
+        "codec": "h264",
+        "width": 320,
+        "height": 180,
+        "frames": 30,
+        "bytes": 2592000,
+        "meanAbsolutePixelError": 0.09410223765432099,
+        "containerTimestampsChecked": true,
+        "containerTimestampsPass": true,
+        "independentNvdecJob": {
+          "seconds": 0.188,
+          "peakMiB": 398.719
+        },
+        "passed": true
+      }
+    ],
+    "h264ProfilesIndependentlyObserved": [
+      "Main",
+      "Constrained Baseline",
+      "High"
+    ]
+  },
+  "operations": {
+    "guestBuild": "clang/clang++ -Wall -Wextra -Werror, ad-hoc seal verified",
+    "hostWorkerBuild": "MSVC /W4 /WX",
+    "hostServiceLifecycle": "Kill-on-close child job, real VM-launcher handle, own stop/ready files; shared Start-VideoBridge function tested with a running VM; SSH reconnected across guest resets",
+    "fullWinUiStartWithFinalReadinessOrdering": "not repeated; same shared function tested separately",
+    "disableEnable": "Matching environment cleared in system, user and GUI domains, then enabled again; existing parents require reboot after disable",
+    "malformedSessions": {
+      "cases": 5,
+      "rejectedBeforeWorkerCreation": true,
+      "serverSurvived": true
+    },
+    "identicalMachBrokerPreservedOnReenable": true,
+    "monitoringAutomation": "remains deleted"
+  },
+  "regression": {
+    "metalComputeValues": 4096,
+    "verified": true,
+    "nameMatchesRegistryAndSuperclass": true,
+    "mpsPriorSameProfile": {
+      "fp32Matmul": 899,
+      "fp16Matmul": 899,
+      "convolution": 144,
+      "passed": true
+    },
+    "newGeekbenchRunForThisVideoChange": false,
+    "latestPriorGeekbenchMetal": {
+      "score": 2931,
+      "url": "https://browser.geekbench.com/v7/gpu/317819"
+    }
+  },
+  "limits": [
+    "8-bit progressive 4:2:0 H.264 / HEVC, even dimensions up to 3840x2160 only",
+    "AV1, VP9, 10-bit/HDR, alpha and coded-size changes are unimplemented",
+    "Apps explicitly selecting another encoder or disabling hardware keep that choice; custom codec stacks and other protected launch paths are not universally qualified",
+    "Four-frame 4K no-B-frame checks pass; sustained 4K60 and long reordered 4K playback are not qualified; a large B-frame setup exceeded the existing 1-GiB worker bound",
+    "Two sessions, CPU-addressable NV12 copies over authenticated SSH; not zero-copy or native RTX bandwidth",
+    "Private measured component ABI is restricted to Darwin 25.6 x86-64; development signing is explicit and no sealed system files are patched"
+  ],
+  "privacy": "Aggregate authored-fixture results only. No guest logs, screens, movie data, credentials, claim links, vendor DLLs or Apple binaries are included.",
+  "sourceSha256Lf": {
+    "native/VideoBridge/ABIProbe.mm": "b1863bbda9a1c2e51252f2d5ef551bd1c57046c498558ed639d1ba5142e70289",
+    "native/VideoBridge/AVAssetWriterProbe.mm": "89e1be0bb27aa9a11c24de7e07d59c185d50f313433632f72c1397dfb173b62c",
+    "native/VideoBridge/AVPlayerProbe.m": "4c868e2d6dd160ed411c049ccf93345024aa9b8f910ebfe68096fce0d66dcdcb",
+    "native/VideoBridge/BrowserVideoProbe.html": "8837688635a129688fc27c715805bb795c94488dcf300dabd93e4576ab8d4ee4",
+    "native/VideoBridge/build_component.sh": "18506ea722280f0bbcda1ccadd6c0e64ae7834237a1ed92887bf61c142047ed6",
+    "native/VideoBridge/build_probe.sh": "e0912b7b4f3722a177179c7e9c070be4559b672fdb795b69cb90d73a6ff7fcdc",
+    "native/VideoBridge/build_video_bridge.sh": "51cbf6be94ffde71d103a376fb1aef0cf9d7ccf345d34327db56c1dcaf9d144e",
+    "native/VideoBridge/CodecWorker.cpp": "9f3715ac470dae33eaa1257bb9d856c5f23078f907066dc777055c91c611caae",
+    "native/VideoBridge/configure_system_video.py": "00c5757c5ffde2aec2c0a40d98f96549535eeb7c1f0ca064439e20fa015ce331",
+    "native/VideoBridge/cuda_identity.py": "63137f84e5ac13f343bbd6287738ee1ce2d1044a626451dc7acd54f4bbcb5de7",
+    "native/VideoBridge/disable_system_video.sh": "9552e2b116f090ec16ba864c0af96686a03f2d7fb8e72537706e71d30b941331",
+    "native/VideoBridge/enable_system_video.sh": "a82ffda8d590418501f792b44249416190a5662b2bdabad67568347ded2f031f",
+    "native/VideoBridge/GuestBroker.cpp": "fe4ca8f0a1a8f7a27d74c0d92b97e0fcef80215d326816abb977161158ea931a",
+    "native/VideoBridge/host.py": "bc7fa9fb9c2f460ff7d94c0b13b91bb5233db89b73e23b53317222872823b7f4",
+    "native/VideoBridge/install_video_bridge.sh": "c2401efaf41540cd814830584251ca4b2f2c6e9670deb7515b82e8b5e136703a",
+    "native/VideoBridge/make_fixture.py": "d02956cb112c3e3d05b8ab76df42b266ea6f272c13e8fe3a681a181d8bb23cb2",
+    "native/VideoBridge/matroska.py": "39e029675054cd1433e76dac46c7dfd323d7d667b3f9ce160f0633e3d4d98ccc",
+    "native/VideoBridge/NvdecWorker.cpp": "edf50c412efb14498ed3f8607ef6460b52c69053989f45cda820893ab916de19",
+    "native/VideoBridge/ProbeCodec-Info.plist": "543bd3c02a912ec28cb199260286210d0f324b4f572c4695f6b7d6649f2a5226",
+    "native/VideoBridge/RefreshCachedVideo.mm": "5fe4de62458f05b7074972a755389f00f4676e68bb8745df1c57c65405084f98",
+    "native/VideoBridge/RegistrySigning.m": "d7e2bc0a605a9867eb23ad20ab332bf2f2bc5db1ba910b0dd6e326fcb703b53d",
+    "native/VideoBridge/RegistrySigningProbe.m": "7a2c5d783b77d0e7ebddd817cefcba72c4252dd4e7a55ba8a5c6df8da9a84a95",
+    "native/VideoBridge/roundtrip.py": "c5a6ea4c5ad6c0e529db7490ea3b2269c7975821404f050fccccfb930d40cba8",
+    "native/VideoBridge/run_with_video.sh": "fbdcfcfdb18cf2cef4aa0c03bddd5f5ac14ed139c387b9f67c3a3269313a0c35",
+    "native/VideoBridge/server.py": "b5b9807bb6c6b45659a269412e2dba5e588b16670539f8a1f22474353bfe9ac0",
+    "native/VideoBridge/spi/CMBaseObjectSPI.h": "2e30b39dadff06145a1dfc29f735b9067eb99d08151a7fe8b9464803df784a62",
+    "native/VideoBridge/spi/NativeMacEncoderABI.h": "5f0e07ec6a126f5028f45323d42e8f3d8d36176d7026a004d251933720dd0a2e",
+    "native/VideoBridge/spi/VTVideoDecoderSPI.h": "cb353b1db48decc551f2778f08540427aac3750947f6ee7a11611309fa8284d4",
+    "native/VideoBridge/stream.py": "3fed9694be3350f2fb9e8b19ce0ad379c693ff5c611a407266d63201b076d4b1",
+    "native/VideoBridge/video_environment.sh": "60aedf436ffe28bb4908a8e646f1503f1b902d2886952e0b2c3cf6fbd945c1a6",
+    "native/VideoBridge/VideoBridgeEntry.m": "c44eec8fbf981ec38f4761638d45bbd5790f0bce4e926b6f332ac5847378759d",
+    "native/VideoBridge/VideoBrokerProtocol.h": "c1b4a4c9a0810f239d38412791172ecf2a5edb0cd30940f0e125db506cf7f46a",
+    "native/VideoBridge/VideoTransport.cpp": "308a984c3fa7b391f084b3680958c50ae49c392965ee4e28f54eca2153c81c83",
+    "native/VideoBridge/VideoTransport.h": "4751689ee7e0a68685441f49dfef7aef609e1510eacada277bb86209455eb662",
+    "native/VideoBridge/VTDecoder.mm": "3f3078615915b0278c541a7db79ca4bd1b77954b12e7edb81dbc0322a7f889b1",
+    "native/VideoBridge/VTEncodeProbe.mm": "ff2e252b9b26516e7bf405943704f48fed9e7c32e5efb1435e321330d4445b85",
+    "native/VideoBridge/VTEncoder.mm": "0cb510e16e5e2ecfb5921a770bc8452699357a16ddae59578b699d99b3ae4b50",
+    "native/VideoBridge/VTStreamProbe.mm": "006ffedfe2de474f5a7e58bee5385f9d1d81a81a00d5f0b14438950f1a048134",
+    "scripts/Build-VideoWorker.ps1": "c81f7a46f341aac73f6ddbfd8ab24f8c498d1f67d08ce37961611ca11fa5cced",
+    "scripts/Run-VideoBridge.py": "61760055071f3d1d1b0460830c0f13a1051a3227dacd0cce760389f477bac95f",
+    "scripts/Start-VideoBridge.ps1": "93eb55e91ca0c4b3def2e183a01127a01ec7c25f69b9a54d22f59955ddadaca6",
+    "scripts/Start-VM.ps1": "72769bbd4ab744b5cea14967e31b31dcf1f9ec834614be9086cc73ebb07b06e3"
+  }
+}

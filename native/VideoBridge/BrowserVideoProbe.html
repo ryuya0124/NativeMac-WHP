@@ -1,0 +1,60 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>NativeMac browser video check</title>
+<style>body{font:16px system-ui;max-width:900px;margin:3rem auto;background:#18222d;color:#eef}canvas,video{width:320px;height:180px;background:black}button,a{padding:.7rem;margin:1rem}pre{white-space:pre-wrap}</style>
+<h1>Browser video check</h1>
+<p>Records an authored canvas, plays the resulting MP4, then checks WebCodecs. No camera, microphone or remote media.</p>
+<button id="run">Run checks</button><a id="download" hidden download="NativeMac-authored-recording.mp4">Save authored recording</a><br>
+<canvas id="source" width="320" height="180"></canvas><video id="preview" muted playsinline controls></video>
+<pre id="result">Ready</pre>
+<script>
+'use strict';
+const canvas=document.querySelector('#source'),context=canvas.getContext('2d'),preview=document.querySelector('#preview');
+const report=document.querySelector('#result'),button=document.querySelector('#run');
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+function draw(i){context.fillStyle=`hsl(${i*17%360},90%,50%)`;context.fillRect(0,0,320,180);context.fillStyle='black';context.fillRect(i*7%300,20,20,140);}
+const publish=()=>report.textContent=JSON.stringify(window.nativeMacBrowserResult,null,2);
+async function record(){
+  const parts=[],stream=canvas.captureStream(30),recorder=new MediaRecorder(stream,{mimeType:'video/mp4;codecs=avc1',videoBitsPerSecond:2000000});
+  let i=0;draw(i++);const timer=setInterval(()=>draw(i++),33);
+  try{
+    const stopped=new Promise((resolve,reject)=>{recorder.ondataavailable=e=>parts.push(e.data);recorder.onerror=e=>reject(e.error);recorder.onstop=resolve;});
+    recorder.start(500);await sleep(3000);recorder.stop();await stopped;
+  }finally{clearInterval(timer);stream.getTracks().forEach(track=>track.stop());}
+  const blob=new Blob(parts,{type:recorder.mimeType});
+  if(!blob.size)throw Error('Empty MediaRecorder output');
+  const url=URL.createObjectURL(blob),link=document.querySelector('#download');link.href=url;link.hidden=false;
+  window.nativeMacAuthoredBlob=blob;preview.src=url;
+  const hashes=new Set();let frames=0;
+  const small=document.createElement('canvas');small.width=small.height=8;const pixels=small.getContext('2d');
+  let observing=true;
+  function frame(){if(!observing)return;pixels.drawImage(preview,0,0,8,8);let hash=2166136261;for(const byte of pixels.getImageData(0,0,8,8).data)hash=Math.imul(hash^byte,16777619)>>>0;hashes.add(hash);frames++;preview.requestVideoFrameCallback(frame);}
+  preview.requestVideoFrameCallback(frame);
+  try{
+    const ended=new Promise((resolve,reject)=>{preview.onended=resolve;preview.onerror=()=>reject(Error(`Playback error ${preview.error?.code}`));});
+    await preview.play();await Promise.race([ended,sleep(10000).then(()=>{throw Error('Playback deadline');})]);
+  }finally{observing=false;preview.pause();}
+  return {bytes:blob.size,decodedFrames:frames,distinctPixelHashes:hashes.size,passed:frames>10&&hashes.size>2};
+}
+async function webCodecs(){
+  const result={frames:0,keyframes:0,bytes:0,descriptionBytes:0,passed:false};let error;
+  const encoder=new VideoEncoder({output:(chunk,metadata)=>{result.frames++;result.keyframes+=chunk.type==='key';result.bytes+=chunk.byteLength;if(metadata.decoderConfig?.description)result.descriptionBytes=metadata.decoderConfig.description.byteLength;},error:e=>error=e});
+  try{
+    encoder.configure({codec:'avc1.42001f',width:320,height:180,bitrate:2000000,framerate:30,hardwareAcceleration:'prefer-hardware',latencyMode:'realtime',avc:{format:'avc'}});
+    for(let i=0;i<30;i++){draw(i);const frame=new VideoFrame(canvas,{timestamp:Math.round(i*1000000/30),duration:33333});encoder.encode(frame,{keyFrame:i===0||i===15});frame.close();}
+    await Promise.race([encoder.flush(),sleep(15000).then(()=>{throw Error('WebCodecs deadline');})]);if(error)throw error;
+    result.passed=result.frames===30&&result.keyframes>=2&&result.bytes>0&&result.descriptionBytes>0;
+    return result;
+  }finally{if(encoder.state!=='closed')encoder.close();}
+}
+button.onclick=async()=>{
+  button.disabled=true;window.nativeMacBrowserResult={complete:false,passed:false};publish();
+  try{
+    nativeMacBrowserResult.mediaRecorder=await record();publish();
+    preview.removeAttribute('src');preview.load();await sleep(250);
+    nativeMacBrowserResult.webCodecs=await webCodecs();
+    nativeMacBrowserResult.passed=nativeMacBrowserResult.mediaRecorder.passed&&nativeMacBrowserResult.webCodecs.passed;
+  }catch(error){nativeMacBrowserResult.error=String(error);}
+  finally{nativeMacBrowserResult.complete=true;publish();button.disabled=false;}
+};
+</script>

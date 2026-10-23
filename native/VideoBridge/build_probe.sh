@@ -5,8 +5,8 @@ clang++ -std=c++17 -fobjc-arc -Wall -Wextra -Werror ABIProbe.mm \
   -framework Foundation -framework VideoToolbox -framework CoreMedia -o ABIProbe
 ./ABIProbe
 clang++ -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pthread \
-  VTDecoder.mm VTStreamProbe.mm -framework Foundation -framework VideoToolbox \
+  VTDecoder.mm VTStreamProbe.mm VideoTransport.cpp -framework Foundation -framework VideoToolbox \
   -framework CoreMedia -framework CoreVideo -o VTStreamProbe
 codesign --force --sign - VTStreamProbe
-# Deliberately do not install a codec bundle: automatic registry selection rejects
-# the ad-hoc signature, and low-delay, reset and early invalidation remain unqualified.
+# This decoder-only probe does not install a component. For the opt-in
+# VideoToolbox/AVFoundation codec bundle and launcher, use build_video_bridge.sh.

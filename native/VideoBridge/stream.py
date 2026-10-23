@@ -1,13 +1,16 @@
-"""Experimental persistent NVDEC worker; not yet a VideoToolbox driver.
+"""Bounded persistent native NVDEC/NVENC workers for the VT transport.
 
 Compressed packets keep their presentation timestamps in streaming Matroska.
 FFmpeg's tee muxer returns NV12 packets and a separate framecrc timestamp
-channel. No decoder, pixel conversion or fallback runs in Python.
+channel in the older CLI mode. Native workers use a framed binary protocol.
+No decoder, pixel conversion or fallback runs in Python.
 """
 import ctypes as c
 from ctypes import wintypes as w
 import queue
 import re
+import struct
+from pathlib import Path
 import subprocess
 import threading
 import time
@@ -17,13 +20,18 @@ import matroska
 
 
 class Decoder:
-    def __init__(self, ffmpeg, codec, width, height, configuration):
-        initial=matroska.header(codec,width,height,configuration)
+    def __init__(self, ffmpeg, codec, width, height, configuration,worker=None,encoder=False,encoder_settings=None,gpu_index=0):
+        initial=matroska.header(codec,width,height,configuration if not encoder else b'\1'+b'\0'*6)
+        self.encoder=encoder;self.configuration=None
+        if encoder and worker is None:raise ValueError('NVENC requires the native API worker')
+        if type(gpu_index) is not int or not 0<=gpu_index<64:raise ValueError('Invalid host-selected CUDA ordinal')
+        self.native=worker is not None
+        self.ready=threading.Event()
         self.size=width*height*3//2
         self.raw=queue.Queue(4);self.metadata=queue.Queue(4)
         self.closed=threading.Event();self.raw_done=threading.Event()
         self.metadata_done=threading.Event();self.write_lock=threading.Lock()
-        self.receive_lock=threading.Lock();self.credits=threading.Condition()
+        self.receive_lock=threading.Lock();self.close_lock=threading.Lock();self.credits=threading.Condition()
         self.errors=[];self.pending=0
         self.started=self.last_progress=self.last_activity=time.monotonic()
         self.kernel=c.WinDLL('kernel32',use_last_error=True)
@@ -43,12 +51,18 @@ class Decoder:
                 raise OSError(c.get_last_error(),'SetInformationJobObject')
             command=[str(ffmpeg),'-hide_banner','-loglevel','error','-nostdin',
                      '-probesize','32','-analyzeduration','0','-fpsprobesize','0',
-                     '-hwaccel','cuda','-hwaccel_device','0','-hwaccel_output_format','cuda',
+                     '-hwaccel','cuda','-hwaccel_device',str(gpu_index),'-hwaccel_output_format','cuda',
                      '-c:v',codec+'_cuvid','-f','matroska','-i','pipe:0',
                      '-map','0:v:0','-an','-vf','hwdownload,format=nv12',
                      '-c:v','rawvideo','-threads:v','1','-fps_mode','passthrough',
                      '-enc_time_base:v','1/1000000000',
                      '-f','tee','[f=rawvideo]pipe:1|[f=framecrc]pipe:2']
+            if self.native:
+                command=[str(worker),str(Path(ffmpeg).resolve().parent),('enc-' if encoder else '')+codec,str(width),str(height),str(gpu_index)]
+                config=configuration if not encoder else b'\0'
+                if encoder_settings:
+                    config=struct.pack('!BIIIB',2,encoder_settings['bitrate'],encoder_settings['frameRate'],encoder_settings['keyInterval'],encoder_settings['profile'])
+                initial=struct.pack('!I',len(config))+config
             self.process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,bufsize=0,creationflags=0x4|0x08000000)
             handle=w.HANDLE(int(self.process._handle))
@@ -56,9 +70,11 @@ class Decoder:
                 self.process.kill();raise OSError(c.get_last_error(),'AssignProcessToJobObject')
             native=c.WinDLL('ntdll');native.NtResumeProcess.argtypes=[w.HANDLE]
             if native.NtResumeProcess(handle)!=0:raise RuntimeError('Cannot resume codec worker')
-            for function in (self._read_raw,self._read_metadata,self._watchdog):
+            readers=(self._read_native,self._read_native_errors) if self.native else (self._read_raw,self._read_metadata)
+            for function in (*readers,self._watchdog):
                 threading.Thread(target=function,daemon=True).start()
             self._write(initial)
+            if self.native and (not self.ready.wait(20) or self.errors):raise RuntimeError('NVDEC API worker did not become ready')
         except BaseException:
             self.close();raise
 
@@ -66,6 +82,47 @@ class Decoder:
         while not self.closed.is_set():
             try:destination.put(value,timeout=.2);return
             except queue.Full:continue
+
+    def _read_native_errors(self):
+        try:
+            for line in self.process.stderr:
+                if line and len(self.errors)<16:self.errors.append(line.decode('utf-8','replace').strip()[:512])
+        except (OSError,ValueError):pass
+
+    def _read_native(self):
+        count=0;complete=False
+        def take(size):
+            result=bytearray()
+            while len(result)<size:
+                part=self.process.stdout.read(size-len(result))
+                if not part:raise EOFError('Native codec output closed')
+                result.extend(part)
+            return bytes(result)
+        try:
+            while not self.closed.is_set():
+                size,=struct.unpack('!I',take(4))
+                if not 1<=size<=(8*1024*1024+10 if self.encoder else self.size+9):raise RuntimeError('Native codec message limit')
+                body=take(size)
+                if body==b'A':
+                    if not self.encoder:self.ready.set()
+                    continue
+                if self.encoder and body[:1]==b'C' and 7<len(body)<=65537:
+                    self.configuration=body[1:];self.ready.set();continue
+                if body[:1]==b'D' and len(body)==5:continue
+                if body[:1]==b'G' and len(body)==5:
+                    self._put(self.raw,b'');self._put(self.metadata,{'barrier':True});continue
+                if body[:1]==b'E' and len(body)==5:
+                    complete=struct.unpack('!I',body[1:])[0]==count
+                    break
+                if body[:1]!=b'R' or (len(body)<11 if self.encoder else len(body)!=self.size+9):raise RuntimeError('Invalid native codec output')
+                pts,=struct.unpack('!q',body[1:9])
+                self._put(self.raw,body[10:] if self.encoder else body[9:]);self._put(self.metadata,{'pts':pts,'dts':pts,'duration':0,'key':bool(body[9]) if self.encoder else False,'timeBase':(1,1000000000)})
+                count+=1;self.last_progress=time.monotonic()
+            if not complete and not self.closed.is_set():raise RuntimeError('Native stream incomplete')
+        except (OSError,ValueError,RuntimeError,EOFError) as error:
+            if not self.closed.is_set():self.errors.append(type(error).__name__)
+        finally:
+            self.ready.set();self.raw_done.set();self.metadata_done.set()
 
     def _read_raw(self):
         try:
@@ -112,7 +169,13 @@ class Decoder:
         self.last_activity=time.monotonic()
 
     def send(self, data, presentation_nanoseconds, keyframe):
-        packet=matroska.packet(data,presentation_nanoseconds,keyframe)
+        if self.encoder:
+            if len(data)!=self.size or not 0<=presentation_nanoseconds<1<<63:raise ValueError('Invalid encoder picture')
+            packet=b''
+        else:packet=matroska.packet(data,presentation_nanoseconds,keyframe)
+        if self.native:
+            body=b'P'+struct.pack('!qB',presentation_nanoseconds,keyframe)+data
+            packet=struct.pack('!I',len(body))+body
         with self.write_lock:
             deadline=time.monotonic()+20
             with self.credits:
@@ -126,7 +189,13 @@ class Decoder:
             self._write(packet)
 
     def finish(self):
-        with self.write_lock:self.process.stdin.close()
+        with self.write_lock:
+            if self.native:self._write(struct.pack('!I',1)+b'F')
+            else:self.process.stdin.close()
+
+    def flush(self):
+        if not self.native:raise RuntimeError('Nonterminal drain requires the native NVDEC worker')
+        with self.write_lock:self._write(struct.pack('!I',1)+b'G')
 
     def receive(self, timeout=20):
         with self.receive_lock:return self._receive(timeout)
@@ -146,7 +215,8 @@ class Decoder:
             if self.process.poll() not in (None,0):raise RuntimeError('NVDEC worker failed')
             return None
         with self.credits:
-            self.pending=max(0,self.pending-1);self.credits.notify_all()
+            if not metadata.get('barrier'):self.pending=max(0,self.pending-1)
+            self.credits.notify_all()
         self.last_activity=time.monotonic()
         return pixels,metadata
 
@@ -158,16 +228,17 @@ class Decoder:
                 self.errors.append('Codec session deadline exceeded');self.close();return
 
     def close(self):
-        if self.closed.is_set():return
-        self.closed.set()
-        with self.credits:self.credits.notify_all()
-        if self.job:
-            self.kernel.TerminateJobObject(self.job,0)
-            self.kernel.CloseHandle(self.job);self.job=None
-        if self.process:
-            self.process.wait(timeout=5)
-            for pipe in (self.process.stdin,self.process.stdout,self.process.stderr):
-                if pipe:pipe.close()
+        with self.close_lock:
+            if self.closed.is_set():return
+            self.closed.set()
+            with self.credits:self.credits.notify_all()
+            if self.job:
+                self.kernel.TerminateJobObject(self.job,0)
+                self.kernel.CloseHandle(self.job);self.job=None
+            if self.process:
+                self.process.wait(timeout=5)
+                for pipe in (self.process.stdin,self.process.stdout,self.process.stderr):
+                    if pipe:pipe.close()
 
     def __enter__(self):return self
     def __exit__(self,*_args):self.close()
