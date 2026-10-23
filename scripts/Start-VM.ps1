@@ -4,6 +4,7 @@ param(
     [switch]$FirmwareOnly,
     [switch]$Gpu,
     [switch]$SerialConsole,
+    [switch]$EphemeralDisk,
     [ValidateSet('legacy','compat')][string]$MetalTransport,
     [ValidateSet('1920x1080','2560x1440','3840x2160')][string]$DisplayResolution,
     [ValidateRange(30,240)][int]$DisplayRefreshHz
@@ -44,9 +45,10 @@ if (!(Test-Path -LiteralPath $vmgs)) {
     try { $stateFile.SetLength(4MB) } finally { $stateFile.Dispose() }
 }
 if ($SerialConsole) { $serialBackend = 'listen=tcp:127.0.0.1:5906' }
+$vmgsSpec = if ($EphemeralDisk) { "memdiff:file:$vmgs" } else { "file:$vmgs" }
 $options = @('--hypervisor','whp','--processors',"$Processors",'--vps-per-socket',"$Processors",'--memory',"${MemoryGiB}G",'--smt','off',
     '--uefi',"firmware=$firmware,console=com1,diagnostics=full",'--com1',$serialBackend,
-    '--vnc-listen','127.0.0.1','--vnc-port','5905','--log-file',$workerLog,'--vmgs',"file:$vmgs")
+    '--vnc-listen','127.0.0.1','--vnc-port','5905','--log-file',$workerLog,'--vmgs',$vmgsSpec)
 if (!$Gpu) { $options += '--gfx' }
 if (!$FirmwareOnly) {
     $prepareOptions = @('--processors',"$Processors",'--resolution',$DisplayResolution)
@@ -83,7 +85,8 @@ if (!$FirmwareOnly) {
         $created = [System.IO.File]::OpenWrite($guestDisk)
         try { $created.SetLength(128GB) } finally { $created.Dispose() }
     }
-    $options += @('--disk',"file:$guestDisk,on=boot")
+    $guestDiskSpec = if ($EphemeralDisk) { "memdiff:file:$guestDisk,on=boot" } else { "file:$guestDisk,on=boot" }
+    $options += @('--disk',$guestDiskSpec)
 
 }
 if ($Gpu) {

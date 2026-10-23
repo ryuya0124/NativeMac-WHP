@@ -20,17 +20,39 @@ loopback transport in native/VideoBridge also passes checked H.264/HEVC
 batches at 320×180, 854×480, FHD and 4K. VideoToolbox registration, sustained
 playback and Safari hardware codec integration remain required.
 
+The experimental persistent NVDEC worker (native/VideoBridge/stream.py) has
+now decoded the authored 90-frame H.264 fixture with reordered input PTS:
+72 frames arrive before EOF; all 7,776,000 NV12 bytes match an independent
+NVDEC batch, PTS maximum error 33 ns (CUVID clock quantization). The Matroska
+mux separately preserves all compressed packets/configuration and exact input
+timestamps under ffprobe. Streaming VideoToolbox integration is still absent.
+Authored unsupported decoder/encoder factories register and are invoked by
+ordinary VT session-creation APIs in a test process. The /Library/Video/Plug-Ins
+discovery stub is not selected automatically; registry investigation continues.
+
 GPU naming source 1b9a256 is integrated into backend/reims-stability and is
 the current guest kext. ABI and snapshot tests, signed build and cold boot
 pass. Start-VM.ps1 now obtains the selected Windows renderer name from a
 successful same-DLL probe's startup callback; no fixed model configuration,
 first-adapter lookup or cached-name fallback. The dynamic-path cold boot
 agrees across probe, actual worker, guest IORegistry and System Information;
-4096 GPU values pass. Normal Metal name remains Apple Paravirtual device.
-native/MetalIdentity's explicit-process prototype reads the host property
-and passes the same GPU calculation, preserving registry ID and compiler
-class. It is not installed or selected system-wide. Do not call the complete
-Metal-name task finished or substitute a label for a capability.
+4096 GPU values pass. The new native/GpuIdentityAgent is installed in the
+base guest: it reads the host property and publishes Metal's existing
+all-user forceDeviceName. The stock Apple Metal entry stays selected.
+A cold boot with a memory-backed disk diff starts WindowServer and the
+launch daemon exits 0 (runs=1). Ordinary and base-class Metal name getters
+return the Windows name; 4096 GPU values, FP32/FP16 899-value matmul and
+9216-value four-layer convolution pass. Stock Geekbench completes all 11
+workloads with the name NVIDIA GeForce RTX 5080, score 2378,
+https://browser.geekbench.com/v7/gpu/317477. This is lower than 3238;
+ephemeral disk and light CPU-only diagnostics overlapped, and the cause is
+not isolated. New name helper source/publication is in progress.
+
+The separate native/MetalIdentity entry had a missing IOGPU link dependency;
+IOGPU.tbd fixes it for ordinary processes. A cold-boot trial on source
+631546f then confirms WindowServer rejects its non-platform signature.
+The trial was reverted; no signing enforcement was disabled. Do not select
+that entry for normal use or merge its experimental backend branch.
 
 Monitoring remains deleted. Keep 12 GiB / 8 CPUs, 4K output with readable
 1920x1080 HiDPI. Do not publish guest captures, private logs, keys, credentials,

@@ -8,6 +8,12 @@ GPU-family claims. No other benchmark or stress suite ran concurrently;
 light SSH readouts and two brief identity-probe compilations occurred during
 the run, so laboratory-isolated performance is not claimed.
 
+The later host-name regression also completes all 11 workloads, exit 0,
+displaying `NVIDIA GeForce RTX 5080`: [2378](https://browser.geekbench.com/v7/gpu/317477).
+That run used an ephemeral disk and overlapped light CPU-only development
+diagnostics. Its score is lower; the cause has not been isolated and no
+performance improvement is claimed for the name update.
+
 The bridge preserves subpage NoCopy aliases and publishes completed Shared
 texture GPU writes to their CPU backing, including mipmapped records. The
 translator respects final descriptor-relative vector offsets of 4, 8 and
@@ -50,11 +56,20 @@ Failure to obtain one valid name stops launch.
 The dynamic path cold boots with the probe, actual VM renderer log,
 IORegistry model and System Information model all agreeing; the subsequent
 4096-value GPU compute check passes. See [identity evidence](verification/gpu-host-identity.json).
-Normal Metal applications still return the stock `Apple Paravirtual device`
-name. The opt-in [Metal identity prototype](../native/MetalIdentity/README.md)
-returns the host name and checks GPU output in its explicit test process;
-system-wide plug-in loading and signing are not qualified. OpenCL device
-support and Geekbench's malformed OpenCL API-menu label remain separate gaps.
+Install the [GPU identity boot helper](../native/GpuIdentityAgent/README.md)
+inside the guest to publish that metadata through Metal's existing all-user
+display-name preference. The standard Apple Metal entry stays selected.
+The cold boot starts WindowServer, ordinary Metal and base-class name getters
+agree with Windows, and GPU compute plus FP32/FP16 MPS checks pass. See
+[standard-driver name evidence](verification/gpu-metal-identity.json).
+No signing policy is changed. App-specific user preferences or cached strings
+can override or retain a previous label.
+
+The separate [Metal entry prototype](../native/MetalIdentity/README.md) works
+in ordinary authored test processes but WindowServer rejects its non-platform
+signature. That trial was reverted; it is not the deployed naming path.
+OpenCL device support and Geekbench's malformed OpenCL API-menu label remain
+separate gaps.
 
 ## Earlier FHD and 4K checks
 

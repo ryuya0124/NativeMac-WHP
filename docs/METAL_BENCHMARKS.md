@@ -19,6 +19,13 @@ or stress suite ran; light SSH readouts and two brief identity-probe builds
 occurred during the run. This is not a claim of laboratory-isolated timing.
 [Full measurement scope](verification/geekbench7.json).
 
+The standard-driver name update was subsequently checked in a cold boot:
+all 11 workloads complete with the selected Windows GPU name, score
+[2378](https://browser.geekbench.com/v7/gpu/317477). Its disk was ephemeral,
+and light CPU-only development diagnostics overlapped it. This lower score
+does not qualify a performance improvement; its cause remains unisolated.
+See [name-path evidence](verification/gpu-metal-identity.json).
+
 ## Authored feature matrix
 
 Copy `native/MetalProbe` to each Mac, then run on each host:

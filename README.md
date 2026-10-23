@@ -4,6 +4,8 @@ Windows上でIntel版macOS 26を動かす、WinUI 3アプリとOpenVMM/WHP用の
 
 **macOS 26.6.2 build 25G83（Intel）の通常OSが起動し、初期設定画面を表示しました。ゲストのMetal計算4096個をRTX 5080で実行し、全結果の一致を確認しました。**
 
+GPU名はWindows側でVMが実際に選択したVulkanアダプターから起動ごとに取得します。ゲストへ[名前の自動反映処理](native/GpuIdentityAgent/README.md)を導入すると、標準のAppleドライバーのままMetal APIにも反映されます。「NVIDIA GeForce RTX 5080」と表示した状態でGeekbench Metal全11項目を完走しました（[2378点](https://browser.geekbench.com/v7/gpu/317477)）。前回の3238点より低く、差の原因は未特定です。[名前反映の検証条件](docs/verification/gpu-metal-identity.json)を参照してください。
+
 CPUはWHPで実行し、QEMU実行ファイル・QEMUコア・CPU命令の動的変換を使用しません。Appleの復旧DMGは原本を読み取り専用で参照します。RAM・CPUは起動前に変更できます（設定上限256 GiB・64コア）。現在の割り当てと検証は12 GiB・8コアのままです。実際に確保できる容量はホストの空きメモリなどに依存します。
 
 2026-10-22のFHD検証では、共有RAMを64 MiBずつの独立したWindowsセクションに分け、画面停止時に起きていた長いGPUメモリ割り当て待ちを改善しました。30分で184,144フレームを描画し、約8.51億個のGPU計算結果が一致しました。3回のロック・解除、ドラッグ、ホイール、4アプリの起動・切替も確認しました。GPUハングとカーネルパニックは0件です。[検証の条件と限界](docs/verification/banked-gpu-ram.json)を参照してください。

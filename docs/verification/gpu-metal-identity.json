@@ -1,0 +1,72 @@
+{
+  "verifiedOn": "2026-10-23",
+  "nameSource": "Actual Windows-selected Reims/Vulkan renderer to OpenCore reims-gpu-model to all-user Metal display-name preference",
+  "name": "NVIDIA GeForce RTX 5080",
+  "configuredFixedName": false,
+  "customMetalDriverInstalledForNormalUse": false,
+  "activeMetalEntry": "AppleParavirtGPUMetalIOGPUFamily",
+  "signingPolicyChanged": false,
+  "cpuRenderer": false,
+  "bootHelperRuns": 1,
+  "bootHelperLastExit": 0,
+  "standardWindowServerRunning": true,
+  "coldBoot": true,
+  "ephemeralDiskTest": true,
+  "memoryGiB": 12,
+  "processors": 8,
+  "physicalDisplay": "3840x2160",
+  "gpuCompute": {
+    "checkedValues": 4096,
+    "passed": true
+  },
+  "mps": [
+    {
+      "case": "matmul",
+      "half": false,
+      "checkedValues": 899,
+      "mismatches": 0,
+      "maxError": 3.510812597085078e-06,
+      "passed": true
+    },
+    {
+      "case": "matmul",
+      "half": true,
+      "checkedValues": 899,
+      "mismatches": 0,
+      "maxError": 0.0078125,
+      "passed": true
+    },
+    {
+      "case": "mps-convolution",
+      "half": false,
+      "checkedValues": 9216,
+      "mismatches": 0,
+      "maxError": 0,
+      "passed": 1
+    }
+  ],
+  "geekbench": {
+    "version": "7.1.0",
+    "deviceName": "NVIDIA GeForce RTX 5080",
+    "workloads": 11,
+    "exit": 0,
+    "score": 2378,
+    "result": "https://browser.geekbench.com/v7/gpu/317477",
+    "benchmarkModified": false,
+    "injectedAdapter": false,
+    "performanceQualified": false,
+    "conditions": "Functional GPU-name regression on an ephemeral guest disk. Light SSH, CPU-only registration probes, source builds and debugger inspection of separate authored programs overlapped. No concurrent GPU benchmark or GPU video processing. Lower than 3238; cause not isolated."
+  },
+  "limitations": [
+    "A user-specific Metal forceDeviceName preference can override the all-user value",
+    "Apps may retain previously cached strings until reopened",
+    "Validated on the one-vGPU Intel VM topology and macOS build 26.6.2; no claim of new hardware capabilities or OpenCL support"
+  ],
+  "rejectedPrototype": "Separate Metal entry worked in ordinary test apps but WindowServer rejected its non-platform signature; trial reverted and no signing enforcement was disabled",
+  "sourceSha256LF": {
+    "native/GpuIdentityAgent/main.m": "277b5e4c70ed722fc101516ee9c8100bbc4f13a656c0fc63db9e4e23e630abc3",
+    "native/GpuIdentityAgent/install.sh": "e000fa0c6e9bdf22f315e8bb3c42d86c8390f27756097a7a9865dc40eddaef31",
+    "native/GpuIdentityAgent/io.nativemac.gpu-identity.plist": "de4d7279a8d3cf022fab73dcc67f78ea710398043883a9aaa92571dc8bd48225",
+    "scripts/Start-VM.ps1": "699597a497b6357cae9150cd3ecb5bb6af031c90475cb4ad32758ca7cee84548"
+  }
+}

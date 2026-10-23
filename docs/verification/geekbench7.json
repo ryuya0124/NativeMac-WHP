@@ -12,8 +12,8 @@
     "cpuInstructionTranslation": false,
     "qemu": false
   },
-  "kernelSource": "42e21ba06a83973b46581f7844ab39f7659f2956",
-  "metadataRepair": "PCI display model remains Apple Paravirtualized Graphics Device, now NUL-terminated OSData instead of OSString",
+  "kernelSource": "1b9a256573aa84b3aaaac5935dcdf0289e8256da",
+  "metadataRepair": "PCI model is NUL-terminated OSData; current display name follows the selected Windows renderer through the GpuIdentityAgent all-user Metal preference",
   "stockSignedApplication": true,
   "processLocalAdapter": false,
   "userAuthorizedPublicUploads": true,
@@ -30,9 +30,9 @@
     "command": "geekbench7 --gpu Metal --gpu-platform-id 0 --gpu-device-id 0",
     "status": "completed_all_workloads_without_validation_errors",
     "exit": 0,
-    "selectedDevice": "Apple Paravirtual device",
-    "score": 3238,
-    "result": "https://browser.geekbench.com/v7/gpu/317315",
+    "selectedDevice": "NVIDIA GeForce RTX 5080",
+    "score": 2378,
+    "result": "https://browser.geekbench.com/v7/gpu/317477",
     "validationErrors": 0,
     "workloads": [
       "Background Blur",
@@ -47,13 +47,13 @@
       "Particle Physics",
       "Fluid Simulation"
     ],
-    "kernelSource": "42e21ba06a83973b46581f7844ab39f7659f2956",
+    "kernelSource": "1b9a256573aa84b3aaaac5935dcdf0289e8256da",
     "translatorSource": "66092df",
     "semanticsVersion": 1698,
     "cpuInstructionTranslation": false,
     "injectedAdapter": false,
     "performanceQualified": false,
-    "conditions": "No concurrent stress suite or other benchmark. Light SSH readouts and two brief identity-probe compilations occurred during the run; no claim of laboratory-isolated timing. All 11 workloads complete with no reported validation error."
+    "conditions": "Functional GPU-name regression on an ephemeral guest disk. Light SSH, CPU-only registration probes, source builds and debugger inspection of separate authored programs overlapped. No concurrent GPU benchmark or GPU video processing. Lower than 3238; cause not isolated."
   },
   "postFailureChecks": {
     "metalComputeValues": 4096,
@@ -73,6 +73,35 @@
   },
   "generalGPUCompatibilityQualified": false,
   "previousMetalRuns": [
+    {
+      "command": "geekbench7 --gpu Metal --gpu-platform-id 0 --gpu-device-id 0",
+      "status": "completed_all_workloads_without_validation_errors",
+      "exit": 0,
+      "selectedDevice": "Apple Paravirtual device",
+      "score": 3238,
+      "result": "https://browser.geekbench.com/v7/gpu/317315",
+      "validationErrors": 0,
+      "workloads": [
+        "Background Blur",
+        "Face Tracking",
+        "Super Resolution",
+        "Horizon Detection",
+        "Photo Filter",
+        "Video Filter",
+        "RAW",
+        "Feature Matching",
+        "Path Tracer",
+        "Particle Physics",
+        "Fluid Simulation"
+      ],
+      "kernelSource": "42e21ba06a83973b46581f7844ab39f7659f2956",
+      "translatorSource": "66092df",
+      "semanticsVersion": 1698,
+      "cpuInstructionTranslation": false,
+      "injectedAdapter": false,
+      "performanceQualified": false,
+      "conditions": "No concurrent stress suite or other benchmark. Light SSH readouts and two brief identity-probe compilations occurred during the run; no claim of laboratory-isolated timing. All 11 workloads complete with no reported validation error."
+    },
     {
       "command": "geekbench7 --gpu Metal --gpu-platform-id 0 --gpu-device-id 0",
       "status": "completed_all_workloads_without_validation_errors",

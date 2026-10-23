@@ -17,6 +17,7 @@ mkdir -p NativeMacMetal.bundle/Contents/MacOS
 cp Info.plist NativeMacMetal.bundle/Contents/Info.plist
 clang -fno-objc-arc -Wall -Wextra -Werror -bundle -undefined dynamic_lookup \
   Driver.m -framework Foundation -framework IOKit -framework Metal \
+  -Wl,IOGPU.tbd \
   -o NativeMacMetal.bundle/Contents/MacOS/NativeMacMetal
 codesign --force --sign - NativeMacMetal.bundle
 clang -fobjc-arc -Wall -Wextra -Werror Probe.m \
@@ -24,11 +25,20 @@ clang -fobjc-arc -Wall -Wextra -Werror Probe.m \
 ./MetalIdentityProbe "$PWD/NativeMacMetal.bundle"
 ```
 
+`IOGPU.tbd` declares the already measured superclass symbol and its framework
+dependency; it contains no framework code. The dependency must load before
+the entry's Objective-C class is registered in a fresh application.
+
 The explicit probe returns the host name, retains the original registry ID
 and verifies 4096 computed GPU values. An optional third argument runs the
 same check with the stock class as a control.
 
-This does **not** install or select a system Metal plug-in. Normal applications
-still return `Apple Paravirtual device`. OS-wide loader and signing
-compatibility remain unqualified. Do not change GPU capabilities, rewrite
-the sealed system volume or weaken signing enforcement to install this probe.
+This does **not** install or select a system Metal plug-in. In a cold-boot
+trial, ordinary test applications loaded the dependency-correct bundle and
+computed correct values, but WindowServer refused its non-platform signature.
+The trial was reverted. Do not select it for normal desktop use.
+
+Use the [GPU identity helper](../GpuIdentityAgent/README.md) for the tested
+standard-driver name path. It uses Metal's existing display-name preference,
+keeping the original driver selected without changing signing enforcement,
+GPU capabilities or the sealed system volume.
