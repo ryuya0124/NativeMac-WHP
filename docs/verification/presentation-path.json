@@ -1,0 +1,1682 @@
+{
+  "date": "2026-10-24T02:46:28.326416+00:00",
+  "baseRootCommit": "e208c38",
+  "source": "native/MetalProbe/SceneProbe.m",
+  "latestTestedSourceSha256": "2fa67f44694895ff35e2356b5ea7a6614572efa076d367d915ec0eb1636e4906",
+  "scope": "Investigation of an authored indexed textured-cube scene. No product/runtime performance change, game speedup or physical display-fps claim.",
+  "environment": {
+    "hostCpu": "AMD Ryzen 7 9800X3D",
+    "hostGpu": "NVIDIA GeForce RTX 5080",
+    "guestArchitecture": "x86_64",
+    "memoryGiB": 12,
+    "virtualProcessors": 8,
+    "renderTargetPixels": [
+      3840,
+      2160
+    ],
+    "windowLogicalSize": [
+      960,
+      540
+    ],
+    "guestDisplayLogicalSize": [
+      1920,
+      1080
+    ],
+    "guestDisplayPixelSize": [
+      3840,
+      2160
+    ],
+    "configuredDisplayRefreshHz": 60,
+    "coreGraphicsRefreshHz": 0,
+    "appKitMaximumFramesPerSecond": 58,
+    "activeReimsDllSha256": "5470f35138a2b313c8146785db7bfebc9f96227ef65220ce665c6d53a36ab6f7",
+    "pcieCurrentAndMaximumLink": {
+      "generation": 5,
+      "width": 16
+    }
+  },
+  "protocol": {
+    "sceneInstances": 441,
+    "trianglesPerFrame": 5292,
+    "colorFormat": "BGRA8Unorm",
+    "depthFormat": "Depth32Float",
+    "layerFramebufferOnly": false,
+    "layerDisplaySyncEnabled": false,
+    "serialMaxInflight": 1,
+    "pipelinedMaxInflight": 3,
+    "warmupExcludedFromPhaseTimingsSeconds": 2,
+    "wholeRunRatesIncludeWarmupAndFinalDrain": true,
+    "p95": "First at most 8192 post-warmup frames per phase; means use every measured frame.",
+    "firstFrameWitness": "One center-pixel GPU blit/readback with alpha and non-background color check; not per-frame image equivalence.",
+    "completionCounting": "Serial mode waits for actual command completion. Pipeline mode counts completion handlers, records errors and drains all slots before reporting. No fake early guest completion.",
+    "offscreenTargets": "One persistent target per run; no CAMetalLayer and no WindowServer presentation.",
+    "noPresent": "Acquire and render a real drawable, omit presentDrawable. This is a lifecycle diagnostic, not a recommended application render loop.",
+    "shaderAndGeometry": "Identical across modes; rotating uniforms depend on elapsed time.",
+    "build": "Guest clang -O2 -fobjc-arc -Wall -Wextra -Werror; AppKit, Metal and QuartzCore; ad-hoc codesign."
+  },
+  "datasets": {
+    "serialTargets": [
+      {
+        "mode": "offscreen",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "offscreen",
+          "warmupSeconds": 2,
+          "frames": 1658,
+          "loopMeanMs": 3.618609,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.000483,
+              "p95Ms": 0.000581
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.000196,
+              "p95Ms": 0.000231
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.018885,
+              "p95Ms": 0.023274
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.021807,
+              "p95Ms": 0.030237
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 3.567989,
+              "p95Ms": 11.086579
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.007106,
+              "p95Ms": 0.009127
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": 3.235072,
+              "p95Ms": 10.649014
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 8.001,
+          "completed": 2046,
+          "meanFps": 255.73,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "offscreen-shared",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "offscreen-shared",
+          "warmupSeconds": 2,
+          "frames": 794,
+          "loopMeanMs": 7.554874,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.000536,
+              "p95Ms": 0.000892
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.000212,
+              "p95Ms": 0.000381
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.020818,
+              "p95Ms": 0.028864
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.022696,
+              "p95Ms": 0.030638
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 7.500527,
+              "p95Ms": 19.654906
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.007708,
+              "p95Ms": 0.011862
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": 7.02263,
+              "p95Ms": 19.360894
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 8.004,
+          "completed": 1078,
+          "meanFps": 134.68,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "drawable-no-present",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable-no-present",
+          "warmupSeconds": 2,
+          "frames": 1315,
+          "loopMeanMs": 4.563119,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.037739,
+              "p95Ms": 0.061917
+            },
+            {
+              "name": "acquire",
+              "meanMs": 1.075205,
+              "p95Ms": 6.513174
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.020749,
+              "p95Ms": 0.027362
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.019671,
+              "p95Ms": 0.035628
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 3.372891,
+              "p95Ms": 9.077728
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.034661,
+              "p95Ms": 0.043953
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": 2.962239,
+              "p95Ms": 8.81212
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 8.009,
+          "completed": 1487,
+          "meanFps": 185.67,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "drawable",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable",
+          "warmupSeconds": 2,
+          "frames": 367,
+          "loopMeanMs": 16.381356,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.089017,
+              "p95Ms": 0.128598
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.029244,
+              "p95Ms": 0.04737
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.02704,
+              "p95Ms": 0.040987
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 0.003554,
+              "p95Ms": 0.004829
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.024891,
+              "p95Ms": 0.043502
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 16.192239,
+              "p95Ms": 27.668829
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.012377,
+              "p95Ms": 0.020058
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": 14.150556,
+              "p95Ms": 24.578028
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 8.014,
+          "completed": 460,
+          "meanFps": 57.4,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "drawable",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable",
+          "warmupSeconds": 2,
+          "frames": 403,
+          "loopMeanMs": 14.925448,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.085784,
+              "p95Ms": 0.118454
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.055448,
+              "p95Ms": 0.042982
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.026014,
+              "p95Ms": 0.039605
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 0.003077,
+              "p95Ms": 0.004599
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.026649,
+              "p95Ms": 0.045346
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 14.713413,
+              "p95Ms": 26.902282
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.012126,
+              "p95Ms": 0.016862
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": 13.193268,
+              "p95Ms": 23.297678
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 8.018,
+          "completed": 501,
+          "meanFps": 62.48,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "drawable-no-present",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable-no-present",
+          "warmupSeconds": 2,
+          "frames": 708,
+          "loopMeanMs": 8.466944,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.050471,
+              "p95Ms": 0.080352
+            },
+            {
+              "name": "acquire",
+              "meanMs": 4.740643,
+              "p95Ms": 7.391165
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.026007,
+              "p95Ms": 0.040306
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3.1e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.020987,
+              "p95Ms": 0.044394
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 3.589357,
+              "p95Ms": 8.700663
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.03711,
+              "p95Ms": 0.04738
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": 3.21499,
+              "p95Ms": 8.343197
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 8.001,
+          "completed": 907,
+          "meanFps": 113.36,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "offscreen-shared",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "offscreen-shared",
+          "warmupSeconds": 2,
+          "frames": 725,
+          "loopMeanMs": 8.259476,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.000921,
+              "p95Ms": 0.001422
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.00029,
+              "p95Ms": 0.000541
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.023969,
+              "p95Ms": 0.03703
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3.1e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.023655,
+              "p95Ms": 0.031029
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 8.198036,
+              "p95Ms": 22.718606
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.009816,
+              "p95Ms": 0.017322
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": 7.708095,
+              "p95Ms": 22.271288
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 8.001,
+          "completed": 887,
+          "meanFps": 110.87,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "offscreen",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "offscreen",
+          "warmupSeconds": 2,
+          "frames": 1309,
+          "loopMeanMs": 4.582895,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.00053,
+              "p95Ms": 0.000772
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.00023,
+              "p95Ms": 0.00028
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.020024,
+              "p95Ms": 0.027041
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3.1e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.023261,
+              "p95Ms": 0.030638
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 4.528454,
+              "p95Ms": 14.794714
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.008014,
+              "p95Ms": 0.012023
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": 4.120378,
+              "p95Ms": 14.243464
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 8.008,
+          "completed": 1673,
+          "meanFps": 208.92,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      }
+    ],
+    "serialVsThreeInflight": [
+      {
+        "mode": "drawable",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable",
+          "warmupSeconds": 2,
+          "frames": 646,
+          "loopMeanMs": 15.463988,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.077559,
+              "p95Ms": 0.130046
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.02987,
+              "p95Ms": 0.046628
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.027219,
+              "p95Ms": 0.040536
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 0.003357,
+              "p95Ms": 0.004889
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.026531,
+              "p95Ms": 0.050195
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 15.282227,
+              "p95Ms": 25.609854
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.013867,
+              "p95Ms": 0.021821
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": 13.636952,
+              "p95Ms": 21.81061
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 0.0,
+              "p95Ms": 0.0
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 12.001,
+          "completed": 718,
+          "meanFps": 59.83,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "drawable-pipelined",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable-pipelined",
+          "warmupSeconds": 2,
+          "frames": 1137,
+          "loopMeanMs": 8.790155,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.0567,
+              "p95Ms": 0.12157
+            },
+            {
+              "name": "acquire",
+              "meanMs": 4.091887,
+              "p95Ms": 15.824775
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.027258,
+              "p95Ms": 0.044855
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 0.002879,
+              "p95Ms": 0.004619
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.022448,
+              "p95Ms": 0.045065
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 8.3e-05,
+              "p95Ms": 0.00011
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.004804,
+              "p95Ms": 0.006242
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 4.582424,
+              "p95Ms": 16.53338
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 12.037,
+          "completed": 1308,
+          "meanFps": 108.66,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "drawable-pipelined",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable-pipelined",
+          "warmupSeconds": 2,
+          "frames": 1097,
+          "loopMeanMs": 9.111844,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.061519,
+              "p95Ms": 0.138162
+            },
+            {
+              "name": "acquire",
+              "meanMs": 4.627104,
+              "p95Ms": 17.58759
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.029189,
+              "p95Ms": 0.056617
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 0.003219,
+              "p95Ms": 0.006282
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.023537,
+              "p95Ms": 0.049764
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 7.1e-05,
+              "p95Ms": 0.000121
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.004343,
+              "p95Ms": 0.006663
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 4.36115,
+              "p95Ms": 17.491292
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 12.024,
+          "completed": 1263,
+          "meanFps": 105.04,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "drawable",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable",
+          "warmupSeconds": 2,
+          "frames": 610,
+          "loopMeanMs": 16.390679,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.081208,
+              "p95Ms": 0.13852
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.032882,
+              "p95Ms": 0.048421
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.028574,
+              "p95Ms": 0.043563
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 0.003678,
+              "p95Ms": 0.005441
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.029146,
+              "p95Ms": 0.053702
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 16.198552,
+              "p95Ms": 25.281861
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.013438,
+              "p95Ms": 0.019908
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": 14.425459,
+              "p95Ms": 23.828435
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 0.0,
+              "p95Ms": 0.0
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 12.008,
+          "completed": 712,
+          "meanFps": 59.29,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      }
+    ],
+    "threeInflightTargets": [
+      {
+        "mode": "offscreen-pipelined",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "offscreen-pipelined",
+          "warmupSeconds": 2,
+          "frames": 10450,
+          "loopMeanMs": 0.766101,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.000679,
+              "p95Ms": 0.000732
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.000485,
+              "p95Ms": 0.000531
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.021683,
+              "p95Ms": 0.027532
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3.1e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.017529,
+              "p95Ms": 0.030918
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 0.000105,
+              "p95Ms": 0.00011
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.003343,
+              "p95Ms": 0.004528
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 0.720382,
+              "p95Ms": 2.673545
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 10.018,
+          "completed": 13089,
+          "meanFps": 1306.58,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "offscreen-shared-pipelined",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "offscreen-shared-pipelined",
+          "warmupSeconds": 2,
+          "frames": 4552,
+          "loopMeanMs": 1.757422,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.000729,
+              "p95Ms": 0.000732
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.000532,
+              "p95Ms": 0.000511
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.023235,
+              "p95Ms": 0.029125
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3.2e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.02442,
+              "p95Ms": 0.033544
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 6.2e-05,
+              "p95Ms": 0.00013
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.003742,
+              "p95Ms": 0.004699
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 1.702689,
+              "p95Ms": 3.653442
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 10.006,
+          "completed": 5658,
+          "meanFps": 565.49,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "drawable-pipelined",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable-pipelined",
+          "warmupSeconds": 2,
+          "frames": 996,
+          "loopMeanMs": 8.024057,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.062522,
+              "p95Ms": 0.121845
+            },
+            {
+              "name": "acquire",
+              "meanMs": 3.20669,
+              "p95Ms": 13.727581
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.028854,
+              "p95Ms": 0.051247
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 0.003707,
+              "p95Ms": 0.004499
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.024232,
+              "p95Ms": 0.048872
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 6.9e-05,
+              "p95Ms": 0.00015
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.004293,
+              "p95Ms": 0.006482
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 4.691923,
+              "p95Ms": 15.311447
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 10.021,
+          "completed": 1076,
+          "meanFps": 107.38,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "drawable-pipelined",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable-pipelined",
+          "warmupSeconds": 2,
+          "frames": 1017,
+          "loopMeanMs": 7.866155,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.057902,
+              "p95Ms": 0.113405
+            },
+            {
+              "name": "acquire",
+              "meanMs": 3.296848,
+              "p95Ms": 13.332734
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.028778,
+              "p95Ms": 0.054503
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 0.002964,
+              "p95Ms": 0.00503
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.024628,
+              "p95Ms": 0.04751
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 8.3e-05,
+              "p95Ms": 0.000141
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.004179,
+              "p95Ms": 0.006322
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 4.449146,
+              "p95Ms": 14.997959
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 10.021,
+          "completed": 1209,
+          "meanFps": 120.65,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "offscreen-shared-pipelined",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "offscreen-shared-pipelined",
+          "warmupSeconds": 2,
+          "frames": 4242,
+          "loopMeanMs": 1.886738,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.00068,
+              "p95Ms": 0.000731
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.000514,
+              "p95Ms": 0.000511
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.023525,
+              "p95Ms": 0.027632
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3.1e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.024513,
+              "p95Ms": 0.033493
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 7.2e-05,
+              "p95Ms": 0.00013
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.00374,
+              "p95Ms": 0.004749
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 1.831612,
+              "p95Ms": 4.195087
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 10.009,
+          "completed": 4795,
+          "meanFps": 479.05,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "offscreen-pipelined",
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "offscreen-pipelined",
+          "warmupSeconds": 2,
+          "frames": 11400,
+          "loopMeanMs": 0.701724,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.000653,
+              "p95Ms": 0.000731
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.000483,
+              "p95Ms": 0.000501
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.021484,
+              "p95Ms": 0.025408
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3.2e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.018166,
+              "p95Ms": 0.03134
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 7.1e-05,
+              "p95Ms": 0.00012
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.003438,
+              "p95Ms": 0.004519
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 0.655532,
+              "p95Ms": 2.594095
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 10.006,
+          "completed": 14156,
+          "meanFps": 1414.73,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      }
+    ],
+    "presentVsNoPresent": [
+      {
+        "mode": "drawable-no-present-pipelined",
+        "target": {
+          "storageMode": 1,
+          "usage": 23,
+          "pixelFormat": 80,
+          "maxInflight": 3
+        },
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable-no-present-pipelined",
+          "warmupSeconds": 2,
+          "frames": 1074,
+          "loopMeanMs": 7.445602,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.049787,
+              "p95Ms": 0.095311
+            },
+            {
+              "name": "acquire",
+              "meanMs": 7.050793,
+              "p95Ms": 8.813728
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.025682,
+              "p95Ms": 0.036799
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3.2e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.019663,
+              "p95Ms": 0.04202
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 5.6e-05,
+              "p95Ms": 0.00011
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.01393,
+              "p95Ms": 0.029236
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 0.285067,
+              "p95Ms": 1.011126
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 10.004,
+          "completed": 1209,
+          "meanFps": 120.85,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "drawable-pipelined",
+        "target": {
+          "storageMode": 1,
+          "usage": 23,
+          "pixelFormat": 80,
+          "maxInflight": 3
+        },
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable-pipelined",
+          "warmupSeconds": 2,
+          "frames": 996,
+          "loopMeanMs": 8.030531,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.057727,
+              "p95Ms": 0.113024
+            },
+            {
+              "name": "acquire",
+              "meanMs": 3.248874,
+              "p95Ms": 13.079389
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.028524,
+              "p95Ms": 0.050125
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 0.003044,
+              "p95Ms": 0.004629
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.024189,
+              "p95Ms": 0.04709
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 6.5e-05,
+              "p95Ms": 0.00014
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.004827,
+              "p95Ms": 0.006723
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 4.661681,
+              "p95Ms": 15.437935
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 10.029,
+          "completed": 1166,
+          "meanFps": 116.27,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "drawable-no-present-pipelined",
+        "target": {
+          "storageMode": 1,
+          "usage": 23,
+          "pixelFormat": 80,
+          "maxInflight": 3
+        },
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable-no-present-pipelined",
+          "warmupSeconds": 2,
+          "frames": 960,
+          "loopMeanMs": 8.332401,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.050063,
+              "p95Ms": 0.092986
+            },
+            {
+              "name": "acquire",
+              "meanMs": 8.219478,
+              "p95Ms": 8.801009
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.02606,
+              "p95Ms": 0.037591
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3.2e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.020207,
+              "p95Ms": 0.045807
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 6.1e-05,
+              "p95Ms": 0.00012
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.015879,
+              "p95Ms": 0.032722
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 0.000201,
+              "p95Ms": 0.00029
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 10.005,
+          "completed": 1173,
+          "meanFps": 117.24,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      }
+    ],
+    "managedVsDrawable": [
+      {
+        "mode": "offscreen-managed-pipelined",
+        "target": {
+          "storageMode": 1,
+          "usage": 4,
+          "pixelFormat": 80,
+          "maxInflight": 3
+        },
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "offscreen-managed-pipelined",
+          "warmupSeconds": 2,
+          "frames": 12095,
+          "loopMeanMs": 0.661339,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.000668,
+              "p95Ms": 0.000722
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.00041,
+              "p95Ms": 0.000461
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.021404,
+              "p95Ms": 0.025808
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3.3e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.017844,
+              "p95Ms": 0.032051
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 5.8e-05,
+              "p95Ms": 0.000101
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.003274,
+              "p95Ms": 0.004508
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 0.615814,
+              "p95Ms": 2.364249
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 10.01,
+          "completed": 14632,
+          "meanFps": 1461.77,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "drawable-no-present-pipelined",
+        "target": {
+          "storageMode": 1,
+          "usage": 23,
+          "pixelFormat": 80,
+          "maxInflight": 3
+        },
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "drawable-no-present-pipelined",
+          "warmupSeconds": 2,
+          "frames": 960,
+          "loopMeanMs": 8.332756,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.053498,
+              "p95Ms": 0.100331
+            },
+            {
+              "name": "acquire",
+              "meanMs": 8.197053,
+              "p95Ms": 8.749216
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.027028,
+              "p95Ms": 0.041148
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3.3e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.021701,
+              "p95Ms": 0.047921
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 5.9e-05,
+              "p95Ms": 0.00012
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.016321,
+              "p95Ms": 0.035828
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 0.016687,
+              "p95Ms": 0.000291
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 10.004,
+          "completed": 1143,
+          "meanFps": 114.26,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      },
+      {
+        "mode": "offscreen-managed-pipelined",
+        "target": {
+          "storageMode": 1,
+          "usage": 4,
+          "pixelFormat": 80,
+          "maxInflight": 3
+        },
+        "steadyPhases": {
+          "stage": "phase-times",
+          "mode": "offscreen-managed-pipelined",
+          "warmupSeconds": 2,
+          "frames": 11759,
+          "loopMeanMs": 0.679841,
+          "legs": [
+            {
+              "name": "events",
+              "meanMs": 0.000698,
+              "p95Ms": 0.000752
+            },
+            {
+              "name": "acquire",
+              "meanMs": 0.000441,
+              "p95Ms": 0.00049
+            },
+            {
+              "name": "encode",
+              "meanMs": 0.022446,
+              "p95Ms": 0.035647
+            },
+            {
+              "name": "presentCall",
+              "meanMs": 3.3e-05,
+              "p95Ms": 4e-05
+            },
+            {
+              "name": "commit",
+              "meanMs": 0.018071,
+              "p95Ms": 0.033634
+            },
+            {
+              "name": "completionWait",
+              "meanMs": 8.1e-05,
+              "p95Ms": 0.00012
+            },
+            {
+              "name": "poolDrain",
+              "meanMs": 0.003454,
+              "p95Ms": 0.004769
+            },
+            {
+              "name": "driverReportedGpu",
+              "meanMs": null,
+              "p95Ms": null
+            },
+            {
+              "name": "inflightSlotWait",
+              "meanMs": 0.632704,
+              "p95Ms": 2.483811
+            }
+          ]
+        },
+        "result": {
+          "stage": "scene-final",
+          "elapsed": 10.004,
+          "completed": 13500,
+          "meanFps": 1349.46,
+          "errors": 0,
+          "readbackPassed": true
+        }
+      }
+    ]
+  },
+  "findings": [
+    "Serial presented runs spend about 15-16 ms per frame in waitUntilCompleted, while encoding plus commit costs about 0.05-0.06 ms. nextDrawable averages about 0.03 ms in those serial runs.",
+    "A/B/B/A serial versus three-inflight presented trials finish at 59.83,108.66,105.04,59.29 completed commands/s. This improves the authored harness only; it is not a driver or all-game speedup.",
+    "With three in-flight frames on both sides, private offscreen reaches 1306.58-1414.73, shared offscreen 479.05-565.49 and presented drawable 107.38-120.65 completed commands/s. A substantial gap remains after matching in-flight bounds.",
+    "No-present drawable trials reach 117.24-120.85 commands/s with about 7.05-8.22 ms in nextDrawable. A later interleaved no-present trial reaches 114.26, with 8.20 ms in nextDrawable. Omitting final presentation does not remove the ceiling.",
+    "Drawable reports Managed storage (1), usage 23. Persistent Managed offscreen reports storage 1, usage 4 and reaches 1349.46-1461.77 commands/s. Storage mode alone does not explain the gap; usage, IOSurface backing and lifecycle differ.",
+    "The supported next investigation is drawable/IOSurface recycling and synchronization, including resource paging and compositor interaction. These tests do not isolate the exact underlying wait or prove that a single host blit is responsible."
+  ],
+  "hostObservations": {
+    "scope": "Separate short serial-mode trials; GPU-wide counters include other Windows and guest workloads. Approximate middle samples, not exclusive per-process attribution.",
+    "presentedPcieMeanMBps": {
+      "rx": 14494,
+      "tx": 7021
+    },
+    "noPresentPcieMeanMBps": {
+      "rx": 37.7,
+      "tx": 3814
+    },
+    "interpretation": "Large transfer traffic accompanies presentation; no causal byte attribution or bandwidth-only bottleneck is established. Private offscreen samples were transient/mixed and are excluded from that comparison.",
+    "presentMode": "MAILBOX",
+    "presentFences": false,
+    "queueWaitIdleDuringCapturedSteadyTrials": 0,
+    "queueWaitIdleSourceCallsites": "Retired swapchain bound and window end, not every frame. The startup no-present-fences warning does not establish a steady-state queue-idle bottleneck."
+  },
+  "checks": {
+    "acceptedRuns": 24,
+    "allExitZero": true,
+    "allFirstFrameWitnessesPass": true,
+    "allGpuCommandErrors": 0,
+    "newHostGpuFatalExecFaultHangOrKernelPanicObserved": false,
+    "latestSourceGuestCompileWarningsAsErrors": "passed",
+    "runtimeDllRestoredBeforeAcceptedTrials": true,
+    "imageMemoryCacheCandidate": "parked, not active and not qualified by this investigation",
+    "postTrialComputeVerifiedValues": 4096,
+    "guest_presents": 43713,
+    "host_presents": 43707,
+    "log_level": 3,
+    "display_width": 3840,
+    "display_height": 2160
+  },
+  "limits": [
+    "Short repeated diagnostics with concurrent desktop activity; no process-isolated PCIe attribution or physical display-frame timestamps.",
+    "4K render target in a 960x540-point window; not a fullscreen 4K game benchmark.",
+    "Three slots bound in-flight work but persistent offscreen targets and a drawable pool have different resource lifecycles.",
+    "Managed offscreen versus drawable also differs in texture usage and IOSurface backing; Managed alone is ruled out, individual remaining costs are not isolated.",
+    "framebufferOnly=false permits the first-frame readback. Apps using framebufferOnly=true need a separate comparison.",
+    "Guest-reported GPU time includes bridge scheduling/completion-detection costs; it is not an isolated hardware shader duration. Pipeline mode does not sample it.",
+    "CoreGraphics returned 0 for refresh; AppKit returned 58 maximum fps. Configured 60 Hz is not a measured physical display cadence.",
+    "Earlier 15-36 versus 146-270 observations used different runtime/background conditions and serial waiting; they are superseded by the controlled mode comparisons here.",
+    "Two rejected development harness runs had pending-status validation/semaphore-disposal bugs, corrected before accepted pipeline trials. They are not GPU-driver failures.",
+    "No broader Metal compatibility, new Geekbench score, all-game performance improvement or steady 4K160 claim."
+  ],
+  "references": {
+    "waitUntilCompleted": "https://developer.apple.com/documentation/metal/mtlcommandbuffer/waituntilcompleted%28%29",
+    "nextDrawable": "https://developer.apple.com/documentation/quartzcore/cametallayer/1478172-nextdrawable?language=objc",
+    "drawables": "https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/Drawables.html"
+  }
+}

@@ -47,6 +47,44 @@ The experimental default Metal transport also needs the guest bridge described i
 
 Display modes: select FHD/WQHD/4K before startup, or pass `--resolution 3840x2160` to TahoeVm / `-DisplayResolution 3840x2160` to Start-VM.ps1. OpenCore and the GPU mode cap receive the same resolution. Defaults remain 1920x1080, 12 GiB, 8 processors. Build `DisplayModeProbe.m` and `SceneProbe.m` with `Build-GuestMetalCompat.ps1`. Within the configured maximum, use macOS System Settings → Displays to change resolution live. A 4K output can use readable 1920×1080 HiDPI scaling; the probe reports logical and pixel dimensions separately. In the logged-in guest, run `display-mode-probe-x64 3840 2160` to commit 4K for this session. Run `scene-probe-x64 30 3840 2160` for the authored 4K GPU diagnostic; its default remains FHD. The launcher defaults to 60 Hz (`displayRefreshHz` in `vm/defaults.json`) and offers a process-local `-DisplayRefreshHz` override (30–240 Hz) so a high-refresh host need not make the guest compositor run at its maximum refresh rate. It restores the inherited environment after exit.
 
+## Presentation-path diagnostic
+
+`SceneProbe.m` accepts an optional fourth argument: `drawable` (default),
+`drawable-no-present`, `offscreen` (Private), `offscreen-shared`, or
+`offscreen-managed`. Append `-pipelined` to any mode to bound in-flight commands
+at three instead of waiting for each command individually. No-present acquires
+and renders a drawable but omits `presentDrawable`; use it only to diagnose the
+drawable lifecycle. Offscreen modes reuse one persistent texture and create no
+window. All modes use the same authored geometry, shaders and target dimensions.
+
+For the measured optimized build, run in the Intel guest:
+
+```sh
+xcrun clang -O2 -fobjc-arc -Wall -Wextra -Werror SceneProbe.m \
+  -framework AppKit -framework Metal -framework QuartzCore -o scene-probe-x64
+codesign -s - -f scene-probe-x64
+./scene-probe-x64 10 3840 2160 offscreen-pipelined
+./scene-probe-x64 10 3840 2160 drawable-pipelined
+./scene-probe-x64 10 3840 2160 drawable-no-present-pipelined
+```
+
+Repeat in reverse order to expose drift. Final rates count GPU-completed
+commands, include startup and pipeline drain, and are **not physical display
+fps**. The first command checks one GPU-readback pixel; this is not per-frame
+image equivalence. Phase means exclude two seconds of warmup; p95 uses at most
+the first 8192 measured frames. Pipeline GPU timestamps are not sampled.
+The layer uses `framebufferOnly=false`, `displaySyncEnabled=false`, a 4K target
+and a 960×540-point window; this does not represent a fullscreen 4K game.
+
+[Presentation evidence](verification/presentation-path.json) records 24 accepted
+runs on the restored runtime. Matching three in-flight commands still leaves
+Private offscreen at 1307–1415 versus presented drawable at 107–121 completed
+commands/s. No-present drawables also reach only 114–121, mostly waiting for
+`nextDrawable`; persistent Managed offscreen reaches 1349–1462. This narrows the
+next investigation to drawable/IOSurface recycling and synchronization, rather
+than establishing that the final host present or Managed storage alone is the
+cause. This diagnostic change does not accelerate the product or other games.
+
 ## Experimental LLVM bitreverse repair
 
 `patches/metal2vulkan-llvm-bitreverse.patch` applies to the translator revision in `vm/dependencies.json` under `metal2vulkanRepair`. Apply it in a separate translator checkout. To build Reims against it, pass a local Cargo configuration with the following three overrides, replacing the example absolute path with that checkout:

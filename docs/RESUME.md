@@ -1,4 +1,54 @@
-# Current checkpoint (2026-10-24, general UI input latency)
+# Current checkpoint (2026-10-24, presentation investigation)
+
+The user prioritized investigating the offscreen-versus-presented 4K gap before
+further cache/game work. The active runtime DLL is restored to SHA256
+5470f35138a2b313c8146785db7bfebc9f96227ef65220ce665c6d53a36ab6f7
+(Reims 84fb809 / Metal2 product 59d9ef3 and guard 79aafca). Preserve 12 GiB,
+8 CPUs and the configured 4K60 display. Actual guest pixels are 3840×2160 with
+1920×1080 logical scaling. CoreGraphics refresh reports zero; AppKit maximum
+fps reports 58, so configured refresh is not a physical-cadence measurement.
+No monitor automation is enabled. SSH remains maintenance/test-only.
+
+SceneProbe now separates Private/Shared/Managed offscreen, real drawables
+without presentation, and presented drawables. Each mode can use one or three
+in-flight commands. Pipeline final counts come from completion callbacks after
+draining, with error checks; the first frame has a real GPU pixel witness.
+The layer remains framebufferOnly=false, displaySyncEnabled=false, target 4K
+in a 960×540-point window. These are diagnostic completed-command rates, not
+physical display fps or game scores. Phase means exclude two seconds of warmup.
+
+Twenty-four bounded runs pass, with zero command errors. Serial presented
+A/B/B/A: 59.83, 108.66, 105.04, 59.29 commands/s (B uses three in-flight frames).
+The harness's per-frame completion wait amplifies the initial gap. Matching
+three slots on both sides still gives Private offscreen 1306.58–1414.73,
+Shared offscreen 479.05–565.49 and presented drawable 107.38–120.65.
+No-present drawables reach 114.26–120.85 and spend about 7–8 ms in nextDrawable.
+Managed persistent offscreen reaches 1349.46–1461.77; Managed alone is not the
+cause. Drawable usage 23 versus offscreen usage 4 and IOSurface backing are
+not isolated. Next investigate drawable pool/recycling and resource paging/
+synchronization across the guest compositor and Reims. Do not assert that a
+single final display copy or shader execution alone causes the whole gap.
+
+PCIe remains Gen5 ×16. Short GPU-wide samples show large transfer traffic with
+presentation but cannot attribute all bytes to the VM. MAILBOX runs without
+present fences; no queue-idle fallback occurs during captured steady trials.
+Its source callsites are retired-swapchain overflow and window end, so the
+startup warning is not evidence of per-frame queue idle. Preserve completion,
+resource visibility and release ordering in any future optimization.
+Two rejected harness development runs had pending-status/semaphore-disposal
+bugs, fixed before the accepted trials; they were not GPU driver faults.
+Evidence and caveats: docs/verification/presentation-path.json. Reproduction:
+docs/BUILDING.md. No runtime performance fix or all-game improvement is claimed.
+
+The bounded image-memory cache candidate is parked under ignored
+artifacts/image-cache-pending and artifacts/vgpu-image-spares-backup. It is
+not active or integrated into root manifests. Its native allocation guard also
+passes against the attempted baseline and does not establish a cache hit;
+do not publish that as cache-effect proof. Keep its owner Metal2 development
+history intact and correct forward if that work resumes. Earlier full gates
+and their unresolved Reims failures below are unchanged by this diagnostic.
+
+# Previous checkpoint (2026-10-24, general UI input latency)
 
 The Windows frontend now sends the first motion after idle immediately, keeps
 only the latest continuous position at the existing approximate 8-ms cadence,

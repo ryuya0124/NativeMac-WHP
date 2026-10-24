@@ -2,9 +2,18 @@
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 #include <math.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdatomic.h>
+#import <dispatch/dispatch.h>
+
+struct CompletionCounts { atomic_uint finished; atomic_uint errors; };
 
 // Authored diagnostic workload, not a commercial benchmark score. Indexed,
-// instanced, textured cubes use a depth buffer and real GPU drawable presentation.
+// instanced, textured cubes use a depth buffer. Modes isolate private/shared
+// targets, drawable acquisition and presentation. The optional -pipelined suffix
+// bounds in-flight work at three; all final counts come from completed commands.
+// These are completed-command rates, not physical display-frame measurements.
 static NSString *const shader = @
 "#include <metal_stdlib>\n"
 "using namespace metal;\n"
@@ -25,6 +34,10 @@ static NSString *const shader = @
 " float light=0.3+0.7*abs(dot(normalize(in.n),normalize(float3(0.3,0.7,1.0))));\n"
 " return float4(image.sample(samp,in.uv).rgb*light,1.0); }\n";
 
+static int compareSample(const void *a, const void *b) {
+    double x=*(const double *)a, y=*(const double *)b; return (x>y)-(x<y);
+}
+
 int main(int argc, const char **argv) {
     @autoreleasepool {
         double duration = argc > 1 ? strtod(argv[1], NULL) : 30;
@@ -33,8 +46,18 @@ int main(int argc, const char **argv) {
         unsigned height = argc > 3 ? (unsigned)strtoul(argv[3], NULL, 10) : 1080;
         if (!((width == 1920 && height == 1080) ||
               (width == 3840 && height == 2160))) return 64;
-        [NSApplication sharedApplication];
-        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+        const char *mode=argc>4 ? argv[4] : "drawable";
+        BOOL sharedOffscreen=strcmp(mode,"offscreen-shared")==0 || strcmp(mode,"offscreen-shared-pipelined")==0;
+        BOOL managedOffscreen=strcmp(mode,"offscreen-managed")==0 || strcmp(mode,"offscreen-managed-pipelined")==0;
+        BOOL offscreen=strcmp(mode,"offscreen")==0 || strcmp(mode,"offscreen-pipelined")==0 || sharedOffscreen || managedOffscreen;
+        BOOL noPresent=strcmp(mode,"drawable-no-present")==0 || strcmp(mode,"drawable-no-present-pipelined")==0;
+        BOOL presenting=strcmp(mode,"drawable")==0 || strcmp(mode,"drawable-pipelined")==0;
+        if (!offscreen && !presenting && !noPresent) return 64;
+        BOOL pipelined=strstr(mode,"-pipelined")!=NULL;
+        if (!offscreen) {
+            [NSApplication sharedApplication];
+            [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+        }
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
         id<MTLCommandQueue> queue = [device newCommandQueue];
         NSError *error = nil;
@@ -75,33 +98,64 @@ int main(int argc, const char **argv) {
         dt.storageMode=MTLStorageModePrivate; dt.usage=MTLTextureUsageRenderTarget;
         id<MTLTexture> depth = [device newTextureWithDescriptor:dt];
         if (!vb || !ib || !witness || !texture || !depth || !depthState) return 4;
-        NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(40,80,960,540)
+        MTLTextureDescriptor *colorDescriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:width height:height mipmapped:NO];
+        colorDescriptor.storageMode=sharedOffscreen ? MTLStorageModeShared : managedOffscreen ? MTLStorageModeManaged : MTLStorageModePrivate;
+        colorDescriptor.usage=MTLTextureUsageRenderTarget;
+        id<MTLTexture> offscreenTarget = offscreen ? [device newTextureWithDescriptor:colorDescriptor] : nil;
+        if (offscreen && !offscreenTarget) return 4;
+        NSWindow *window = nil;
+        CAMetalLayer *layer = nil;
+        if (!offscreen) {
+        window = [[NSWindow alloc] initWithContentRect:NSMakeRect(40,80,960,540)
             styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
         window.releasedWhenClosed=NO;
         window.title=[NSString stringWithFormat:@"NativeMac Metal 3D: 441 textured cubes / %u x %u",width,height];
-        CAMetalLayer *layer=[CAMetalLayer layer];
+        layer=[CAMetalLayer layer];
         layer.device=device; layer.pixelFormat=MTLPixelFormatBGRA8Unorm;
         layer.framebufferOnly=NO; layer.displaySyncEnabled=NO; layer.allowsNextDrawableTimeout=YES;
         window.contentView.wantsLayer=YES; window.contentView.layer=layer;
         layer.drawableSize=CGSizeMake(width,height);
         [window makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
+        }
+        printf("{\"presentation\":\"%s\"}\n",mode);
         double start=CACurrentMediaTime(), previous=start, report=start, worst=0;
         unsigned completed=0, failures=0; BOOL checked=NO;
+        double totals[9]={0}, samples[9][8192]={0}, measuredWall=0;
+        unsigned measured=0;
+        struct CompletionCounts completionCounts;
+        atomic_init(&completionCounts.finished,0);atomic_init(&completionCounts.errors,0);
+        struct CompletionCounts *counts=&completionCounts;
+        dispatch_semaphore_t slots=dispatch_semaphore_create(3);
         printf("{\"stage\":\"scene-start\",\"width\":%u,\"height\":%u,\"instances\":441,\"trianglesPerFrame\":5292}\n",width,height); fflush(stdout);
-        while (window.visible && CACurrentMediaTime()-start<duration) {
+        while ((offscreen || window.visible) && CACurrentMediaTime()-start<duration) {
+            double frameStart=CACurrentMediaTime(), phase[9]={0}, poolEnd=0;
+            BOOL measure=frameStart-start>=2;
+            if(pipelined) {
+                if(dispatch_semaphore_wait(slots,dispatch_time(DISPATCH_TIME_NOW,20*NSEC_PER_SEC))) {failures++;break;}
+                phase[8]=CACurrentMediaTime()-frameStart;
+            }
             @autoreleasepool {
+                double mark=CACurrentMediaTime();
                 NSEvent *event;
                 while((event=[NSApp nextEventMatchingMask:NSEventMaskAny untilDate:[NSDate distantPast]
                     inMode:NSDefaultRunLoopMode dequeue:YES])) [NSApp sendEvent:event];
                 [NSApp updateWindows];
-                id<CAMetalDrawable> drawable=[layer nextDrawable];
-                if (!drawable) { failures++; break; }
-                if (drawable.texture.width!=width || drawable.texture.height!=height) {
-                    fprintf(stderr,"unexpected drawable size: %lux%lu\n",(unsigned long)drawable.texture.width,(unsigned long)drawable.texture.height);
-                    failures++; break;
+                double checkpoint=CACurrentMediaTime();phase[0]=checkpoint-mark;mark=checkpoint;
+                id<CAMetalDrawable> drawable=offscreen ? nil : [layer nextDrawable];
+                id<MTLTexture> target=offscreen ? offscreenTarget : drawable.texture;
+                if (!target) { if(pipelined)dispatch_semaphore_signal(slots); failures++; break; }
+                if (target.width!=width || target.height!=height) {
+                    fprintf(stderr,"unexpected drawable size: %lux%lu\n",(unsigned long)target.width,(unsigned long)target.height);
+                    if(pipelined)dispatch_semaphore_signal(slots); failures++; break;
                 }
+                if (!checked) {
+                    printf("{\"stage\":\"target-info\",\"storageMode\":%lu,\"usage\":%lu,\"pixelFormat\":%lu,\"maxInflight\":%u}\n",
+                        (unsigned long)target.storageMode,(unsigned long)target.usage,
+                        (unsigned long)target.pixelFormat,pipelined?3:1);
+                }
+                checkpoint=CACurrentMediaTime();phase[1]=checkpoint-mark;mark=checkpoint;
                 MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];
-                pass.colorAttachments[0].texture=drawable.texture;
+                pass.colorAttachments[0].texture=target;
                 pass.colorAttachments[0].loadAction=MTLLoadActionClear;
                 pass.colorAttachments[0].storeAction=MTLStoreActionStore;
                 pass.colorAttachments[0].clearColor=MTLClearColorMake(0.015,0.02,0.035,1);
@@ -109,7 +163,7 @@ int main(int argc, const char **argv) {
                 pass.depthAttachment.storeAction=MTLStoreActionDontCare; pass.depthAttachment.clearDepth=1;
                 id<MTLCommandBuffer> command=[queue commandBuffer];
                 id<MTLRenderCommandEncoder> encoder=[command renderCommandEncoderWithDescriptor:pass];
-                if (!command || !encoder) { failures++; break; }
+                if (!command || !encoder) { if(pipelined)dispatch_semaphore_signal(slots); failures++; break; }
                 const float uniforms[4]={(float)(CACurrentMediaTime()-start),(float)width/(float)height,21,0};
                 [encoder setRenderPipelineState:pipeline]; [encoder setDepthStencilState:depthState];
                 [encoder setVertexBuffer:vb offset:0 atIndex:0];
@@ -120,13 +174,25 @@ int main(int argc, const char **argv) {
                 [encoder endEncoding];
                 if (!checked) {
                     id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];
-                    [blit copyFromTexture:drawable.texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(width/2,height/2,0)
+                    [blit copyFromTexture:target sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(width/2,height/2,0)
                         sourceSize:MTLSizeMake(1,1,1) toBuffer:witness destinationOffset:0 destinationBytesPerRow:256 destinationBytesPerImage:256];
                     [blit endEncoding];
                 }
-                [command presentDrawable:drawable]; [command commit];
-                [command waitUntilCompleted];
-                if (command.status!=MTLCommandBufferStatusCompleted) {
+                if(pipelined) [command addCompletedHandler:^(id<MTLCommandBuffer> done) {
+                    if(done.status!=MTLCommandBufferStatusCompleted)atomic_fetch_add(&counts->errors,1);
+                    atomic_fetch_add(&counts->finished,1);
+                    dispatch_semaphore_signal(slots);
+                }];
+                checkpoint=CACurrentMediaTime();phase[2]=checkpoint-mark;mark=checkpoint;
+                if (presenting) [command presentDrawable:drawable];
+                checkpoint=CACurrentMediaTime();phase[3]=checkpoint-mark;mark=checkpoint;
+                [command commit];
+                checkpoint=CACurrentMediaTime();phase[4]=checkpoint-mark;mark=checkpoint;
+                if(!pipelined || !checked) [command waitUntilCompleted];
+                checkpoint=CACurrentMediaTime();phase[5]=checkpoint-mark;
+                double reported=pipelined ? 0 : command.GPUEndTime-command.GPUStartTime;
+                phase[7]=isfinite(reported)&&reported>=0 ? reported : 0;
+                if ((!pipelined || !checked) && command.status!=MTLCommandBufferStatusCompleted) {
                     fprintf(stderr,"command: %s\n",command.error.description.UTF8String); failures++; break;
                 }
                 if (!checked) {
@@ -137,10 +203,42 @@ int main(int argc, const char **argv) {
                 }
                 completed++; double now=CACurrentMediaTime(); worst=MAX(worst,now-previous); previous=now;
                 if(now-report>=1) {
-                    printf("{\"elapsed\":%.3f,\"completed\":%u,\"meanFps\":%.2f,\"maxGapMs\":%.2f}\n",now-start,completed,completed/(now-start),worst*1000);
+                    unsigned finished=pipelined?atomic_load(&counts->finished):completed;
+                    printf("{\"elapsed\":%.3f,\"completed\":%u,\"submitted\":%u,\"meanFps\":%.2f,\"maxGapMs\":%.2f}\n",now-start,finished,completed,finished/(now-start),worst*1000);
                     fflush(stdout); report=now;
                 }
+                poolEnd=CACurrentMediaTime();
             }
+            double frameEnd=CACurrentMediaTime();
+            phase[6]=frameEnd-poolEnd;
+            if (measure) {
+                measuredWall+=frameEnd-frameStart;
+                for(unsigned leg=0;leg<9;leg++) {
+                    totals[leg]+=phase[leg];
+                    if(measured<8192)samples[leg][measured]=phase[leg];
+                }
+                measured++;
+            }
+        }
+        if(pipelined) {
+            for(unsigned i=0;i<3;i++) {
+                if(dispatch_semaphore_wait(slots,dispatch_time(DISPATCH_TIME_NOW,20*NSEC_PER_SEC))) {
+                    fprintf(stderr,"pipeline drain timed out\n");fflush(stdout);_Exit(124);
+                }
+            }
+            completed=atomic_load(&counts->finished);failures+=atomic_load(&counts->errors);
+            // Restore all permits before disposing the semaphore, as libdispatch requires.
+            for(unsigned i=0;i<3;i++)dispatch_semaphore_signal(slots);
+        }
+        if (measured) {
+            const char *names[]={"events","acquire","encode","presentCall","commit","completionWait","poolDrain","driverReportedGpu","inflightSlotWait"};
+            printf("{\"stage\":\"phase-times\",\"mode\":\"%s\",\"warmupSeconds\":2,\"frames\":%u,\"loopMeanMs\":%.6f,\"legs\":[",mode,measured,measuredWall*1000/measured);
+            unsigned n=MIN(measured,8192u);
+            for(unsigned leg=0;leg<9;leg++) {
+                qsort(samples[leg],n,sizeof(double),compareSample);
+                printf("%s{\"name\":\"%s\",\"meanMs\":%.6f,\"p95Ms\":%.6f}",leg?",":"",names[leg],totals[leg]*1000/measured,samples[leg][(n-1)*95/100]*1000);
+            }
+            printf("]}\n");
         }
         double elapsed=CACurrentMediaTime()-start;
         printf("{\"stage\":\"scene-final\",\"elapsed\":%.3f,\"completed\":%u,\"meanFps\":%.2f,\"errors\":%u,\"readbackPassed\":%s}\n",elapsed,completed,completed/MAX(elapsed,0.001),failures,checked?"true":"false");
