@@ -227,7 +227,7 @@
     "baseCommit": "79aafca3482a54429bab8e09b62ef558baf4cff1",
     "sourceRevision": "2b5f37cbb8c1299336f87fd15be669536ba65064",
     "runtimeVersion": 1185,
-    "status": "Active wake-only runtime. Broad and focused checks pass for touched functionality; prior GravityMark observation 3381 / 20.2 fps. No universal speedup qualification.",
+    "status": "Base for the active discard-clear Runtime1190; wake-only Runtime1185 is the predecessor.",
     "verification": "docs/verification/runtime-overhead.json",
     "usesCpuRendering": false
   },
@@ -245,5 +245,18 @@
     "includesParkedImageMemoryCache": false,
     "usesCpuRendering": false,
     "active": false
+  },
+  "metal2vulkanDiscardClearBacking": {
+    "patch": "patches/metal2vulkan-discard-clear-backing.patch",
+    "applyAfter": "patches/metal2vulkan-completion-wakes.patch",
+    "baseCommit": "2b5f37cbb8c1299336f87fd15be669536ba65064",
+    "sourceRevision": "05031a092b1cfaa1c1a254c79bfd1175e1640665",
+    "runtimeVersion": 1190,
+    "runtimeSourceFingerprint": "204485d9c07c2865f6741942cc3d7d3150d881ec524775cb5504635dcbd0a0d4",
+    "active": true,
+    "adoptedByUser": true,
+    "usesCpuRendering": false,
+    "verification": "docs/verification/gpu-local-handoff.json",
+    "status": "Adopted. RTX path/CPU visibility and guest byte checks pass; shared-image diagnostic improves, GravityMark unchanged. Additional Mac GPU validation retains a known MoltenVK warning."
   }
 }

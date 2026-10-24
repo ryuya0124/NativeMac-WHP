@@ -75,6 +75,8 @@ GUI接続の検証用レポート：
 
 macOSの「システム設定 → ディスプレイ」から、起動時に設定した上限まで解像度を変更できます。4K等倍・WQHD・4K出力の1920×1080 HiDPI表示への切り替えを確認しました。Geekbench 7.1.0 CPUは[シングル2287・マルチ10415](https://browser.geekbench.com/v7/cpu/692080)で完走し、Metal版も全11項目を検証エラー0件で完走しました（[3238点](https://browser.geekbench.com/v7/gpu/317315)、他のベンチマークとの同時実行はありませんが、軽い診断操作を含むため厳密な性能比較用の測定ではありません）。[検証記録](docs/verification/geekbench7.json)を参照してください。また、Intel VM内のXcode 26.5で、変更していないMochiLogのiOS・watchOS Simulator向け[ビルドが成功](docs/verification/mochilog-vm-build.json)しました。
 
+共有画像の一部の描画をGPU側の作業用画像で処理するRuntime 1190を採用しています。CPUから見えるメモリーへの書き戻しは維持します。4Kの専用診断ではGPUコマンド完了数が約27回/秒から39〜54回/秒へ改善しましたが、同条件のGravityMarkは2969点・17.8fpsから2958点・17.7fpsで、改善を確認できませんでした。追加のMac GPU検証には既存のMoltenVK警告が残っています。[変更・検証範囲](docs/verification/gpu-local-handoff.json)を参照してください。
+
 制約：ゲスト画面のWinUIパネル内への埋め込み、広範な互換性・長時間の音声映像同期検証は未実装／未実施です。Metal機能はゲストが報告するMetal 2です。GPUが認識されることと、すべてのmacOSアプリが正常動作することは別の検証です。
 
 フロントエンドは32・64・128ビットのMMIOアクセスを32ビットC API操作に分解します。64ビットアクセスを拒否していた実装ではGPUリソース生成に失敗しました。修正後、通常OSのGUIとMetal計算が成功しました。

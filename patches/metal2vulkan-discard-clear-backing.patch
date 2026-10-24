@@ -1,0 +1,429 @@
+diff --git a/crates/metal2vulkan-runtime/src/clear_reach.rs b/crates/metal2vulkan-runtime/src/clear_reach.rs
+index 409e2af..f99b95e 100644
+--- a/crates/metal2vulkan-runtime/src/clear_reach.rs
++++ b/crates/metal2vulkan-runtime/src/clear_reach.rs
+@@ -184,11 +184,28 @@ pub(super) fn dont_care_clear(pf: PixelFormat) -> vk::ClearColorValue {
+     clear_value::color(pf, [0.0; 4], ClearRoute::ThroughHalf).unwrap_or_default()
+ }
+ 
+-/// Give each `DontCare` load of `layout` that the module docs name its answer in a pass of
+-/// `reach`: `Load` where it reaches no tile, else `Clear`, to the format's zero for a color
+-/// attachment ([`dont_care_clear`]) and to its clear value for depth and stencil. Which attachments took it, and whether the pass took
+-/// the near-equivalent (its draws reach the tiles their primitives touch): the attachment it
+-/// names, for the notice.
++/// A color's eventual load, before descriptor mutation, so choosing its storage sees the same
++/// clear as `dont_care_loads`. An unstored ordinary color keeps its action; a memoryless one
++/// clears only where the pass reaches a tile.
++pub(super) fn color_load_action(
++    load: LoadAction,
++    store: StoreAction,
++    memoryless: bool,
++    reach: PassReach,
++) -> LoadAction {
++    if load != LoadAction::DontCare || (!memoryless && !stores(store)) {
++        return load;
++    }
++    match (reach, memoryless) {
++        (PassReach::Nothing, true) => LoadAction::DontCare,
++        (PassReach::Nothing, false) => LoadAction::Load,
++        (PassReach::Every | PassReach::Draws, _) => LoadAction::Clear,
++    }
++}
++
++/// Give each `DontCare` load of `layout` its answer: `Load` where the pass reaches no tile,
++/// otherwise `Clear`. Colors clear to their format's zero, depth and stencil to their clear
++/// values. Record which attachments took it and which tile-dependent near-equivalent to name.
+ pub(super) fn dont_care_loads(layout: &mut PassLayout, reach: PassReach) -> DontCareLoads {
+     let load = match reach {
+         PassReach::Nothing => LoadAction::Load,
+@@ -210,7 +227,9 @@ pub(super) fn dont_care_loads(layout: &mut PassLayout, reach: PassReach) -> Dont
+         // 52 runs of 52, also after a pass that cleared other bytes into the tiles), and it is
+         // never stored: a clear to zero is Metal's answer exactly, in a pass that draws.
+         if color.load == LoadAction::DontCare && color.memoryless {
+-            if reach != PassReach::Nothing {
++            if color_load_action(color.load, color.store, color.memoryless, reach)
++                == LoadAction::Clear
++            {
+                 color.load = LoadAction::Clear;
+                 color.clear = dont_care_clear(color.target.texture.pixel_format());
+             }
+@@ -219,7 +238,7 @@ pub(super) fn dont_care_loads(layout: &mut PassLayout, reach: PassReach) -> Dont
+         if color.load != LoadAction::DontCare || color.memoryless || !stores(color.store) {
+             continue;
+         }
+-        color.load = load;
++        color.load = color_load_action(color.load, color.store, color.memoryless, reach);
+         color.clear = dont_care_clear(color.target.texture.pixel_format());
+         loads.colors.push(index);
+         if drew {
+diff --git a/crates/metal2vulkan-runtime/src/linear_attachment.rs b/crates/metal2vulkan-runtime/src/linear_attachment.rs
+index a5b2a3b..9c95dc0 100644
+--- a/crates/metal2vulkan-runtime/src/linear_attachment.rs
++++ b/crates/metal2vulkan-runtime/src/linear_attachment.rs
+@@ -44,6 +44,8 @@
+ //! memory it does not name (a root table: its functions load pointers from memory, which reach
+ //! every live buffer; a handle table, which reaches every texture of the heap set), it executes no
+ //! render commands, and no command names a resource over the texture's host pages or its buffer.
++//! A `DontCare` load that `clear_reach` resolves to a clear takes this choice too; its tile
++//! clears, preserved tiles and merge still follow the same reach as before.
+ //! Then nothing the pass reads tells the ways apart, and the clear writes every pixel of its reach
+ //! either way; else it renders in place too. (Before, a pass that loaded one chose between in
+ //! place and copies of its draws' box by the times of its kind on the GPU, which wrote the
+@@ -62,6 +64,7 @@
+ //! count as writing the whole render area.
+ 
+ use super::attachment_stand_in::{self, Cause, StandIn};
++use super::clear_reach::{color_load_action, PassReach};
+ use super::color_reformat::Routing;
+ use super::command_buffer::CommandBuffer;
+ use super::degradation::Degradation;
+@@ -357,7 +360,8 @@ fn rule_broken(beside: String) -> String {
+ /// Settle each bound attachment among `colors`, a pass's as it ends (the module docs): one
+ /// rendered apart that the pass loads, over the box its draws write in (`coverage`); one that
+ /// renders in place yet (no stand-in, and no draw took a view of it: `taken`) through the image
+-/// its texture keeps where the pass clears it and no command of the pass may read its bytes
++/// its texture keeps where the pass clears it (including a resolved discard load at `reach`)
++/// and no command of the pass may read its bytes
+ /// (`may_read`), announced `linear-attachment-clear-copies` (copied back where the pass stores
+ /// it, over the reach of its clear); every other one in place. Counted as the pass renders them
+ /// (`WorkCounts::linear_passes_in_place`, `linear_passes_through_copies`).
+@@ -365,6 +369,7 @@ pub(super) fn choose(
+     maker: &CommandBuffer,
+     colors: &mut [Option<ColorTarget>],
+     coverage: &Coverage,
++    reach: PassReach,
+     taken: impl Fn(usize) -> bool,
+     may_read: impl Fn(usize) -> bool,
+ ) -> Result<(), Error> {
+@@ -387,7 +392,9 @@ pub(super) fn choose(
+             continue;
+         }
+         any = true;
+-        if color.load == LoadAction::Clear && !may_read(index) {
++        if color_load_action(color.load, color.store, color.memoryless, reach) == LoadAction::Clear
++            && !may_read(index)
++        {
+             through = true;
+             through_backing(
+                 maker,
+@@ -396,7 +403,8 @@ pub(super) fn choose(
+                 None,
+                 Degradation::LinearAttachmentClearCopies,
+                 || {
+-                    "the pass clears it, no command of it may read its bytes, and clearing a \
++                    "the pass clears it (including a resolved DontCare load), no command of it \
++                     may read its bytes, and clearing a \
+                      linear image of host memory in place costs more than clearing an image of \
+                      the device's and copying it back"
+                         .to_owned()
+diff --git a/crates/metal2vulkan-runtime/src/render.rs b/crates/metal2vulkan-runtime/src/render.rs
+index 9fb5169..2326853 100644
+--- a/crates/metal2vulkan-runtime/src/render.rs
++++ b/crates/metal2vulkan-runtime/src/render.rs
+@@ -195,7 +195,7 @@
+ //!   indices must lie inside the buffer, as Metal's validation requires. A pipeline with a
+ //!   control-point index type reads each control point's index from the draw's control-point index
+ //!   buffer, bound to the control stage (measured), from the offset rounded down to a multiple of
+-//!   the index size; a direct draw's `(patchStart + patchCount) · N` indices must lie inside the
++//!   the index size; a direct draw's `(patchStart + patchCount) ﾂｷ N` indices must lie inside the
+ //!   buffer, as Metal's validation requires. A plain patch draw on such a pipeline reads every
+ //!   index as 0, and an indexed one on a pipeline without a type draws the patches' own control
+ //!   points, as plain Metal draws them (RT6 Metal probe 14 `plain_with_type`,
+@@ -503,7 +503,7 @@ pub enum DrawProblem {
+     },
+     /// A direct indexed patch draw's control-point indices run past its control-point index
+     /// buffer: Metal's validation stops a draw whose offset plus `size` bytes for each of
+-    /// `(patchStart + patchCount) · numberOfPatchControlPoints` indices passes the buffer's
++    /// `(patchStart + patchCount) ﾂｷ numberOfPatchControlPoints` indices passes the buffer's
+     /// length, with or without a patch index buffer (measured, RT6 Metal probes 14c and 14e:
+     /// `controlPointIndexBufferOffset(0) + (indexCount(9) * 4) must be <=
+     /// [controlPointIndexBuffer length](24)`); plain Metal reads past the buffer (probe 14
+@@ -511,7 +511,7 @@ pub enum DrawProblem {
+     ControlPointIndexBufferRange {
+         /// `controlPointIndexBufferOffset`.
+         offset: u64,
+-        /// `(patchStart + patchCount) · numberOfPatchControlPoints`.
++        /// `(patchStart + patchCount) ﾂｷ numberOfPatchControlPoints`.
+         indices: u64,
+         /// The index size, in bytes.
+         size: u64,
+@@ -2590,7 +2590,7 @@ impl RenderCommandEncoder {
+     /// controlPointIndexBuffer:controlPointIndexBufferOffset:instanceCount:baseInstance:` of a
+     /// tessellation pipeline whose `tessellationControlPointIndexType` is not `None`: as
+     /// [`RenderCommandEncoder::draw_patches`], but control point `k` of the patch whose index is
+-    /// `p` is the index (of the pipeline's type) at position `p · N + k` of the control-point
++    /// `p` is the index (of the pipeline's type) at position `p ﾂｷ N + k` of the control-point
+     /// index buffer from its offset (measured), `N` the pipeline's control points where its
+     /// function states them, an offset that is not a multiple of the index size rounded down to
+     /// one, as plain Metal reads it (EVs ICBV-hostkinds-m3 and -m4), where its validation stops the
+@@ -2598,7 +2598,7 @@ impl RenderCommandEncoder {
+     /// own control points, the buffer unread, as plain Metal draws them (RT6 Metal probe 14
+     /// `indexed_without_type`). Refused as `draw_patches` is, for a control-point index buffer of
+     /// another device, and as Metal's validation refuses it (`Invalid`, measured): `(patch_start +
+-    /// patch_count) · N` indices past the buffer from the offset.
++    /// patch_count) ﾂｷ N` indices past the buffer from the offset.
+     pub fn draw_indexed_patches(
+         &mut self,
+         number_of_patch_control_points: u32,
+@@ -3133,19 +3133,6 @@ impl RenderCommandEncoder {
+                 })
+             })
+             .collect();
+-        linear_attachment::choose(
+-            core.command_buffer(),
+-            &mut layout.colors,
+-            &coverage,
+-            |index| taken.contains(&index),
+-            |index| may_read.contains(&index),
+-        )?;
+-        let device = core.device().clone();
+-        // The pass's clears write a new texture's unwritten texels where they reach it: through
+-        // another image only where the pass stores the aspect, whose copy back writes it
+-        // (`fresh_unwritten.rs`). Before its `DontCare` loads take clears below.
+-        FreshUnwritten::cleared(&device, &layout)?;
+-        let count = instances.len();
+         // The tiles the pass's draws reach, as far as the host decides them, before the
+         // `DontCare` loads below become `Clear` loads (`clear_reach.rs`): where they reach the
+         // tiles their primitives touch, at most those their viewports and scissors reach, and
+@@ -3160,6 +3147,20 @@ impl RenderCommandEncoder {
+             _ => reach,
+         };
+         let tiles = tiles.filter(|tiles| !tiles.is_empty());
++        linear_attachment::choose(
++            core.command_buffer(),
++            &mut layout.colors,
++            &coverage,
++            reach,
++            |index| taken.contains(&index),
++            |index| may_read.contains(&index),
++        )?;
++        let device = core.device().clone();
++        // The pass's clears write a new texture's unwritten texels where they reach it: through
++        // another image only where the pass stores the aspect, whose copy back writes it
++        // (`fresh_unwritten.rs`). Before its `DontCare` loads take clears below.
++        FreshUnwritten::cleared(&device, &layout)?;
++        let count = instances.len();
+         // A `DontCare` load of an attachment the pass stores: loaded in a pass whose draws reach
+         // no tile, else cleared to zero or its clear value, Metal's answer in each tile a draw
+         // reaches (`clear_reach.rs`), and only in those `tiles` bounds.
+diff --git a/crates/metal2vulkan-runtime/src/tests/linear_attachment.rs b/crates/metal2vulkan-runtime/src/tests/linear_attachment.rs
+index cbc06ce..36bb607 100644
+--- a/crates/metal2vulkan-runtime/src/tests/linear_attachment.rs
++++ b/crates/metal2vulkan-runtime/src/tests/linear_attachment.rs
+@@ -2,8 +2,10 @@
+ //! (`linear_attachment::choose`): what a draw writes of each color ([`writes`],
+ //! [`pass_writes`]) and the box the pass's draws write each in ([`Coverage`]).
+ 
++use super::super::clear_reach::{color_load_action, PassReach};
+ use super::super::color_reformat::Routing;
+ use super::super::linear_attachment::{pass_writes, writes, Coverage};
++use super::super::render_values::{LoadAction, StoreAction};
+ use ash::vk;
+ use metal2vulkan::metal::PixelFormat;
+ use metal2vulkan::pipeline::ColorAttachmentState;
+@@ -12,6 +14,47 @@ use metal2vulkan::vk::{ColorComponentFlags as Mask, Format};
+ const BLENDED: Option<bool> = Some(true);
+ const OPAQUE: Option<bool> = Some(false);
+ 
++#[test]
++fn a_stored_discard_selects_a_clear_only_where_the_pass_reaches_tiles() {
++    for (reach, expected) in [
++        (PassReach::Nothing, LoadAction::Load),
++        (PassReach::Draws, LoadAction::Clear),
++        (PassReach::Every, LoadAction::Clear),
++    ] {
++        for store in [StoreAction::Store, StoreAction::StoreAndMultisampleResolve] {
++            assert_eq!(
++                color_load_action(LoadAction::DontCare, store, false, reach),
++                expected
++            );
++        }
++        for store in [
++            StoreAction::DontCare,
++            StoreAction::MultisampleResolve,
++            StoreAction::Unknown,
++            StoreAction::CustomSampleDepthStore,
++        ] {
++            assert_eq!(
++                color_load_action(LoadAction::DontCare, store, false, reach),
++                LoadAction::DontCare
++            );
++        }
++        for load in [LoadAction::Load, LoadAction::Clear] {
++            assert_eq!(
++                color_load_action(load, StoreAction::Store, false, reach),
++                load
++            );
++        }
++        assert_eq!(
++            color_load_action(LoadAction::DontCare, StoreAction::DontCare, true, reach),
++            if reach == PassReach::Nothing {
++                LoadAction::DontCare
++            } else {
++                LoadAction::Clear
++            }
++        );
++    }
++}
++
+ fn rect(x: i32, y: i32, width: u32, height: u32) -> vk::Rect2D {
+     vk::Rect2D {
+         offset: vk::Offset2D { x, y },
+diff --git a/crates/metal2vulkan-validation/runtime-sources.sha256 b/crates/metal2vulkan-validation/runtime-sources.sha256
+index db91212..83406d9 100644
+--- a/crates/metal2vulkan-validation/runtime-sources.sha256
++++ b/crates/metal2vulkan-validation/runtime-sources.sha256
+@@ -1 +1 @@
+-0c8d28b40d676edd1104f442a0d38f65a30876303fd5778072ace3163c44bfdd
++204485d9c07c2865f6741942cc3d7d3150d881ec524775cb5504635dcbd0a0d4
+diff --git a/crates/metal2vulkan-validation/src/runtime_lane/linear_attachments.rs b/crates/metal2vulkan-validation/src/runtime_lane/linear_attachments.rs
+index 1c8aa5e..54f8041 100644
+--- a/crates/metal2vulkan-validation/src/runtime_lane/linear_attachments.rs
++++ b/crates/metal2vulkan-validation/src/runtime_lane/linear_attachments.rs
+@@ -279,6 +279,26 @@ fn blend_pass(
+     scissor: Option<ScissorRect>,
+     corners: &[[f32; 4]],
+     beside: Option<PixelFormat>,
++) {
++    blend_pass_with_load(
++        queue,
++        pipeline,
++        texture,
++        scissor,
++        corners,
++        beside,
++        LoadAction::Load,
++    );
++}
++
++fn blend_pass_with_load(
++    queue: &CommandQueue,
++    pipeline: &RenderPipelineState,
++    texture: &Texture,
++    scissor: Option<ScissorRect>,
++    corners: &[[f32; 4]],
++    beside: Option<PixelFormat>,
++    load: LoadAction,
+ ) {
+     let device = queue.device();
+     let color = staged(device, &floats([0.9, 0.3, 0.1, 0.5]));
+@@ -289,7 +309,7 @@ fn blend_pass(
+     let mut descriptor = RenderPassDescriptor::new();
+     let attachment = &mut descriptor.color_attachments[0];
+     attachment.texture = Some(texture.clone());
+-    attachment.load_action = LoadAction::Load;
++    attachment.load_action = load;
+     attachment.store_action = StoreAction::Store;
+     if let Some(pf) = beside {
+         let mut d = TextureDescriptor::texture_2d(pf, W, H, false);
+@@ -1212,3 +1232,84 @@ fn a_resolve_into_a_linear_texture_resolves_through_a_scratch() {
+         drop(mapping);
+     });
+ }
++
++/// A discard resolved to a tile clear takes the kept device image even without another
++/// attachment forcing it apart. Full and partial coverage match the private reference,
++/// including every byte outside the scissor. The path counters prove selection on NVIDIA.
++#[test]
++fn a_discard_clear_renders_through_the_kept_image_and_preserves_other_tiles() {
++    on_device(|device, messages| {
++        messages.take_notices();
++        for scissor in [None, Some(ScissorRect::new(32, 0, 64, 32))] {
++            let Some((mapping, buffer, texture)) = surface(device, 61) else {
++                return;
++            };
++            let rule = by_the_rule(device) && aliased(&texture);
++            let queue = device.new_command_queue().unwrap();
++            let pipeline = blending(device, PixelFormat::BGRA8Unorm);
++            let n = (W * H * TEXEL) as usize;
++            let bytes = counting(n, 61);
++            let expected = private_holding(&queue, &bytes, [W, H]);
++            blend_pass_with_load(
++                &queue,
++                &pipeline,
++                &expected,
++                scissor,
++                &[WHOLE],
++                None,
++                LoadAction::DontCare,
++            );
++            let before = device.work_counts();
++            blend_pass_with_load(
++                &queue,
++                &pipeline,
++                &texture,
++                scissor,
++                &[WHOLE],
++                None,
++                LoadAction::DontCare,
++            );
++            let selected = ways(device, &before);
++            println!(
++                "DISCARD-CLEAR on {}: by rule {rule}, ways {selected:?}",
++                device.name()
++            );
++            assert_eq!(selected, (0, u64::from(rule)));
++            assert_eq!(mapping.read(0..n), blit_out(&queue, &expected));
++            if let Some(scissor) = scissor {
++                let pages = mapping.read(0..n);
++                for i in 0..n {
++                    let x = (i as u64 / TEXEL) % W;
++                    let y = (i as u64 / TEXEL) / W;
++                    if !(scissor.x..scissor.x + scissor.width).contains(&x)
++                        || !(scissor.y..scissor.y + scissor.height).contains(&y)
++                    {
++                        assert_eq!(pages[i], bytes[i], "byte {i} outside the cleared tiles");
++                    }
++                }
++            }
++            drop((expected, texture, buffer));
++            drop(mapping);
++        }
++    });
++}
++
++#[test]
++fn a_discard_without_draws_keeps_the_surface_in_place() {
++    on_device(|device, _| {
++        let Some((mapping, buffer, texture)) = surface(device, 67) else {
++            return;
++        };
++        let rule = by_the_rule(device) && aliased(&texture);
++        let queue = device.new_command_queue().unwrap();
++        let before = device.work_counts();
++        pass(&queue, &[(&texture, LoadAction::DontCare, None)]);
++        assert_eq!(ways(device, &before), (u64::from(rule), 0));
++        assert_eq!(
++            mapping.read(0..(W * H * TEXEL) as usize),
++            counting((W * H * TEXEL) as usize, 67)
++        );
++        drop((texture, buffer));
++        drop(mapping);
++    });
++}
+diff --git a/crates/metal2vulkan/src/cache/mod.rs b/crates/metal2vulkan/src/cache/mod.rs
+index 74a92ac..28b7fa4 100644
+--- a/crates/metal2vulkan/src/cache/mod.rs
++++ b/crates/metal2vulkan/src/cache/mod.rs
+@@ -93,7 +93,7 @@ pub const ARTIFACT_FORMAT_VERSION: u32 = 398;
+ /// changes no behaviour, and then updates that hash alone with the commit saying why, or changes
+ /// behaviour and also bumps this version. The commit that bumps it says what changed; this comment
+ /// keeps no history.
+-pub const RUNTIME_VERSION: u32 = 1185;
++pub const RUNTIME_VERSION: u32 = 1190;
+ 
+ /// The digest of the sources this build of the crate was compiled from: SHA-256, as lowercase hex,
+ /// of the manifest, the build script, and exactly the files the crate roots' module tree compiles
+diff --git a/docs/API.md b/docs/API.md
+index 7570c7b..d287ddb 100644
+--- a/docs/API.md
++++ b/docs/API.md
+@@ -1508,6 +1508,8 @@ fast forms record, and each `PrecisionNote`'s rustdoc states its bound.
+   place: it clears an image its texture keeps and copies it back after, as clearing a linear image
+   of host memory in place measured slower than that copy. Cost: the pass clears an image of the
+   device's and copies it back after, as clearing the texture's linear image in place costs more.
++  This also covers a `DontCare` load resolved to a clear; tile bounds, preservation of other
++  tiles and the no-alias-read guard remain in force.
+ - `metal2vulkan-degrade-host-deallocator-delayed` (precision). `HostDeallocatorDelayed`: A no-copy
+   buffer or heap released with a deallocator and no keep-alive (`KeepAlive`) while the device's
+   import of its pages is still held: a command buffer submitted before a texture over them was

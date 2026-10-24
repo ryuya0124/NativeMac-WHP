@@ -21,7 +21,9 @@ The shared-GPU video candidate uses the Reims snapshot
 Its Metal2Vulkan dependency follows the resident-search and fetch-product
 patches, then `patches/metal2vulkan-completion-wakes.patch` on base
 `79aafca3482a54429bab8e09b62ef558baf4cff1` (resulting source
-`2b5f37cbb8c1299336f87fd15be669536ba65064`, runtime version 1185).
+`2b5f37cbb8c1299336f87fd15be669536ba65064`, runtime version 1185), then
+`patches/metal2vulkan-discard-clear-backing.patch` (source
+`05031a092b1cfaa1c1a254c79bfd1175e1640665`, active runtime version 1190).
 Use a local Cargo dependency override for both `metal2vulkan` and
 `metal2vulkan-runtime` to that checkout, rather than the older manifest's Git pin.
 Build the Vulkan C library and the current OpenVMM PCI source together.
@@ -42,7 +44,7 @@ initialization is unchanged. It also skips unused depth-twin copy vectors.
 The parked image-memory allocation cache is excluded from both patches.
 The transfer follow-up is parked: one 4K GravityMark run scored 2978 / 17.8 fps,
 below the earlier wake-only 3381 / 20.2 fps observation. No performance benefit
-is qualified; the active VM was restored to wake-only. See
+is qualified; this follow-up is excluded from the active build. See
 [verification](verification/runtime-overhead.json) for the exact test scope.
 
 Another parked experiment, `patches/metal2vulkan-transfer-pre-barrier.patch`,
@@ -50,7 +52,7 @@ applies directly on the same wake-only 2b5f37c base (runtime 1189). It narrows
 only the pre-copy barrier's destination scope; the source and full post-copy
 barrier remain intact. It excludes both prior parked allocation experiments.
 Focused checks pass, but presented 4K scene rates did not improve. Do not apply
-it as a qualified performance upgrade. The active VM remains on runtime 1185.
+it as a qualified performance upgrade. It is excluded from the active runtime 1190.
 See [surface measurements](verification/presentation-surface.json).
 
 An authored guest/API correctness check is available independently of the
@@ -162,6 +164,53 @@ path preserves other writers' bytes; deleting it or delaying writeback without
 coherency tracking would change behavior. The measured acquisition/in-flight
 waits include GPU rendering and compositor work, so they do not isolate copies
 as the sole bottleneck.
+
+## Adopted GPU-local discard clears
+
+Runtime 1190 resolves a color attachment's eventual load before selecting its
+storage. A `DontCare` load that will become a clear can use the existing device
+backing under the same alias-read guards as explicit clears. Tile preservation,
+copy/merge publication, CPU-visible memory and completion remain unchanged.
+This is a generic runtime change; applications do not need a name-based opt-in.
+It does not implement VRAM-only IOSurface coherency.
+
+The active patch applies directly after completion-wakes, excluding the parked
+image cache, scratch-reuse and pre-copy-barrier experiments. The DLL was built
+from c788855; 05031a0 changes only a GPU test's color-format descriptor.
+[Recorded checks and comparisons](verification/gpu-local-handoff.json) include
+six native RTX path/CPU-visibility cases, guest byte/compute/short-video checks,
+and the broad integration gate. An additional Mac GPU case still fails its
+final validation-message assertion on the known stock MoltenVK primitive-restart
+warning; its pixel comparisons complete. No validation comparison was relaxed.
+
+Run the native NVIDIA host-memory path check with an explicitly selected patched
+checkout and the LLVM 22 / SPIRV-Tools prerequisites:
+
+```powershell
+scripts/Test-GpuLocalDiscard.ps1 -RuntimeSource C:/local/metal2vulkan-patched
+```
+
+`SurfaceHandoffProbe.m` is an authored comparison, built by
+`Build-GuestMetalCompat.ps1`. It renders 441 static textured cubes with depth,
+then identity passes through two intermediates and an optional drawable. Its
+Private mode deliberately has no CPU aliases; Surface mode uses IOSurfaces.
+The optional final argument compares every first-frame byte with the saved
+reference. Apple M4 uses Shared intermediates and Intel uses Managed ones.
+
+```sh
+./surface-handoff-probe-x64 3 3840 2160 private offscreen 4 snapshot reference.bgra
+./surface-handoff-probe-x64 8 3840 2160 surface drawable 4 snapshot current.bgra reference.bgra
+```
+
+This is a fixed-pose diagnostic with three in-flight commands, not a game or a
+physical-display-fps measurement. Final command rates include startup/drain;
+the separate warm rate excludes two seconds. The adopted driver's Surface /
+drawable observations rise from 26.6–27.1 to 39.4–53.8 completed commands/s,
+with all eight post-change first-frame images matching the pre-change reference.
+Large variation in the Private/offscreen control limits performance claims.
+One matched 4K/20k/Temporal GravityMark run per version completes at
+2969 / 17.8 fps before and 2958 / 17.7 fps after: no gain established there.
+Both use the existing compatibility wrapper and retain heap-allocation fallback.
 
 ## Experimental LLVM bitreverse repair
 

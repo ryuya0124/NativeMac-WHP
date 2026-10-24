@@ -12,6 +12,7 @@ $probes = @(
     @{ Source = 'SegmentedBlitProbe.m'; Output = 'segmented-blit-probe-x64' },
     @{ Source = 'SceneProbe.m'; Output = 'scene-probe-x64'; Frameworks = '-framework AppKit -framework QuartzCore -framework IOSurface' },
     @{ Source = 'SurfaceBarrierProbe.m'; Output = 'surface-barrier-probe-x64'; Frameworks = '-framework IOSurface' },
+    @{ Source = 'SurfaceHandoffProbe.m'; Output = 'surface-handoff-probe-x64'; Frameworks = '-framework AppKit -framework QuartzCore -framework IOSurface' },
     @{ Source = 'DisplayModeProbe.m'; Output = 'display-mode-probe-x64'; Frameworks = '-framework ApplicationServices -framework AppKit' },
     @{ Source = 'MPSDeviceProbe.m'; Output = 'mps-device-probe-x64'; Frameworks = '-framework MetalPerformanceShaders -framework MetalPerformanceShadersGraph' }
 )
