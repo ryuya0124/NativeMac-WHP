@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-24T01:10:56.767745+00:00",
+  "referenceCommit": "38c9e19",
+  "source": "native/VGpuPci/device.rs",
+  "scope": "Windows pointer callback to report handoff counter; excludes guest HID processing, WindowServer, GPU rendering and presentation.",
+  "measurement": {
+    "build": "release",
+    "samplesPerVersion": 100,
+    "idleBetweenSamplesMs": 11,
+    "sameTestAgainstReferenceAndCandidate": true,
+    "reference": {
+      "samples": 100,
+      "callbackToHandoffMedianUs": 5254,
+      "callbackToHandoffP95Us": 6099,
+      "callbackToHandoffMaxUs": 6581
+    },
+    "candidate": {
+      "samples": 100,
+      "callbackToHandoffMedianUs": 1,
+      "callbackToHandoffP95Us": 3,
+      "callbackToHandoffMaxUs": 10
+    }
+  },
+  "behavior": {
+    "firstMotionAfterIdle": "immediate",
+    "continuousMotionIntervalMs": 8,
+    "pendingPositions": 1,
+    "buttonEdgesAndFinalHeldPosition": "preserved",
+    "idleWait": "condition variable without a periodic timeout"
+  },
+  "checks": {
+    "unitTestsPassed": 9,
+    "manualTimingTestPassedBothVersions": true,
+    "optimizedOpenVMMBuild": "passed",
+    "coldBoot": "3840x2160@60, 12 GiB, 8 CPUs; desktop reached",
+    "hostWindowDrag": "Terminal moved to requested new position; release processed",
+    "scrollVerification": "not yet qualified"
+  },
+  "sceneObservations": {
+    "before": {
+      "stage": "scene-final",
+      "elapsed": 25.002,
+      "completed": 1668,
+      "meanFps": 66.71,
+      "errors": 0,
+      "readbackPassed": true
+    },
+    "after": {
+      "stage": "scene-final",
+      "elapsed": 25.007,
+      "completed": 1443,
+      "meanFps": 57.7,
+      "errors": 0,
+      "readbackPassed": true
+    },
+    "controlledComparison": false,
+    "qualification": "Different guest boots and background conditions; reference includes a short noninvasive debugger snapshot. Both readbacks pass; these observations establish no rendering throughput gain."
+  },
+  "remaining": [
+    "GPU rendering and submission overhead remain; this change makes no GPU score or fps gain claim.",
+    "Total mouse-to-display latency has not been measured.",
+    "App launch, scrolling frame cadence and compilation speed are not qualified by this measurement."
+  ],
+  "continuousDragMeasurement": {
+    "samples": 50,
+    "pendingDragMedianUs": 8321,
+    "pendingDragP95Us": 8989,
+    "pendingDragMaxUs": 9615,
+    "scope": "A first immediate held-button move followed by a coalesced one. Confirms approximate eight-millisecond pacing, not end-to-end display latency."
+  }
+}

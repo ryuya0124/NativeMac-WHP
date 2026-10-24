@@ -297,21 +297,34 @@ impl InspectMut for Runtime {
 struct MotionBuffer {
     pending:Option<input_core::MouseData>,
     buttons:u8,
+    next_motion:Option<std::time::Instant>,
 }
 impl MotionBuffer {
-    fn push(&mut self,data:input_core::MouseData)->Vec<input_core::MouseData> {
+    const INTERVAL:std::time::Duration=std::time::Duration::from_millis(8);
+    fn take_pending(&mut self,now:std::time::Instant)->Option<input_core::MouseData> {
+        let data=self.pending.take()?;
+        self.next_motion=Some(now+Self::INTERVAL);
+        Some(data)
+    }
+    fn push(&mut self,data:input_core::MouseData,now:std::time::Instant)->Vec<input_core::MouseData> {
         let mut immediate=Vec::new();
         if data.button_mask != self.buttons {
             // Preserve the final held-button position before an up, and every down/up.
-            if let Some(pending)=self.pending.take() {immediate.push(pending);}
+            if let Some(pending)=self.take_pending(now) {immediate.push(pending);}
             immediate.push(data);
             self.buttons=data.button_mask;
+        } else if self.next_motion.is_none_or(|deadline|now>=deadline) {
+            // Send the newest position immediately after idle; no timer-phase delay.
+            self.pending=None;
+            self.next_motion=Some(now+Self::INTERVAL);
+            immediate.push(data);
         } else {self.pending=Some(data);}
         immediate
     }
 }
 struct MotionQueue {
     buffer:std::sync::Mutex<MotionBuffer>,
+    changed:std::sync::Condvar,
     send:mesh::Sender<input_core::InputData>,
     stop:std::sync::atomic::AtomicBool,
     received:std::sync::atomic::AtomicU64,
@@ -333,18 +346,24 @@ struct WindowInput {
 impl WindowInput {
     fn new(send:mesh::Sender<input_core::InputData>)->Result<Self> {
         let motion=std::sync::Arc::new(MotionQueue {
-            buffer:std::sync::Mutex::new(MotionBuffer::default()),send:send.clone(),
+            buffer:std::sync::Mutex::new(MotionBuffer::default()),changed:std::sync::Condvar::new(),send:send.clone(),
             stop:std::sync::atomic::AtomicBool::new(false),
             received:std::sync::atomic::AtomicU64::new(0),sent:std::sync::atomic::AtomicU64::new(0),
         });
         let queue=motion.clone();
         let worker=std::thread::Builder::new().name("nativemac-mouse".into()).spawn(move || {
-            while !queue.stop.load(std::sync::atomic::Ordering::Acquire) {
-                {
-                    let mut buffer=queue.buffer.lock().unwrap_or_else(|e|e.into_inner());
-                    if let Some(data)=buffer.pending.take() {queue.send(data);}
+            let mut buffer=queue.buffer.lock().unwrap_or_else(|e|e.into_inner());
+            loop {
+                if queue.stop.load(std::sync::atomic::Ordering::Acquire) {break;}
+                if buffer.pending.is_none() {
+                    // No periodic idle wakeups. The predicate and notification share this lock.
+                    buffer=queue.changed.wait(buffer).unwrap_or_else(|e|e.into_inner());
+                    continue;
                 }
-                std::thread::park_timeout(std::time::Duration::from_millis(8));
+                let now=std::time::Instant::now();
+                if let Some(deadline)=buffer.next_motion.filter(|deadline|*deadline>now) {
+                    buffer=queue.changed.wait_timeout(buffer,deadline-now).unwrap_or_else(|e|e.into_inner()).0;
+                } else if let Some(data)=buffer.take_pending(now) {queue.send(data);}
             }
         })?;
         Ok(Self{send,mouse:std::sync::atomic::AtomicU64::new(0),
@@ -361,8 +380,12 @@ extern "C" fn release_mode_context(ctx:*mut c_void) {
 }
 impl Drop for WindowInput {
     fn drop(&mut self) {
-        self.motion.stop.store(true,std::sync::atomic::Ordering::Release);
-        if let Some(worker)=self.worker.take() {worker.thread().unpark();let _=worker.join();}
+        {
+            let _buffer=self.motion.buffer.lock().unwrap_or_else(|e|e.into_inner());
+            self.motion.stop.store(true,std::sync::atomic::Ordering::Release);
+        }
+        self.motion.changed.notify_one();
+        if let Some(worker)=self.worker.take() {let _=worker.join();}
     }
 }
 // USB HID keyboard usages from the window to Hyper-V's AT set-1 codes.
@@ -411,14 +434,16 @@ extern "C" fn pointer(ctx:*mut c_void,x:u16,y:u16,width:u16,height:u16,buttons:u
         input.mouse.store(u64::from(x)|(u64::from(y)<<16)|(u64::from(button_mask)<<32),std::sync::atomic::Ordering::Relaxed);
         input.motion.received.fetch_add(1,std::sync::atomic::Ordering::Relaxed);
         let mut buffer=input.motion.buffer.lock().unwrap_or_else(|e|e.into_inner());
-        for event in buffer.push(input_core::MouseData{button_mask,x,y}) {input.motion.send(event);}
+        let was_pending=buffer.pending.is_some();
+        for event in buffer.push(input_core::MouseData{button_mask,x,y},std::time::Instant::now()) {input.motion.send(event);}
+        if !was_pending && buffer.pending.is_some() {input.motion.changed.notify_one();}
     }
 }
 extern "C" fn wheel(ctx:*mut c_void,dy:i32,_dx:i32) {
     if dy==0 {return;}
     unsafe { let input=&*ctx.cast::<WindowInput>();
         let mut buffer=input.motion.buffer.lock().unwrap_or_else(|e|e.into_inner());
-        if let Some(data)=buffer.pending.take() {input.motion.send(data);}
+        if let Some(data)=buffer.take_pending(std::time::Instant::now()) {input.motion.send(data);}
         let mouse=input.mouse.load(std::sync::atomic::Ordering::Relaxed);
         let mut data=input_core::MouseData{x:mouse as u16,y:(mouse>>16) as u16,button_mask:(mouse>>32) as u8};
         let held=data.button_mask;
@@ -454,19 +479,83 @@ extern "C" fn wheel(ctx:*mut c_void,dy:i32,_dx:i32) {
     use super::*;
     #[test] fn continuous_motion_keeps_only_the_newest_position() {
         let mut buffer=MotionBuffer::default();
-        for x in 0..1000 {assert!(buffer.push(input_core::MouseData{x,y:100,button_mask:0}).is_empty());}
+        let now=std::time::Instant::now();
+        assert_eq!(buffer.push(input_core::MouseData{x:0,y:100,button_mask:0},now).len(),1);
+        for x in 1..1000 {assert!(buffer.push(input_core::MouseData{x,y:100,button_mask:0},now).is_empty());}
         assert_eq!(buffer.pending.take().unwrap().x,999);
     }
     #[test] fn dragging_preserves_button_edges_and_final_position() {
         let mut buffer=MotionBuffer::default();
-        let down=buffer.push(input_core::MouseData{x:10,y:10,button_mask:1});
+        let now=std::time::Instant::now();
+        let down=buffer.push(input_core::MouseData{x:10,y:10,button_mask:1},now);
         assert_eq!(down.len(),1);assert_eq!(down[0].button_mask,1);
-        for x in 11..1000 {assert!(buffer.push(input_core::MouseData{x,y:10,button_mask:1}).is_empty());}
-        let up=buffer.push(input_core::MouseData{x:1000,y:10,button_mask:0});
+        assert_eq!(buffer.push(input_core::MouseData{x:11,y:10,button_mask:1},now).len(),1);
+        for x in 12..1000 {assert!(buffer.push(input_core::MouseData{x,y:10,button_mask:1},now).is_empty());}
+        let up=buffer.push(input_core::MouseData{x:1000,y:10,button_mask:0},now);
         assert_eq!(up.len(),2);
         assert_eq!((up[0].x,up[0].button_mask),(999,1));
         assert_eq!((up[1].x,up[1].button_mask),(1000,0));
         assert!(buffer.pending.is_none());
+    }
+    #[test] fn sparse_motion_is_immediate_and_a_due_position_supersedes_pending_motion() {
+        let mut buffer=MotionBuffer::default();let start=std::time::Instant::now();
+        let data=|x|input_core::MouseData{x,y:10,button_mask:0};
+        assert_eq!(buffer.push(data(1),start)[0].x,1);
+        assert!(buffer.push(data(2),start+std::time::Duration::from_millis(2)).is_empty());
+        assert_eq!(buffer.push(data(3),start+MotionBuffer::INTERVAL)[0].x,3);
+        assert!(buffer.pending.is_none());
+        assert_eq!(buffer.push(data(4),start+std::time::Duration::from_millis(20))[0].x,4);
+    }
+    #[test] fn motion_worker_delivers_a_pending_position_and_stops_while_idle() {
+        let (send,_receive)=mesh::channel();
+        let input=WindowInput::new(send).unwrap();let ctx=(&input as *const WindowInput).cast_mut().cast();
+        pointer(ctx,1,1,1920,1080,0);
+        assert_eq!(input.motion.sent.load(std::sync::atomic::Ordering::Relaxed),1);
+        pointer(ctx,2,1,1920,1080,0);
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(2);
+        while input.motion.sent.load(std::sync::atomic::Ordering::Relaxed)<2 {
+            assert!(std::time::Instant::now()<deadline,"pending motion was never delivered");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(input.motion.buffer.lock().unwrap().pending.is_none());
+        drop(input);
+    }
+    // Reports callback-to-mesh handoff, not guest processing or displayed latency.
+    #[test] #[ignore = "manual host input latency measurement"]
+    fn measure_sparse_pointer_handoff() {
+        let (send,_receive)=mesh::channel();let input=WindowInput::new(send).unwrap();
+        let ctx=(&input as *const WindowInput).cast_mut().cast();let mut micros=Vec::new();
+        for x in 1..=100 {
+            std::thread::sleep(std::time::Duration::from_millis(11));
+            let sent=input.motion.sent.load(std::sync::atomic::Ordering::Relaxed);
+            let start=std::time::Instant::now();pointer(ctx,x,100,1920,1080,0);
+            while input.motion.sent.load(std::sync::atomic::Ordering::Relaxed)==sent {
+                assert!(start.elapsed()<std::time::Duration::from_secs(2));
+                std::thread::yield_now();
+            }
+            micros.push(start.elapsed().as_micros());
+        }
+        micros.sort_unstable();
+        println!("{{\"samples\":100,\"callbackToHandoffMedianUs\":{},\"callbackToHandoffP95Us\":{},\"callbackToHandoffMaxUs\":{}}}",micros[49],micros[94],micros[99]);
+    }
+    #[test] #[ignore = "manual host drag timing measurement"]
+    fn measure_pending_drag_handoff() {
+        let (send,_receive)=mesh::channel();let input=WindowInput::new(send).unwrap();
+        let ctx=(&input as *const WindowInput).cast_mut().cast();let mut micros=Vec::new();
+        pointer(ctx,1,100,1920,1080,1);
+        for x in 1..=50 {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            pointer(ctx,x*2,100,1920,1080,1);
+            let sent=input.motion.sent.load(std::sync::atomic::Ordering::Relaxed);
+            let start=std::time::Instant::now();pointer(ctx,x*2+1,100,1920,1080,1);
+            while input.motion.sent.load(std::sync::atomic::Ordering::Relaxed)==sent {
+                assert!(start.elapsed()<std::time::Duration::from_secs(2));
+                std::thread::yield_now();
+            }
+            micros.push(start.elapsed().as_micros());
+        }
+        micros.sort_unstable();
+        println!("{{\"samples\":50,\"pendingDragMedianUs\":{},\"pendingDragP95Us\":{},\"pendingDragMaxUs\":{}}}",micros[24],micros[47],micros[49]);
     }
     #[test] fn keyboard_preserves_extended_modifiers() {
         assert_eq!(scan_code(4),Some(0x1e));

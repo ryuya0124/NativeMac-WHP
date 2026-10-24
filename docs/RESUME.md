@@ -1,4 +1,29 @@
-# Current checkpoint (2026-10-24, video target reuse and lost-wake repair)
+# Current checkpoint (2026-10-24, general UI input latency)
+
+The Windows frontend now sends the first motion after idle immediately, keeps
+only the latest continuous position at the existing approximate 8-ms cadence,
+and waits on a condition variable without a periodic idle timer. Button edges,
+the final held-button position and wheel ordering remain serialized under the
+same mutex. Stop publishes under that mutex before notifying, avoiding lost wakes.
+Only native/VGpuPci/device.rs changes product behavior; the Reims/Metal2 binaries
+and their outstanding qualification limits below stay as previously recorded.
+
+The same release test against root 38c9e19 and the candidate measured 100 sparse
+callbacks: handoff-counter median 5254 -> 1 us, p95 6099 -> 3 us. This excludes
+guest HID processing, WindowServer, GPU execution and presentation. Continuous
+pending drag cadence is median 8.321 ms, p95 8.989 ms over 50 samples. Nine unit
+tests pass, including pending delivery and idle shutdown. Optimized OpenVMM
+build passes. Cold boot at 12 GiB / 8 CPUs / 3840x2160 reaches desktop and an
+actual host-window drag moves Terminal. Scrolling cadence is not yet qualified.
+
+An authored 4K scene completes with correct readback and no errors before and
+after (66.71 and 57.70 mean fps). Different boots/backgrounds, and a debugger
+snapshot in the reference, prevent interpreting that as a controlled comparison.
+No GPU throughput improvement or app-launch/build-speed improvement is claimed.
+GPU submission/compositing overhead remains an open performance work item.
+See docs/verification/ui-input-latency.json. No monitor automation is enabled.
+
+# Previous checkpoint (2026-10-24, video target reuse and lost-wake repair)
 
 The standard VideoToolbox/Safari decoder now negotiates shared-gpu-v2.
 NVDEC -> CUDA -> shared device-local Vulkan buffer -> guest plane images and
