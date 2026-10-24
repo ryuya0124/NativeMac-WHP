@@ -40,7 +40,10 @@
                             <ComboBoxItem Content="4K · 3840 × 2160" Tag="3840x2160" />
                         </ComboBox>
                         <Button x:Name="VmStartButton" Content="macOS VMを起動" Click="StartVm_Click" HorizontalAlignment="Stretch" />
-                        <Button x:Name="VmStopButton" Content="VMの電源を切る" Click="StopVm_Click" IsEnabled="False" HorizontalAlignment="Stretch" />
+                        <Button x:Name="VmStopButton" Content="VMを強制停止" Click="StopVm_Click" IsEnabled="False" HorizontalAlignment="Stretch" />
+                        <Button x:Name="VmPauseButton" Content="VMを一時停止" Click="PauseVm_Click" IsEnabled="False" HorizontalAlignment="Stretch" />
+                        <Button x:Name="VmResumeButton" Content="VMを再開" Click="ResumeVm_Click" IsEnabled="False" HorizontalAlignment="Stretch" />
+                        <TextBlock Text="通常の終了・再起動はmacOSのAppleメニューから行ってください。S3スリープは未対応のため、一時停止／再開を使用してください。" FontSize="12" Foreground="#ACBDD1" />
                         <TextBlock x:Name="VmStatus" Text="変更したRAM・CPU・解像度は次回起動時に適用します。" Foreground="#ACBDD1" />
                     </StackPanel>
                 </Border>

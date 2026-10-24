@@ -1,4 +1,24 @@
-# Current checkpoint (2026-10-24, runtime overhead and single benchmark)
+# Current checkpoint (2026-10-25, VM power lifecycle)
+
+Runtime1190 remains adopted and unchanged (DLL SHA256
+0ff8c44e7bdfdcaaf92db4e2da61c541b125bd3902d9df8b0c943ed4c44dfd78).
+Preserve 12 GiB, eight CPUs and 3840x2160 at configured 60 Hz. The current
+WinUI app has been republished. Start-VM now exits cleanly on a guest power-off
+and starts a fresh VMM/GPU/video-service process after a guest reset, preserving
+the persistent disk, NVRAM and options. One real guest restart and shutdown
+passed, and GPU compute verifies all 4096 values after reboot and host pause/
+resume. The final frontend records running/paused/stopped states from actual
+launcher and VMM acknowledgements. See docs/verification/power-lifecycle.json.
+
+Guest S3/hibernation resume remains unsupported. Do not remove the Hyper-V
+driver's sleep prevention or mistake pmset returning success for a completed
+sleep/wake cycle. Use the added host WinUI pause/resume buttons for volatile
+RAM retention. This is not S3 or a disk snapshot. Host force-stop/frontend close
+still sends quit; normal shutdown is requested within macOS. Ephemeral memdiff
+reset remains in-process and is unqualified with the GPU. No monitoring
+automation was enabled. SSH remains maintenance/test-only.
+
+# Earlier checkpoint (2026-10-24, runtime overhead and single benchmark)
 
 The user first prioritized removing suspected overhead, then requested one
 benchmark run. Transfer-scratch candidate 1188 completed GravityMark 1.89:

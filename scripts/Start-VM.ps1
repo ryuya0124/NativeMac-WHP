@@ -61,7 +61,9 @@ if ($SerialConsole) { $serialBackend = 'listen=tcp:127.0.0.1:5906' }
 $vmgsSpec = if ($EphemeralDisk) { "memdiff:file:$vmgs" } else { "file:$vmgs" }
 $options = @('--hypervisor','whp','--processors',"$Processors",'--vps-per-socket',"$Processors",'--memory',"${MemoryGiB}G",'--smt','off',
     '--uefi',"firmware=$firmware,console=com1,diagnostics=full",'--com1',$serialBackend,
-    '--vnc-listen','127.0.0.1','--vnc-port','5905','--log-file',$workerLog,'--vmgs',$vmgsSpec)
+    '--vnc-listen','127.0.0.1','--vnc-port','5905','--log-file',$workerLog,'--vmgs',$vmgsSpec,
+    '--guest-shutdown-action','exit:0','--guest-reset-action',$(if ($EphemeralDisk) { 'reset' } else { 'exit:75' }),
+    '--guest-crash-action','exit:70')
 if (!$Gpu) { $options += '--gfx' }
 if (!$FirmwareOnly) {
     $prepareOptions = @('--processors',"$Processors",'--resolution',$DisplayResolution)
@@ -122,6 +124,19 @@ $previousGpuControl = $env:NATIVEMAC_VIDEO_CONTROL_FILE
 $previousExact = $env:REIMS_VGPU_EXACT
 $ownedGpuControl = $null
 $videoSession = $null
+function Write-PowerState([string]$State, [int]$Code = 0) {
+    # The REPL prompt does not end with a newline on redirected stdout.
+    Write-Host ''
+    Write-Host ('NATIVEMAC_POWER ' + (@{ state=$State; exitCode=$Code } | ConvertTo-Json -Compress))
+}
+# A guest reset must rebuild the native GPU and all guest-RAM aliases. Resetting
+# only the virtual chipset leaves those process-owned resources from the old OS.
+# Preserve the disk/NVRAM and launch configuration, but give each boot a fresh
+# VMM and video service. A memdiff disk cannot survive a process restart.
+do {
+$videoSession = $null
+$ownedGpuControl = $null
+$vmmExitCode = 1
 try {
     $env:NATIVEMAC_DISPLAY_RESOLUTION = $DisplayResolution
     $env:REIMS_VGPU_WINDOW_REFRESH = [string]$DisplayRefreshHz
@@ -146,7 +161,9 @@ try {
         Write-Host 'Preparing the VM-owned hardware video service before GPU startup.'
         $videoSession = & (Join-Path $PSScriptRoot 'Start-VideoBridge.ps1') -LauncherPid $PID
     }
+    Write-PowerState 'running'
     & $exe @options
+    $vmmExitCode = $LASTEXITCODE
 } finally {
     if ($videoSession -and !$videoSession.Process.HasExited) {
         [System.IO.File]::WriteAllText($videoSession.StopFile, 'stop')
@@ -161,7 +178,15 @@ try {
     $env:REIMS_VGPU_EXACT = $previousExact
     if ($ownedGpuControl -and (Test-Path -LiteralPath $ownedGpuControl)) { Remove-Item -LiteralPath $ownedGpuControl }
 }
-if ($LASTEXITCODE -ne 0) { throw "VM exited with code $LASTEXITCODE" }
+if ($vmmExitCode -eq 75 -and !$EphemeralDisk) {
+    Write-PowerState 'restarting' $vmmExitCode
+} elseif ($vmmExitCode -eq 0) {
+    Write-PowerState 'stopped'
+} else {
+    Write-PowerState 'faulted' $vmmExitCode
+    throw "VM exited with code $vmmExitCode"
+}
+} while ($vmmExitCode -eq 75 -and !$EphemeralDisk)
 } finally {
     if ($ownsMutex) { $vmMutex.ReleaseMutex() }
     $vmMutex.Dispose()

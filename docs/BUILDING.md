@@ -6,6 +6,30 @@ This repository contains source and patches. Apple installation media, guest dis
 - .NET 10, Windows SDK 10.0.26100.0, Visual Studio C++ x64 build tools, Rust MSVC and Python 3.
 - Exact upstream revisions are in `vm/dependencies.json`.
 
+## VM power lifecycle
+
+`Start-VM.ps1` configures OpenVMM guest power-off as `exit:0`, reset as
+`exit:75`, and triple fault as `exit:70`. Only the explicit reset exit code
+relaunches the VMM. Each relaunch closes its video service and creates a fresh
+GPU/guest-RAM alias owner while preserving disk, NVRAM and startup settings.
+Guest crashes are not silently rebooted. Ephemeral memdiff disks retain the
+backend's in-process reset behavior because their contents cannot survive a
+process restart; this exception is not qualified as a GPU reboot path.
+
+The WinUI control shows launcher state and successful pause/resume
+acknowledgements in `artifacts/vm-session.json`. A static screen or a missing
+SSH connection does not change power state. Test event parsing with
+`dotnet run --project tests/VmPower/VmPower.Tests.csproj -c Release`.
+Build/publish the WinUI app using `scripts/Build.ps1 -Publish`.
+
+S3 and resume from guest hibernation are not implemented by this VM's chipset,
+firmware and virtual GPU stack. Do not remove the guest Hyper-V driver's
+sleep-prevention notification or advertise an ACPI S3 state without a working
+resume implementation. Use the host WinUI pause/resume controls to preserve
+RAM without rebooting; this is a VMM pause, not macOS S3 sleep. Stopping or
+closing the frontend still destroys that volatile state. Normal shutdown
+should be requested in macOS; the host force-stop button sends `quit`.
+
 ## Backend and firmware
 
 1. `scripts/Build-VMBackend.ps1 -RestorePackages` clones the pinned OpenVMM, applies the patch and builds the WHP backend. The custom PCI crate reads `native/VGpuPci/device.rs` from this repository.

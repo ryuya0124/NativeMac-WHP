@@ -154,6 +154,20 @@ public sealed partial class MainPage : Page
             GpuCaption.Text = "ゲスト画面は別ウィンドウに表示";
             GpuCaptionDetails.Text = "このウィンドウでVMのリソースと電源を管理できます。";
             _vm = new VmSession();
+            _vm.PowerStateChanged += state => DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_closed) return;
+                VmStatus.Text = state switch
+                {
+                    VmPowerState.Restarting => "macOSの要求によりVMを再起動しています…",
+                    VmPowerState.Paused => "VMは一時停止中です。「VMを再開」で戻ります。",
+                    VmPowerState.Stopped => "VMは停止しました。",
+                    VmPowerState.Faulted => "VMで異常が発生しました。実行ログを確認してください。",
+                    _ => $"WHPで実行中 · {memory} GiB / {processors}コア / {resolution}"
+                };
+                VmPauseButton.IsEnabled = state == VmPowerState.Running;
+                VmResumeButton.IsEnabled = state == VmPowerState.Paused;
+            });
             _vm.Output += line => DispatcherQueue.TryEnqueue(() =>
             {
                 if (_closed) return;
@@ -163,9 +177,10 @@ public sealed partial class MainPage : Page
             _vm.Exited += code => DispatcherQueue.TryEnqueue(() =>
             {
                 if (_closed) return;
-                VmStatus.Text = $"VMが終了しました (code {code})";
+                VmStatus.Text = code == 0 ? "VMは正常に終了しました。" : $"VMが異常終了しました (code {code})";
                 VmStartButton.IsEnabled = true;
                 VmStopButton.IsEnabled = false;
+                VmPauseButton.IsEnabled = VmResumeButton.IsEnabled = false;
                 VmMemory.IsEnabled = VmProcessors.IsEnabled = true;
                 VmResolution.IsEnabled = true;
                 CpuButton.IsEnabled = true;
@@ -183,6 +198,16 @@ public sealed partial class MainPage : Page
     private void StopVm_Click(object sender, RoutedEventArgs e)
     {
         try { _vm?.PowerOff(); VmStatus.Text = "VMを終了しています…"; }
+        catch (Exception error) { VmStatus.Text = error.Message; }
+    }
+    private void PauseVm_Click(object sender, RoutedEventArgs e)
+    {
+        try { _vm?.Pause(); }
+        catch (Exception error) { VmStatus.Text = error.Message; }
+    }
+    private void ResumeVm_Click(object sender, RoutedEventArgs e)
+    {
+        try { _vm?.Resume(); }
         catch (Exception error) { VmStatus.Text = error.Message; }
     }
     private void AppendLog(string label, string json)

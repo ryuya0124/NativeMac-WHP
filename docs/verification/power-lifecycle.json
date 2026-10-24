@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-25",
+  "guest": "macOS 26.6.2 Intel",
+  "configuration": { "memoryGiB": 12, "processors": 8, "display": "3840x2160", "refreshHzConfigured": 60 },
+  "activeGpuRuntimeVersion": 1190,
+  "runtimeChanged": false,
+  "implementation": {
+    "guestPowerOff": "OpenVMM exit:0; launcher closes owned video service; frontend records stopped and exitCode 0",
+    "guestReset": "OpenVMM exit:75; launcher closes old service and relaunches fresh VMM/GPU with the same persistent disk, NVRAM and options",
+    "guestTripleFault": "OpenVMM exit:70; faulted state, no automatic restart",
+    "hostPauseResume": "Existing VMM pause/resume RPCs, status changes only after successful acknowledgements",
+    "eventDrain": "Process exit waits for redirected output to drain before terminal state and UI exit event"
+  },
+  "verified": {
+    "releaseAppPublished": true,
+    "powerProtocolCasesPassed": 17,
+    "guestRequestedRestart": true,
+    "oldVmmProcessTreeExitedBeforeNewBoot": true,
+    "newGuestBootAfterRestart": true,
+    "metalValuesAfterRestart": { "compared": 4096, "matched": 4096 },
+    "hostPauseResumeAcknowledged": true,
+    "metalValuesAfterResume": { "compared": 4096, "matched": 4096 },
+    "guestRequestedShutdown": true,
+    "guestPowerOffNotification": true,
+    "allVmmProcessesExitedAfterShutdown": true,
+    "frontendStoppedExitCode": 0
+  },
+  "limitations": [
+    "One guest reboot and shutdown cycle, plus one pause/resume cycle; repeated long-duration qualification is not established.",
+    "Guest S3 sleep and hibernation resume are not implemented. The firmware/chipset handles S5 and S4, and MacHyperVSupport explicitly prevents unsupported sleep.",
+    "A root pmset sleepnow request returned success but no completed macOS Sleep/Wake cycle was recorded. This is not evidence of working S3.",
+    "Host pause retains volatile RAM and the live GPU context; it is not macOS S3 or a disk-backed snapshot and is lost on host shutdown or force-stop.",
+    "Ephemeral memdiff disks keep in-process guest reset; GPU restart with this diagnostic mode remains unqualified.",
+    "The host force-stop button and frontend close still send quit; normal shutdown should be requested in macOS.",
+    "Guest crash policy was checked by configuration and event tests; no live guest crash was injected."
+  ],
+  "privacy": "No private screenshots, guest logs, credentials, media, or machine identifiers included. SSH used only for maintenance diagnostics and guest power commands."
+}

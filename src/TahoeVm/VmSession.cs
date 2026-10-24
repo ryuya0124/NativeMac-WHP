@@ -10,8 +10,18 @@ internal sealed class VmSession
     private Process? _process;
     private readonly object _inputGate = new();
     private CancellationTokenSource? _control;
+    private readonly object _stateGate = new();
+    private VmPowerState _state = VmPowerState.Starting;
+    private Action<int?>? _saveState;
     public event Action<string>? Output;
     public event Action<int>? Exited;
+    public event Action<VmPowerState>? PowerStateChanged;
+
+    private void SetState(VmPowerState state, int? exitCode = null)
+    {
+        lock (_stateGate) { _state = state; _saveState?.Invoke(exitCode); }
+        PowerStateChanged?.Invoke(state);
+    }
 
     public void Start(int memoryGiB, int processors, string displayResolution)
     {
@@ -33,6 +43,7 @@ internal sealed class VmSession
         {
             if (line is null) return;
             lock (logGate) File.AppendAllText(logPath, line + "\n", Encoding.UTF8);
+            if (VmPowerProtocol.Read(line) is { } state) SetState(state);
             Output?.Invoke(line);
         }
         var start = new ProcessStartInfo
@@ -54,21 +65,40 @@ internal sealed class VmSession
         var process = new Process { StartInfo = start, EnableRaisingEvents = true };
         process.OutputDataReceived += (_, e) => Receive(e.Data);
         process.ErrorDataReceived += (_, e) => Receive(e.Data);
-        process.Exited += (_, _) => { _control?.Cancel(); Exited?.Invoke(process.ExitCode); };
+        var control = new CancellationTokenSource();
+        process.Exited += (_, _) => _ = Task.Run(() =>
+        {
+            // Drain redirected output before reporting exit, so the final power
+            // event cannot be delivered after Stopped/Faulted to the UI.
+            process.WaitForExit();
+            control.Cancel();
+            SetState(process.ExitCode == 0 ? VmPowerState.Stopped : VmPowerState.Faulted, process.ExitCode);
+            Exited?.Invoke(process.ExitCode);
+        });
         if (!process.Start()) throw new InvalidOperationException("VMプロセスを開始できません。");
         _process = process;
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         // Local diagnostics API: restricted to this Windows account. It carries
         // VMM commands, never shell commands or input to other applications.
-        _control = new CancellationTokenSource();
+        _control = control;
         string pipeName = $"NativeMac-{Environment.ProcessId}";
         Directory.CreateDirectory(Path.Combine(root, "artifacts"));
-        File.WriteAllText(Path.Combine(root, "artifacts", "vm-session.json"),
-            JsonSerializer.Serialize(new { appPid = Environment.ProcessId, launcherPid = process.Id,
-                controlPipe = pipeName, memoryGiB, processors, displayResolution, guestGpuVerification = "not_run_this_session" }));
+        var startedAt = DateTimeOffset.Now;
+        lock (_stateGate)
+        {
+            _saveState = code => File.WriteAllText(Path.Combine(root, "artifacts", "vm-session.json"),
+                JsonSerializer.Serialize(new { appPid = Environment.ProcessId, launcherPid = process.Id,
+                    controlPipe = pipeName, memoryGiB, processors, displayResolution,
+                    state = _state.ToString().ToLowerInvariant(), exitCode = code, startedAt,
+                    updatedAt = DateTimeOffset.Now, guestGpuVerification = "not_run_this_session" }));
+            _saveState(null);
+        }
         _ = RunControl(pipeName, _control.Token);
     }
+
+    public void Pause() => SendCommand("pause");
+    public void Resume() => SendCommand("resume");
 
     public void PowerOff()
     {
