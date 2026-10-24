@@ -18,9 +18,12 @@ This repository contains source and patches. Apple installation media, guest dis
 The shared-GPU video candidate uses the Reims snapshot
 `1b9a256573aa84b3aaaac5935dcdf0289e8256da`, followed by
 `patches/reims-msvc.patch` and `patches/reims-shared-gpu-video.patch`.
-Its Metal2Vulkan dependency is the separately documented resident-search
-revision `90004070fabb5678de958a25e7f2aac6acda2b74`; use a local Cargo
-dependency override to that checkout, not the older manifest's Git pin.
+Its Metal2Vulkan dependency follows the resident-search and fetch-product
+patches, then `patches/metal2vulkan-completion-wakes.patch` on base
+`79aafca3482a54429bab8e09b62ef558baf4cff1` (resulting source
+`2b5f37cbb8c1299336f87fd15be669536ba65064`, runtime version 1185).
+Use a local Cargo dependency override for both `metal2vulkan` and
+`metal2vulkan-runtime` to that checkout, rather than the older manifest's Git pin.
 Build the Vulkan C library and the current OpenVMM PCI source together.
 The additive import API must exist before enabling `sharedGpuVideo`.
 Build the dedicated NVDEC export worker with `-GpuExportOnly`, Vulkan and
@@ -28,6 +31,35 @@ NVDEC headers, and rebuild/install the guest VideoBridge with Metal and
 IOSurface frameworks. See `native/VideoBridge/README.md`. This is a candidate
 patch: full Windows regression and the Mac behaviour-lock suite are not green
 qualifications. The public report records the outstanding failures.
+
+The active completion-wakes patch targets ordinary queue and completion wakeups.
+Global stop/failure still wakes all waiters. An experimental follow-up,
+`patches/metal2vulkan-completion-transfer.patch`, applies on 2b5f37c and reuses
+tracked private copy scratch within each blit encoder. It removes the scratch's redundant
+initial zero fill and synchronous initialization wait, while retaining buffers
+through GPU completion and preserving transfer barriers. Ordinary buffer
+initialization is unchanged. It also skips unused depth-twin copy vectors.
+The parked image-memory allocation cache is excluded from both patches.
+The transfer follow-up is parked: one 4K GravityMark run scored 2978 / 17.8 fps,
+below the earlier wake-only 3381 / 20.2 fps observation. No performance benefit
+is qualified; the active VM was restored to wake-only. See
+[verification](verification/runtime-overhead.json) for the exact test scope.
+
+An authored guest/API correctness check is available independently of the
+performance diagnostic:
+
+```sh
+xcrun clang -O2 -fobjc-arc -Wall -Wextra -Werror TransferScratchProbe.m \
+  -framework Foundation -framework Metal -o transfer-scratch
+./transfer-scratch
+```
+
+It compares seven intermediate buffer-copy snapshots (458752 bytes) and three
+overlapping texture-copy snapshots (192 bytes) against CPU-computed expected
+bytes, plus three buffer-backed texture copies and their surrounding row padding
+(3072 bytes at the tested 256-byte pitch). The GPU performs all Metal copies.
+Run under an external process timeout
+when checking an unqualified driver. It is a correctness check, not a benchmark.
 
 ## Apple media and installation
 

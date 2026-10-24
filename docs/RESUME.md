@@ -1,4 +1,66 @@
-# Current checkpoint (2026-10-24, presentation investigation)
+# Current checkpoint (2026-10-24, runtime overhead and single benchmark)
+
+The user first prioritized removing suspected overhead, then requested one
+benchmark run. Transfer-scratch candidate 1188 completed GravityMark 1.89:
+2978 points / 17.8 fps / 167.1 s at 3840x2160, Temporal AA, 20000 asteroids,
+Metal, fullscreen, VSync off, with the unchanged deferred-binding/shared-readback
+process adapter. The earlier wake-only observation was 3381 / 20.2 fps / 167.1 s.
+This single comparison is about 12% lower, with cache/background/host drift not
+controlled as a new A/B pair. It establishes no performance gain or causal
+regression proof. Existing unsupported-heap warnings persist.
+
+The transfer candidate is parked; no second benchmark was run. The live VM is
+restored to wake-only runtime 1185, DLL SHA256
+f8780bf294dd9097066d49001ac799605bf66666c8a1d288f54294c8e186f856,
+built from d0ee60f. Source 2b5f37c moves only a cfg(test) body out of production
+files; its pre-cfg(test) production prefix is byte-identical to d0ee60f.
+Preserve 12 GiB, 8 CPUs, 3840x2160 and configured 60 Hz. No monitor automation
+is enabled; SSH remains maintenance/test-only. Post-restore boot/unlock, the
+authored buffer/image/linear-row copy checks, and 4096 GPU values pass.
+
+The active source patch is patches/metal2vulkan-completion-wakes.patch on
+fetch-product 79aafca. It separates per-queue and completion condition variables,
+targeting normal progress wakes while stop/failure still wakes every waiter.
+The test-layout follow-up is included. No guest callback, resource release,
+visibility or failure ordering is weakened.
+
+Experimental patches/metal2vulkan-completion-transfer.patch applies AFTER the
+wake-only patch, from 2b5f37c to c37d756/runtime 1188. It reuses tracked private
+scratch in four blit paths, removes redundant initialization fills/waits, and
+omits unused depth-twin copy vectors. All allocations stay retained to GPU
+completion, including buffers replaced during growth, and barriers stay.
+Ordinary caller-visible buffer initialization is unchanged. The code remains
+in owner development dbd143c and the release branch; no history was rewritten.
+The parked image-memory allocation cache is excluded from both release patches.
+
+Candidate correctness: Windows GPU/copy/completion regression 64/64 passes.
+Seven intermediate buffer snapshots (458752 bytes), scratch reuse/growth and
+4096 guard bytes pass. A latency test had one 63-ms sample with competing GPU
+tests; it passes 600 isolated rounds (max 18.7 ms). Its final nextest override
+pauses sibling tests, with queue concurrency and the 50-ms threshold unchanged.
+This is test isolation, not a runtime latency guarantee.
+
+Authored TransferScratchProbe.m passes on M4 and in the candidate Intel VM:
+seven buffer snapshots, three image-copy snapshots (192 bytes), and three
+buffer-backed texture-row snapshots including padding (3072 bytes) match the
+same CPU oracle. Candidate post-boot GPU compute (4096 values), HEVC (90 frames),
+4K HEVC decode (four frames, 49766400 bytes) and hardware H.264 encode (four 4K
+frames) pass. These are short correctness checks, not sustained video, game,
+frame-pacing or flicker-free coverage. Earlier transient whole-screen green
+flicker stopped before this batch; its cause remains unresolved.
+
+Metal2 checks on f9e0874: all 4570 core/AIR/runtime/devtools tests (22 skipped),
+1303 validation tests (four skipped), doctests, fmt, warnings-denied Rustdoc,
+workspace/GPU-cfg clippy and every translator feature configuration pass.
+Final notice/catalogue/version-guard follow-up on dbd143c passes fmt, clippy,
+GPU-cfg clippy, Rustdoc, 11 notice/wake checks and the runtime-source guard.
+Owner development retains the parked image cache; the release branches do not.
+Stock MoltenVK 1.4.2 GPU checks pass 62/64, including both scratch tests; two
+teardown tests reject its primitive-restart warning. Do not claim a green full
+Mac GPU gate. Unchanged Reims retains its previously recorded 14 gate failures.
+See docs/verification/runtime-overhead.json for exact revision-specific evidence.
+
+# Earlier checkpoint (2026-10-24, presentation investigation)
 
 The user prioritized investigating the offscreen-versus-presented 4K gap before
 further cache/game work. The active runtime DLL is restored to SHA256

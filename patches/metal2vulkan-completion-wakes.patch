@@ -1,0 +1,314 @@
+diff --git a/crates/metal2vulkan-runtime/src/command_buffer/completion.rs b/crates/metal2vulkan-runtime/src/command_buffer/completion.rs
+index ca073de..3b3fe61 100644
+--- a/crates/metal2vulkan-runtime/src/command_buffer/completion.rs
++++ b/crates/metal2vulkan-runtime/src/command_buffer/completion.rs
+@@ -31,6 +31,11 @@
+ //!   wait for one timeline or one fence counts its one signal under a lock, and loses none. The
+ //!   value is read again after every wait, so the waiter relies on no wake for the value, only for
+ //!   its timing.
++//! - **Targeted host wakes.** Each queue waiter has its own condition. Submission wakes that
++//!   waiter and completion (an end can already be reached); reached values wake completion;
++//!   removed fronts wake only their queue waiters. Stop, failure drain and exit wake everyone.
++//!   All predicates remain under the same pending mutex, so no notification can be lost between
++//!   checking a predicate and sleeping. Queue order, waits and completion conditions are unchanged.
+ //! - **Waits are bounded.** A waiter waits at most [`WAIT_SLICE`] at a time, so a stop is seen
+ //!   promptly and a lost device is reported by the next wait.
+ //! - **Exit.** Each wait is a section of the exit guard ([`exit_guard`]), so an exit waits at most
+@@ -63,8 +68,11 @@ use crate::Device;
+ use ash::vk;
+ use std::collections::VecDeque;
+ use std::sync::{Arc, Condvar, Mutex};
++
++mod wake;
+ use std::thread::JoinHandle;
+ use std::time::Duration;
++use wake::Wakes;
+ 
+ /// How long one wait on the timelines lasts.
+ const WAIT_SLICE: Duration = Duration::from_millis(100);
+@@ -78,9 +86,9 @@ pub(crate) struct Completion {
+ /// What the threads and the scheduler share.
+ struct Watch {
+     pending: Mutex<Pending>,
+-    /// Notified on every change a thread waits for: a batch watched, a value reached, a wait
+-    /// ended, batches finished or taken, a failure, a stop, an exit.
+-    wake: Condvar,
++    /// Queue waiters and the completion/drain thread have separate conditions. A queue's
++    /// progress need not wake idle waiters of other queues.
++    wake: Wakes,
+ }
+ 
+ struct Pending {
+@@ -128,7 +136,7 @@ impl Completion {
+                 exiting: false,
+                 stopping: false,
+             }),
+-            wake: Condvar::new(),
++            wake: Wakes::new(queues),
+         });
+         let completion = Completion {
+             watch: Arc::clone(&watch),
+@@ -166,14 +174,17 @@ impl Completion {
+     /// at the queue's last submitted value).
+     pub(crate) fn watch(&self, queue: usize, batch: Submitted) {
+         lock(&self.watch.pending).queues[queue].push_back(batch);
+-        self.watch.wake.notify_all();
++        self.watch.wake.queue(queue).notify_one();
++        // A failed command buffer can end at an already reached value. The completion
++        // thread must look even where its queue's waiter has no new value to wait for.
++        self.watch.wake.completion().notify_one();
+     }
+ 
+     /// Ask the threads to end once nothing is pending, and wait for each but this one (the
+     /// device's last handle can drop on one of them).
+     pub(crate) fn stop(&self) {
+         lock(&self.watch.pending).stopping = true;
+-        self.watch.wake.notify_all();
++        self.watch.wake.all();
+         let current = std::thread::current().id();
+         let threads: Vec<JoinHandle<()>> = lock(&self.threads).drain(..).collect();
+         for handle in threads {
+@@ -193,12 +204,10 @@ enum Turn {
+ 
+ /// Wait on `watch`'s condition variable up to one slice.
+ fn wait<'a>(
+-    watch: &'a Watch,
++    wake: &Condvar,
+     pending: std::sync::MutexGuard<'a, Pending>,
+ ) -> std::sync::MutexGuard<'a, Pending> {
+-    watch
+-        .wake
+-        .wait_timeout(pending, WAIT_SLICE)
++    wake.wait_timeout(pending, WAIT_SLICE)
+         .unwrap_or_else(std::sync::PoisonError::into_inner)
+         .0
+ }
+@@ -206,7 +215,7 @@ fn wait<'a>(
+ /// The process is exiting: every thread ends.
+ fn exit(watch: &Watch) {
+     lock(&watch.pending).exiting = true;
+-    watch.wake.notify_all();
++    watch.wake.all();
+ }
+ 
+ /// The completion thread's loop.
+@@ -231,11 +240,18 @@ fn run(watch: &Watch) {
+                 if pending.stopping && pending.queues.iter().all(VecDeque::is_empty) {
+                     return;
+                 }
+-                pending = wait(watch, pending);
++                pending = wait(watch.wake.completion(), pending);
+             }
+         };
+-        // A waiter whose front finished may arm for its queue's next.
+-        watch.wake.notify_all();
++        // Only waiters whose fronts were removed may now arm for their next batch.
++        // Publish this before finishing the batches, as with the shared condition.
++        if let Turn::Finished(finished) = &turn {
++            for queue in 0..watch.wake.len() {
++                if finished.iter().any(|(at, _)| *at == queue) {
++                    watch.wake.queue(queue).notify_one();
++                }
++            }
++        }
+         let finished = match turn {
+             Turn::Finished(finished) => finished,
+             Turn::Failed(error) => {
+@@ -453,7 +469,7 @@ fn take_pending(watch: &Watch) -> Vec<(usize, Submitted)> {
+     let mut pending = lock(&watch.pending);
+     pending.holding = true;
+     while pending.waiting.iter().any(|&waiting| waiting) {
+-        pending = wait(watch, pending);
++        pending = wait(watch.wake.completion(), pending);
+     }
+     let taken = pending
+         .queues
+@@ -463,7 +479,7 @@ fn take_pending(watch: &Watch) -> Vec<(usize, Submitted)> {
+         .collect();
+     pending.holding = false;
+     drop(pending);
+-    watch.wake.notify_all();
++    watch.wake.all();
+     taken
+ }
+ 
+@@ -504,7 +520,7 @@ fn wait_for_queue(watch: &Watch, queue: usize) {
+                     pending.waiting[queue] = true;
+                     break armed;
+                 }
+-                pending = wait(watch, pending);
++                pending = wait(watch.wake.queue(queue), pending);
+             }
+         };
+         // The wait is a section of the exit guard; once the process is exiting the threads end,
+@@ -526,7 +542,7 @@ fn wait_for_queue(watch: &Watch, queue: usize) {
+         let Some(polled) = polled else {
+             pending.exiting = true;
+             drop(pending);
+-            watch.wake.notify_all();
++            watch.wake.all();
+             return;
+         };
+         match polled {
+@@ -539,7 +555,8 @@ fn wait_for_queue(watch: &Watch, queue: usize) {
+             }
+         }
+         drop(pending);
+-        watch.wake.notify_all();
++        // Completion/drain is the only thread waiting for a reached value or an ended wait.
++        watch.wake.completion().notify_one();
+     }
+ }
+ 
+diff --git a/crates/metal2vulkan-runtime/src/command_buffer/completion/wake.rs b/crates/metal2vulkan-runtime/src/command_buffer/completion/wake.rs
+new file mode 100644
+index 0000000..2d7453a
+--- /dev/null
++++ b/crates/metal2vulkan-runtime/src/command_buffer/completion/wake.rs
+@@ -0,0 +1,41 @@
++//! Separate conditions for queue waiters and the completion/drain thread.
++
++use std::sync::Condvar;
++
++pub(super) struct Wakes {
++    completion: Condvar,
++    queues: Vec<Condvar>,
++}
++
++impl Wakes {
++    pub(super) fn new(queues: usize) -> Self {
++        Self {
++            completion: Condvar::new(),
++            queues: (0..queues).map(|_| Condvar::new()).collect(),
++        }
++    }
++
++    pub(super) fn len(&self) -> usize {
++        self.queues.len()
++    }
++
++    pub(super) fn completion(&self) -> &Condvar {
++        &self.completion
++    }
++
++    pub(super) fn queue(&self, queue: usize) -> &Condvar {
++        &self.queues[queue]
++    }
++
++    /// Global predicate changes (stop, exit or a failure drain) reach every waiter.
++    pub(super) fn all(&self) {
++        self.completion.notify_all();
++        for queue in &self.queues {
++            queue.notify_all();
++        }
++    }
++}
++
++#[cfg(test)]
++#[path = "../../tests/completion_wakes.rs"]
++mod tests;
+diff --git a/crates/metal2vulkan-runtime/src/tests/completion_wakes.rs b/crates/metal2vulkan-runtime/src/tests/completion_wakes.rs
+new file mode 100644
+index 0000000..474055d
+--- /dev/null
++++ b/crates/metal2vulkan-runtime/src/tests/completion_wakes.rs
+@@ -0,0 +1,79 @@
++use super::Wakes;
++use std::sync::{mpsc, Arc, Mutex};
++use std::time::Duration;
++
++#[derive(Default)]
++struct State {
++    generations: [u32; 5],
++    stopping: bool,
++}
++
++// Repeated notifications can land before a worker actually sleeps. Each worker
++// checks its generation under the same mutex as the producer, as completion does.
++// Idle queue waiters must also leave at a global stop.
++#[test]
++fn progress_before_or_during_wait_and_global_stop() {
++    let state = Arc::new(Mutex::new(State::default()));
++    let wakes = Arc::new(Wakes::new(4));
++    let (ready_tx, ready_rx) = mpsc::channel();
++    let (done_tx, done_rx) = mpsc::channel();
++    let mut workers = Vec::new();
++    for index in 0..5 {
++        let state = Arc::clone(&state);
++        let wakes = Arc::clone(&wakes);
++        let ready = ready_tx.clone();
++        let done = done_tx.clone();
++        workers.push(std::thread::spawn(move || {
++            let condition = if index == 4 {
++                wakes.completion()
++            } else {
++                wakes.queue(index)
++            };
++            let mut observed = 0;
++            let mut returned = 0;
++            let mut state = state.lock().unwrap();
++            ready.send(index).unwrap();
++            loop {
++                while !state.stopping && state.generations[index] == observed {
++                    state = condition.wait(state).unwrap();
++                    returned += 1;
++                }
++                if state.stopping {
++                    return (index, observed, returned);
++                }
++                observed = state.generations[index];
++                done.send((index, observed)).unwrap();
++            }
++        }));
++    }
++    for _ in 0..5 {
++        ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
++    }
++    let mut expected = [0; 5];
++    for round in 0..512 {
++        let queue = round % 2;
++        {
++            let mut state = state.lock().unwrap();
++            state.generations[queue] += 1;
++            state.generations[4] += 1;
++            expected = state.generations;
++        }
++        wakes.queue(queue).notify_one();
++        wakes.completion().notify_one();
++        let mut seen = [false; 5];
++        for _ in 0..2 {
++            let (index, generation) = done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
++            assert!(index == queue || index == 4);
++            assert!(!seen[index]);
++            assert_eq!(generation, expected[index]);
++            seen[index] = true;
++        }
++    }
++    state.lock().unwrap().stopping = true;
++    wakes.all();
++    for worker in workers {
++        let (index, observed, returned) = worker.join().unwrap();
++        assert_eq!(observed, expected[index]);
++        println!("queue/completion {index}: {observed} generations, {returned} wait returns");
++    }
++}
+diff --git a/crates/metal2vulkan-validation/runtime-sources.sha256 b/crates/metal2vulkan-validation/runtime-sources.sha256
+index 41ce187..db91212 100644
+--- a/crates/metal2vulkan-validation/runtime-sources.sha256
++++ b/crates/metal2vulkan-validation/runtime-sources.sha256
+@@ -1 +1 @@
+-9f46dfd264a2c96f82edac8143e368842ba5fc4c44b4c9ab5ff9b64305c300b3
++0c8d28b40d676edd1104f442a0d38f65a30876303fd5778072ace3163c44bfdd
+diff --git a/crates/metal2vulkan/src/cache/mod.rs b/crates/metal2vulkan/src/cache/mod.rs
+index 07504d9..74a92ac 100644
+--- a/crates/metal2vulkan/src/cache/mod.rs
++++ b/crates/metal2vulkan/src/cache/mod.rs
+@@ -93,7 +93,7 @@ pub const ARTIFACT_FORMAT_VERSION: u32 = 398;
+ /// changes no behaviour, and then updates that hash alone with the commit saying why, or changes
+ /// behaviour and also bumps this version. The commit that bumps it says what changed; this comment
+ /// keeps no history.
+-pub const RUNTIME_VERSION: u32 = 1183;
++pub const RUNTIME_VERSION: u32 = 1185;
+ 
+ /// The digest of the sources this build of the crate was compiled from: SHA-256, as lowercase hex,
+ /// of the manifest, the build script, and exactly the files the crate roots' module tree compiles

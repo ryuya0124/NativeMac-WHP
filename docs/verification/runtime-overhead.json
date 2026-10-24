@@ -1,0 +1,323 @@
+{
+  "date": "2026-10-24",
+  "purpose": "Reduce identified runtime allocation and wakeup overhead before further performance comparison.",
+  "source": {
+    "patch": "patches/metal2vulkan-completion-transfer.patch",
+    "base": "2b5f37cbb8c1299336f87fd15be669536ba65064",
+    "integrationDevelopmentRevision": "dbd143c525bf6e951dcdd545d9bda6855b0da165",
+    "runtimeFingerprint": "540b29f3eae90c5a41fccf6d88d361e38a250cd3bf2b800970c610e33cef7d52",
+    "parkedImageMemoryCacheInProduction": false,
+    "candidateRevision": "c37d756137e7ab74dd6f64c3514f268fba70d905",
+    "candidateRuntimeVersion": 1188,
+    "candidateActive": false,
+    "activeWakeOnlySource": "2b5f37cbb8c1299336f87fd15be669536ba65064",
+    "activeWakeOnlyRuntimeVersion": 1185,
+    "activeDllBuiltFrom": "d0ee60f98642de2e4a77911311b34171846e1066",
+    "activeBuildNote": "2b5f37c moves only a cfg(test) body out of production files; the pre-cfg(test) production prefix is byte-identical to d0ee60f.",
+    "activeWakeOnlyPatch": "patches/metal2vulkan-completion-wakes.patch"
+  },
+  "vm": {
+    "memoryGiB": 12,
+    "processors": 8,
+    "displayPixels": [
+      3840,
+      2160
+    ],
+    "configuredRefreshHz": 60,
+    "cpuTranslation": false
+  },
+  "changes": [
+    "Separate completion and per-queue condition variables, waking only affected waiters for ordinary progress; global stop/failure still wakes everyone.",
+    "Reuse the largest private transfer scratch of an ordered blit encoder across overlapping buffers, staged buffer/image copies, staged image/image copies and overlapping texel rows.",
+    "Keep default hazard tracking and retain each scratch allocation through GPU completion, including buffers replaced during growth.",
+    "Skip redundant zero initialization and its synchronous GPU submission/wait for internal scratch whose reads are fully preceded by writes. Ordinary caller-visible buffer initialization is unchanged.",
+    "Build depth-twin copy-region vectors only when a depth twin actually needs the upload."
+  ],
+  "nativeWindows": {
+    "gpu": "NVIDIA GeForce RTX 5080",
+    "sourceRevision": "dbd143c525bf6e951dcdd545d9bda6855b0da165",
+    "focusedTests": {
+      "run": 64,
+      "passed": 64,
+      "failed": 0,
+      "skipped": 805
+    },
+    "scratchWitnesses": {
+      "overlapSnapshots": 7,
+      "comparedBytes": 458752,
+      "scratchAllocations": 3,
+      "stagedUploadAndDownload": true,
+      "sameScratchForBothTransfers": true,
+      "guardBytesCompared": 4096
+    },
+    "initialParallelRun": {
+      "passed": 63,
+      "failed": 1,
+      "reason": "One completion-latency sample was 63.0686 ms, exceeding the unchanged 50-ms test bound while sibling GPU tests ran."
+    },
+    "isolatedRecheck": {
+      "passed": 3,
+      "failed": 0,
+      "completionRounds": 600,
+      "maxObservedCompletionMs": 18.6817
+    },
+    "finalScheduling": "Only the latency-sensitive case claims all nextest slots; queue concurrency inside the case and its 50-ms limit remain unchanged.",
+    "limitations": "Exclusive nextest slots isolate the timing-sensitive test from sibling GPU workloads; they do not guarantee sub-50-ms runtime latency under other GPU load."
+  },
+  "authoredMetalApiProbe": {
+    "source": "native/MetalProbe/TransferScratchProbe.m",
+    "reference": {
+      "bufferPass": true,
+      "bufferSnapshots": 7,
+      "bufferVerifiedBytes": 458752,
+      "device": "Apple M4",
+      "linearBytesPerRow": 256,
+      "linearPass": true,
+      "linearSnapshots": 3,
+      "linearVerifiedBytes": 3072,
+      "passed": true,
+      "texturePass": true,
+      "textureSnapshots": 3,
+      "textureVerifiedBytes": 192
+    },
+    "intelVm": {
+      "bufferPass": true,
+      "bufferSnapshots": 7,
+      "bufferVerifiedBytes": 458752,
+      "device": "NVIDIA GeForce RTX 5080",
+      "linearBytesPerRow": 256,
+      "linearPass": true,
+      "linearSnapshots": 3,
+      "linearVerifiedBytes": 3072,
+      "passed": true,
+      "texturePass": true,
+      "textureSnapshots": 3,
+      "textureVerifiedBytes": 192
+    },
+    "comparison": "Both devices match the same CPU byte oracle for all buffer, image and buffer-backed texture-row snapshots, including row padding; no performance timing or broad image-equivalence claim.",
+    "sourceSha256": "66bf463f3627da6f2d11ad6d077747ed676efd22f5bde3f0452bdb72834892cb",
+    "candidateDllSha256": "70096a9d2774d5ada8817b267076809d4f169b0ab5f72798e5f3f518788bd057"
+  },
+  "macDevelopmentChecks": {
+    "sourceRevision": "f9e0874",
+    "fmt": "pass",
+    "clippyAllFeatures": "pass",
+    "clippyGpuCfg": "pass",
+    "rustdocWarningsDenied": "pass",
+    "core": {
+      "run": 4570,
+      "passed": 4570,
+      "failed": 0,
+      "skipped": 22
+    },
+    "validation": {
+      "run": 1303,
+      "passed": 1303,
+      "failed": 0,
+      "skipped": 4
+    },
+    "featureMatrix": {
+      "none": "pass",
+      "serde": "pass",
+      "ash": "pass",
+      "cli": "pass"
+    },
+    "gpuFocused": {
+      "run": 64,
+      "passed": 62,
+      "failed": 2,
+      "driver": "MoltenVK 1.4.2",
+      "failures": [
+        "tests::teardown_threads::a_making_running_in_the_pool_leaves_its_release_at_once_and_the_device_to_the_reaper",
+        "tests::teardown_threads::a_making_waiting_in_the_pool_stops_and_the_device_goes_on_the_program_s_thread"
+      ],
+      "evidence": "Both cases reject a MoltenVK warning that Metal does not support disabling primitive restart. Both new scratch tests pass. Full Mac GPU gate is not green."
+    },
+    "integrationNote": "Development includes the parked image-memory cache; the release patch and active DLL exclude it.",
+    "doctests": "pass",
+    "finalNoticeFollowup": {
+      "sourceRevision": "dbd143c525bf6e951dcdd545d9bda6855b0da165",
+      "fmt": "pass",
+      "clippyAllFeatures": "pass",
+      "clippyGpuCfg": "pass",
+      "rustdocWarningsDenied": "pass",
+      "noticeAndWakeTests": {
+        "run": 11,
+        "passed": 11
+      },
+      "runtimeSourceGuard": {
+        "run": 1,
+        "passed": 1
+      },
+      "functionalChangeFromF9e0874": false
+    }
+  },
+  "performance": {
+    "newBatchComparisonRun": true,
+    "userAuthorizedSingleRun": true,
+    "benchmark": "GravityMark 1.89",
+    "configuration": {
+      "api": "Metal",
+      "pixels": [
+        3840,
+        2160
+      ],
+      "fullscreen": true,
+      "vsync": false,
+      "antialiasing": "Temporal",
+      "asteroids": 20000,
+      "raster": 0,
+      "meshlet": 0,
+      "raytracing": 0,
+      "count": 1
+    },
+    "compatibilityWrapper": "Existing deferred-bindings/shared-readback process adapter, unchanged from prior runs",
+    "sceneObserved": true,
+    "limits": "One current run against an earlier observation. Cache/background/host drift were not controlled as a new A/B pair, so the lower score is not a causal regression proof. Existing unsupported-heap warnings persist; this uses the same compatibility adapter.",
+    "completed": true,
+    "exitCode": 0,
+    "result": {
+      "score": 2978,
+      "fps": 17.8,
+      "seconds": 167.1
+    },
+    "previousWakeOnlyObservation": {
+      "score": 3381,
+      "fps": 20.2,
+      "seconds": 167.1
+    },
+    "scoreChangePercent": -11.919550428867199,
+    "decision": "Park transfer scratch reuse, restore wake-only runtime; no further benchmark runs in this turn."
+  },
+  "limits": [
+    "No all-game performance or 4K high-refresh qualification.",
+    "Earlier whole-screen transient green flicker stopped before this batch; no cause or sustained flicker-free qualification is established.",
+    "The unchanged Reims full gate retains 14 previously recorded failures; no new full Reims gate or owner merge was performed."
+  ],
+  "candidateDllSha256": "70096a9d2774d5ada8817b267076809d4f169b0ab5f72798e5f3f518788bd057",
+  "activeDllSha256": "f8780bf294dd9097066d49001ac799605bf66666c8a1d288f54294c8e186f856",
+  "candidateGuestPostBoot": {
+    "compute": {
+      "device": "NVIDIA GeForce RTX 5080",
+      "computedValues": 4096,
+      "verified": true,
+      "gpuStartTime": 56.92589550700001,
+      "gpuEndTime": 56.929833863000006,
+      "metalAvailable": true,
+      "registryID": 4294968172,
+      "hasUnifiedMemory": true,
+      "error": ""
+    },
+    "hevcDecode": {
+      "callbackErrors": 0,
+      "cancelledEarly": false,
+      "comparedBytes": 7776000,
+      "componentDiscovery": false,
+      "createStatus": 0,
+      "decodedFrames": 90,
+      "drainStatus": 0,
+      "droppedFrames": 0,
+      "droppedTimestampsMatchExpected": true,
+      "hardwareProperty": true,
+      "hardwarePropertyStatus": 0,
+      "height": 180,
+      "idlePauseSeconds": 0,
+      "midstreamDrain": false,
+      "mismatchingBytes": 0,
+      "ordinaryAppIntegration": false,
+      "passed": true,
+      "registrationStatus": 0,
+      "retainedFrameChecks": 0,
+      "roundTripMedianMs": null,
+      "serialRoundTrip": false,
+      "submitStatus": 0,
+      "submitted": 90,
+      "temporalProcessingRequested": true,
+      "timestampsMatchOriginalSamples": true,
+      "waitStatus": 0,
+      "width": 320
+    },
+    "hevc4kDecode": {
+      "callbackErrors": 0,
+      "cancelledEarly": false,
+      "comparedBytes": 49766400,
+      "componentDiscovery": false,
+      "createStatus": 0,
+      "decodedFrames": 4,
+      "drainStatus": 0,
+      "droppedFrames": 0,
+      "droppedTimestampsMatchExpected": true,
+      "hardwareProperty": true,
+      "hardwarePropertyStatus": 0,
+      "height": 2160,
+      "idlePauseSeconds": 0,
+      "midstreamDrain": false,
+      "mismatchingBytes": 0,
+      "ordinaryAppIntegration": false,
+      "passed": true,
+      "registrationStatus": 0,
+      "retainedFrameChecks": 0,
+      "roundTripMedianMs": null,
+      "serialRoundTrip": false,
+      "submitStatus": 0,
+      "submitted": 4,
+      "temporalProcessingRequested": true,
+      "timestampsMatchOriginalSamples": true,
+      "waitStatus": 0,
+      "width": 3840
+    },
+    "h2644kEncode": {
+      "complete": 0,
+      "timestampsMatch": true,
+      "hardwareQuery": 0,
+      "submitted": 4,
+      "codec": "h264",
+      "submittedStatus": 0,
+      "registered": 0,
+      "encodedBytes": 474750,
+      "keyframes": 2,
+      "properties": 0,
+      "hardware": true,
+      "componentDiscovery": true,
+      "height": 2160,
+      "frames": 4,
+      "width": 3840,
+      "callbackErrors": 0,
+      "prepared": 0,
+      "ordinaryAppIntegration": false,
+      "passed": true,
+      "created": 0
+    },
+    "limitations": "Short authored media checks only; ordinary Safari/YouTube frame pacing and sustained throughput were not measured in this batch."
+  },
+  "activeWakeOnlyRestore": {
+    "booted": true,
+    "unlocked": true,
+    "probe": {
+      "bufferPass": true,
+      "bufferSnapshots": 7,
+      "bufferVerifiedBytes": 458752,
+      "device": "NVIDIA GeForce RTX 5080",
+      "linearBytesPerRow": 256,
+      "linearPass": true,
+      "linearSnapshots": 3,
+      "linearVerifiedBytes": 3072,
+      "passed": true,
+      "texturePass": true,
+      "textureSnapshots": 3,
+      "textureVerifiedBytes": 192
+    },
+    "compute": {
+      "device": "NVIDIA GeForce RTX 5080",
+      "computedValues": 4096,
+      "verified": true,
+      "gpuStartTime": 48.605005541000004,
+      "gpuEndTime": 48.611192833000004,
+      "metalAvailable": true,
+      "registryID": 4294968174,
+      "hasUnifiedMemory": true,
+      "error": ""
+    },
+    "benchmarkRepeated": false
+  }
+}

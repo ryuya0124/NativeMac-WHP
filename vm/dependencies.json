@@ -107,12 +107,12 @@
       "baseCommit": "1b9a256573aa84b3aaaac5935dcdf0289e8256da",
       "candidateCommit": "84fb8090d121618e15d6f0af066af5e4f05836d0",
       "applyAlso": "patches/reims-msvc.patch",
-      "runtimeCommit": "79aafca3482a54429bab8e09b62ef558baf4cff1",
+      "runtimeCommit": "2b5f37cbb8c1299336f87fd15be669536ba65064",
       "status": "experimental: validated pooled target reuse, FHD/4K serial byte comparisons and ordinary Safari playback pass; full-library regression failures and half-output shader precision differences remain",
       "verification": "docs/verification/video-shared-gpu-guest.json",
       "noCpuDecodeFallback": true,
       "vramExclusive": false,
-      "runtimePatch": "patches/metal2vulkan-fetch-product.patch",
+      "runtimePatch": "patches/metal2vulkan-completion-wakes.patch",
       "protocol": "shared-gpu-v2",
       "performanceVerification": "docs/verification/video-target-reuse.json"
     }
@@ -205,6 +205,30 @@
     "scope": "Structurally lower fast-math source-times-destination framebuffer-fetch blends on direct R/RG/RGBA16Float targets with correctly sized float/half outputs",
     "status": "Focused and macOS workspace tests, docs and clippy pass; 8 authored float-output cases byte-exact against M4, 8 half-output cases retain recorded mismatches. Reims full gate remains unqualified.",
     "verification": "docs/verification/fetch-product.json",
+    "usesCpuRendering": false
+  },
+  "metal2vulkanCompletionTransfer": {
+    "patch": "patches/metal2vulkan-completion-transfer.patch",
+    "applyAfter": "patches/metal2vulkan-completion-wakes.patch",
+    "baseCommit": "2b5f37cbb8c1299336f87fd15be669536ba65064",
+    "sourceRevision": "c37d756137e7ab74dd6f64c3514f268fba70d905",
+    "runtimeVersion": 1188,
+    "runtimeSourceFingerprint": "540b29f3eae90c5a41fccf6d88d361e38a250cd3bf2b800970c610e33cef7d52",
+    "scope": "Reuse tracked private transfer scratch without redundant zero fills or initialization waits; omit unused depth-twin copy vectors",
+    "status": "Parked after one 4K GravityMark run: 2978 / 17.8 fps, below the earlier wake-only 3381 / 20.2 fps observation. Byte/copy/compute/video checks pass, but no performance benefit is qualified.",
+    "verification": "docs/verification/runtime-overhead.json",
+    "includesParkedImageMemoryCache": false,
+    "usesCpuRendering": false,
+    "active": false
+  },
+  "metal2vulkanCompletionWakes": {
+    "patch": "patches/metal2vulkan-completion-wakes.patch",
+    "applyAfter": "patches/metal2vulkan-fetch-product.patch",
+    "baseCommit": "79aafca3482a54429bab8e09b62ef558baf4cff1",
+    "sourceRevision": "2b5f37cbb8c1299336f87fd15be669536ba65064",
+    "runtimeVersion": 1185,
+    "status": "Active wake-only runtime. Broad and focused checks pass for touched functionality; prior GravityMark observation 3381 / 20.2 fps. No universal speedup qualification.",
+    "verification": "docs/verification/runtime-overhead.json",
     "usesCpuRendering": false
   }
 }

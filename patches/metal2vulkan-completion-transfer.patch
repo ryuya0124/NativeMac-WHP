@@ -1,0 +1,578 @@
+diff --git a/.config/nextest.toml b/.config/nextest.toml
+index 50e3ca3..5331479 100644
+--- a/.config/nextest.toml
++++ b/.config/nextest.toml
+@@ -7,6 +7,13 @@
+ [profile.default]
+ slow-timeout = { period = "60s", terminate-after = 20 }
+ 
++# This case bounds commit-to-observed-completion latency at 50 ms. Concurrent GPU
++# allocations/submissions by other tests make that interval include unrelated work.
++# It still exercises multiple queues internally; only sibling test processes pause.
++[[profile.default.overrides]]
++filter = 'package(metal2vulkan-runtime) & test(=tests::completion::a_completion_on_one_queue_is_seen_while_other_queues_are_waited_for)'
++threads-required = 'num-test-threads'
++
+ # The ignored `soak_` tests enumerate whole structurizer families and run for up to an hour
+ # alone; outside the gate they get two hours.
+ [[profile.default.overrides]]
+diff --git a/crates/metal2vulkan-runtime/src/blit.rs b/crates/metal2vulkan-runtime/src/blit.rs
+index 2af641b..6112bf3 100644
+--- a/crates/metal2vulkan-runtime/src/blit.rs
++++ b/crates/metal2vulkan-runtime/src/blit.rs
+@@ -6,7 +6,9 @@
+ //!   barrier those uses need after the encoder's earlier commands.
+ //! - **Copies.** `vkCmdCopyBuffer` copies any byte range, as Metal's copy does. Metal moves
+ //!   overlapping ranges of one buffer as `memmove` does (measured), while Vulkan forbids them, so
+-//!   such a copy goes through a scratch buffer.
++//!   such a copy goes through a scratch buffer. One encoder reuses its largest scratch for
++//!   later copies that fit. Its transfer barriers order each overwrite after the prior read;
++//!   each allocation, including one replaced by a larger scratch, stays held to GPU completion.
+ //! - **Fills.** `vkCmdFillBuffer` writes only whole 32-bit words at offsets that are multiples of
+ //!   4, while Metal fills any byte range with one byte value: [`fill_pieces`] splits a fill into
+ //!   the words and the at most 3 bytes before and after them, which are copied from 4 bytes of the
+@@ -31,7 +33,7 @@ use super::shadow::{self, ShadowCopies};
+ use super::texture::Texture;
+ use super::tracker::{Access, Use, UseRange};
+ use super::used_resources::EncoderKind;
+-use super::values::{ResourceOptions, StorageMode};
++use super::values::StorageMode;
+ use ash::vk;
+ use std::ops::Range;
+ use std::sync::Arc;
+@@ -138,6 +140,9 @@ pub struct BlitCommandEncoder {
+     /// 4 bytes of each byte value at offset `4 * value`, the source of an unaligned fill's ends;
+     /// made at the encoder's first such fill and retained at its end.
+     pattern: Option<Buffer>,
++    /// The largest overlap-copy scratch made so far. Every allocation is retained by core
++    /// before use, so replacing this handle never releases storage a recorded command needs.
++    copy_scratch: Option<Buffer>,
+     /// The copies of the heap shadows among the textures the encoder's blits named
+     /// ([`BlitCommandEncoder::see`]), each once.
+     shadows: Vec<Arc<ShadowCopies>>,
+@@ -159,6 +164,7 @@ impl CommandBuffer {
+         Ok(BlitCommandEncoder {
+             core: EncoderCore::open(self, "blit_command_encoder", true)?,
+             pattern: None,
++            copy_scratch: None,
+             shadows: Vec::new(),
+             log: self.device().shared().rebinds.any().then(CallLog::new),
+         })
+@@ -172,6 +178,7 @@ impl BlitCommandEncoder {
+         Ok(BlitCommandEncoder {
+             core: EncoderCore::replaying(command_buffer, true)?,
+             pattern: None,
++            copy_scratch: None,
+             shadows: Vec::new(),
+             log: None,
+         })
+@@ -188,6 +195,22 @@ impl BlitCommandEncoder {
+         core.finish_replay()
+     }
+ 
++    /// Temporary copy storage, reused only inside this ordered encoder. Copy plans write
++    /// every range they subsequently read, so clearing new storage would be redundant.
++    pub(super) fn copy_scratch(&mut self, size: u64) -> Result<Buffer, Error> {
++        if let Some(buffer) = self
++            .copy_scratch
++            .as_ref()
++            .filter(|buffer| buffer.length() >= size)
++        {
++            return Ok(buffer.clone());
++        }
++        let buffer = self.core.device().tracked_scratch_buffer(size)?;
++        self.core.retain(buffer.clone());
++        self.copy_scratch = Some(buffer.clone());
++        Ok(buffer)
++    }
++
+     /// Log the call `call` makes of the log, before it runs, where the encoder logs
+     /// (`replay.rs`).
+     pub(super) fn log(&mut self, call: impl FnOnce(&mut CallLog<BlitCall>) -> BlitCall) {
+@@ -288,9 +311,10 @@ impl BlitCommandEncoder {
+     ///
+     /// Overlapping ranges of one buffer are moved as `memmove` moves them, as Metal does, and so
+     /// are those of two no-copy buffers made over the same bytes, which lie in one `VkBuffer`.
+-    /// Vulkan forbids such a copy, so it costs more: a scratch buffer of `size` bytes outside the
+-    /// Metal address space, cleared by a fill this call waits for, and a second copy of the range
+-    /// through it.
++    /// Vulkan forbids such a copy, so it goes through private temporary storage outside the
++    /// Metal address space, reused for later copies of this encoder that fit. Both copies stay
++    /// ordered by transfer barriers. No initial clear is needed: the first copy writes every
++    /// byte the second reads.
+     ///
+     /// A size of 0 copies nothing, wherever its offsets lie, and the encoder's other commands
+     /// run, as plain Metal does (Metal's validation stops it).
+@@ -335,10 +359,7 @@ impl BlitCommandEncoder {
+             && source_at - source_offset == destination_at - destination_offset;
+         let overlap = one_bytes && from.start < to.end && to.start < from.end;
+         if overlap {
+-            let scratch = self
+-                .core
+-                .device()
+-                .own_buffer(size, ResourceOptions::private())?;
++            let scratch = self.copy_scratch(size)?;
+             let (through, through_at) = scratch.at(0);
+             self.command(
+                 &[reads(source_buffer, from), writes(&scratch, 0..size)],
+@@ -369,7 +390,6 @@ impl BlitCommandEncoder {
+                     }
+                 },
+             )?;
+-            self.core.retain(scratch);
+             self.core
+                 .device()
+                 .degrade(Degradation::OverlappingBufferCopy, || {
+@@ -559,6 +579,7 @@ impl BlitCommandEncoder {
+         let BlitCommandEncoder {
+             mut core,
+             pattern,
++            copy_scratch: _,
+             shadows: _,
+             log,
+         } = self;
+@@ -568,3 +589,7 @@ impl BlitCommandEncoder {
+         core.end_with_replay(EncoderKind::Blit, None, log.map(Replay::Blit))
+     }
+ }
++
++#[cfg(test)]
++#[path = "tests/blit_scratch.rs"]
++mod scratch_tests;
+diff --git a/crates/metal2vulkan-runtime/src/blit_texture.rs b/crates/metal2vulkan-runtime/src/blit_texture.rs
+index 44eb793..a32c85e 100644
+--- a/crates/metal2vulkan-runtime/src/blit_texture.rs
++++ b/crates/metal2vulkan-runtime/src/blit_texture.rs
+@@ -81,7 +81,7 @@ use super::sparse::emulated::{Scrub, Written};
+ use super::texture::{buffer_image_copy, texture_aspects, texture_region, twin_copy, Texture};
+ use super::tracker::Access;
+ use super::two_planes;
+-use super::values::{Origin, Region, ResourceOptions, Size, StorageMode};
++use super::values::{Origin, Region, Size, StorageMode};
+ use super::Buffer;
+ use ash::vk;
+ use metal2vulkan::error::{Feature, Unsupported};
+@@ -783,8 +783,11 @@ impl BlitCommandEncoder {
+             .collect();
+         // A copy into a texture with a depth twin writes the twin too.
+         let twin = texture.twin_image().filter(|_| into_texture);
+-        let twin_regions: Vec<vk::BufferImageCopy> =
+-            regions.iter().copied().map(twin_copy).collect();
++        let twin_regions: Vec<vk::BufferImageCopy> = if twin.is_some() {
++            regions.iter().copied().map(twin_copy).collect()
++        } else {
++            Vec::new()
++        };
+         let buffer_use = if into_texture {
+             reads(buffer, plan.span.clone())
+         } else {
+@@ -827,11 +830,8 @@ impl BlitCommandEncoder {
+                 })?
+             }
+             Some(staging) => {
+-                let scratch = self
+-                    .core()
+-                    .device()
+-                    .own_buffer(staging.length, ResourceOptions::private())?;
+-                // A buffer `own_buffer` makes starts at its `VkBuffer`'s start, where the
++                let scratch = self.copy_scratch(staging.length)?;
++                // Private scratch starts at its `VkBuffer`'s start, where the
+                 // plan's staging offsets are.
+                 let (through, _) = scratch.at(0);
+                 let whole = 0..staging.length;
+@@ -896,7 +896,6 @@ impl BlitCommandEncoder {
+                     self.command_reading(&uses, &fresh_reads, copy_image)?;
+                     self.command(&[reads(&scratch, whole), buffer_use], move_rows)?;
+                 }
+-                self.core().retain(scratch);
+                 let (offset, format) = (plan.span.start, texture.pixel_format());
+                 self.core()
+                     .device()
+@@ -1394,10 +1393,7 @@ impl BlitCommandEncoder {
+         let scratch = match &staging {
+             Some(staging) => {
+                 let length = staging.length;
+-                let scratch = self
+-                    .core()
+-                    .device()
+-                    .own_buffer(length, ResourceOptions::private())?;
++                let scratch = self.copy_scratch(length)?;
+                 let (through, _) = scratch.at(0);
+                 let mut reads_source = Vec::with_capacity(copies.len() + 1);
+                 for copy in &copies {
+@@ -1457,9 +1453,6 @@ impl BlitCommandEncoder {
+                 }
+             }
+         })?;
+-        if let Some((scratch, ..)) = scratch {
+-            self.core().retain(scratch);
+-        }
+         self.core().retain(source.clone());
+         if source != destination {
+             self.core().retain(destination.clone());
+@@ -1583,10 +1576,7 @@ impl BlitCommandEncoder {
+         // import (`host_aliases.rs`): one `VkBuffer` from one byte 0.
+         if (src, src_base) == (dst, dst_base) && copy.meets() {
+             let length = copy.length();
+-            let scratch = self
+-                .core()
+-                .device()
+-                .own_buffer(length, ResourceOptions::private())?;
++            let scratch = self.copy_scratch(length)?;
+             let (through, through_base) = scratch.at(0);
+             let (mut into, mut out_of) = (Vec::new(), Vec::new());
+             let mut packed = through_base;
+@@ -1613,7 +1603,6 @@ impl BlitCommandEncoder {
+                 // SAFETY: as above.
+                 unsafe { device.cmd_copy_buffer(raw, through, dst, &out_of) };
+             })?;
+-            self.core().retain(scratch);
+             let (from, to) = (copy.src_span.clone(), copy.dst_span.clone());
+             self.core()
+                 .device()
+diff --git a/crates/metal2vulkan-runtime/src/buffer.rs b/crates/metal2vulkan-runtime/src/buffer.rs
+index d61b9dd..ce2e72e 100644
+--- a/crates/metal2vulkan-runtime/src/buffer.rs
++++ b/crates/metal2vulkan-runtime/src/buffer.rs
+@@ -1102,11 +1102,26 @@ impl Device {
+     /// it with the exit guard's entry points alone (`exit_guard`). Refused as
+     /// [`Device::new_buffer`] refuses its length.
+     pub(super) fn scratch_buffer(&self, length: u64) -> Result<Buffer, Error> {
++        self.scratch_buffer_with_tracking(length, HazardTrackingMode::Untracked)
++    }
++
++    /// Temporary transfer storage whose reads and writes are ordered by the encoder's tracker.
++    /// No initial fill or submission: every byte a transfer reads must first be written by its
++    /// preceding copy. It remains outside the program's address space.
++    pub(super) fn tracked_scratch_buffer(&self, length: u64) -> Result<Buffer, Error> {
++        self.scratch_buffer_with_tracking(length, HazardTrackingMode::Default)
++    }
++
++    fn scratch_buffer_with_tracking(
++        &self,
++        length: u64,
++        tracking: HazardTrackingMode,
++    ) -> Result<Buffer, Error> {
+         const CALL: &str = "new_buffer";
+         let modes = Modes::of(ResourceOptions::new(
+             StorageMode::Private,
+             CpuCacheMode::DefaultCache,
+-            HazardTrackingMode::Untracked,
++            tracking,
+         ))?;
+         let class = buffer_class(CALL, modes)?;
+         if length == 0 || length > self.properties().max_buffer_length {
+diff --git a/crates/metal2vulkan-runtime/src/degradation.rs b/crates/metal2vulkan-runtime/src/degradation.rs
+index e0f5f06..e727742 100644
+--- a/crates/metal2vulkan-runtime/src/degradation.rs
++++ b/crates/metal2vulkan-runtime/src/degradation.rs
+@@ -380,21 +380,21 @@ degradations! {
+             "they land in an upload region and are copied on into the buffer after the pass";
+         /// A blit copies between overlapping ranges of one buffer, which Vulkan's copy forbids.
+         OverlappingBufferCopy = "overlapping-buffer-copy", Performance,
+-            "the range goes through a scratch buffer of its size, which its creation clears by \
+-             a fill it waits for: two copies instead of one";
++            "the range goes through private scratch storage reused within the encoder, without \
++             an initial clear: two ordered copies instead of one";
+         /// A blit fills bytes that are not whole 4-byte words at multiples of 4.
+         SplitBufferFill = "split-buffer-fill", Performance,
+             "the words are filled and the up to 3 bytes at each end copied from a 1-KiB \
+              pattern buffer the encoder makes once";
+         /// A blit copies between a buffer and a texture in a layout Vulkan cannot state.
+         StagedTextureCopy = "staged-texture-copy", Performance,
+-            "the rows go through a tightly packed scratch buffer, which its creation clears by \
+-             a fill it waits for: two copies instead of one";
++            "the rows go through tightly packed private scratch storage reused within the \
++             encoder, without an initial clear: two ordered copies instead of one";
+         /// A blit copies texel rows of a texture over a buffer to or from bytes of the same
+         /// buffer that they share, which Vulkan's copy forbids.
+         OverlappingTexelCopy = "overlapping-texel-copy", Performance,
+-            "the rows go through a tightly packed scratch buffer, which its creation clears by \
+-             a fill it waits for: two copies instead of one";
++            "the rows go through tightly packed private scratch storage reused within the \
++             encoder, without an initial clear: two ordered copies instead of one";
+         /// A dispatch is more than one Vulkan dispatch: its grid is not a whole number of
+         /// threadgroups, or a group count is past the device's `maxComputeWorkGroupCount`.
+         SplitDispatch = "split-dispatch", Performance,
+diff --git a/crates/metal2vulkan-runtime/src/tests/blit_scratch.rs b/crates/metal2vulkan-runtime/src/tests/blit_scratch.rs
+new file mode 100644
+index 0000000..9e68998
+--- /dev/null
++++ b/crates/metal2vulkan-runtime/src/tests/blit_scratch.rs
+@@ -0,0 +1,226 @@
++//! Scratch reuse must preserve every intermediate memmove result and its lifetime.
++#![cfg(any(m2v_gpu, m2v_cpu_icd))]
++
++use crate::{CommandBufferStatus, Device, DeviceKind, DeviceOptions, ResourceOptions};
++use std::time::Duration;
++
++struct HostPages {
++    pointer: std::ptr::NonNull<u8>,
++    layout: std::alloc::Layout,
++}
++// SAFETY: ownership can move to the runtime's deallocator. CPU writes precede all
++// GPU uses, and the test reads GPU-written bytes only after completion.
++unsafe impl Send for HostPages {}
++// SAFETY: shared ownership only keeps the allocation alive; it grants no safe byte access.
++unsafe impl Sync for HostPages {}
++impl Drop for HostPages {
++    fn drop(&mut self) {
++        // SAFETY: this is the allocation and layout from alloc_zeroed, released once.
++        unsafe { std::alloc::dealloc(self.pointer.as_ptr(), self.layout) };
++    }
++}
++
++#[test]
++fn staged_texture_transfers_share_scratch_and_preserve_guard_bytes(
++) -> Result<(), Box<dyn std::error::Error>> {
++    use crate::{BlitOption, HostMemory, Origin, Size, TextureDescriptor};
++    use metal2vulkan::metal::{PixelFormat, TextureUsage};
++    use std::sync::Arc;
++
++    let options = DeviceOptions {
++        kinds: if cfg!(m2v_cpu_icd) {
++            vec![DeviceKind::Cpu]
++        } else {
++            vec![
++                DeviceKind::Discrete,
++                DeviceKind::Integrated,
++                DeviceKind::Virtual,
++            ]
++        },
++        ..DeviceOptions::default()
++    };
++    let device = Device::system_default_with(&options)?;
++    let queue = device.new_command_queue()?;
++    let layout = std::alloc::Layout::from_size_align(131072, 65536)?;
++    // SAFETY: the allocation is page-aligned and owns every page the import can reach.
++    let pointer = std::ptr::NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) })
++        .ok_or("host allocation failed")?;
++    let pages = Arc::new(HostPages { pointer, layout });
++    let mut expected = vec![0xa5; 4096];
++    for (index, byte) in expected[16..80].iter_mut().enumerate() {
++        *byte = (index * 37 + 11) as u8;
++    }
++    // SAFETY: the logical buffer starts two bytes into the owned allocation.
++    let logical = unsafe { std::ptr::NonNull::new_unchecked(pointer.as_ptr().add(2)) };
++    // SAFETY: the logical range is inside the allocation and no GPU use has started.
++    unsafe { std::ptr::copy_nonoverlapping(expected.as_ptr(), logical.as_ptr(), expected.len()) };
++    let kept = Arc::clone(&pages);
++    // SAFETY: both this test and the deallocator retain every page through the import's life.
++    let buffer = unsafe {
++        device.new_buffer_with_bytes_no_copy(
++            HostMemory::new(logical),
++            4096,
++            ResourceOptions::shared(),
++            Some(Box::new(move |_, _| drop(kept))),
++        )?
++    };
++    assert_eq!(
++        buffer.at(0).1 % 4,
++        2,
++        "the fixture did not select staged transfers"
++    );
++    let mut desc = TextureDescriptor::texture_2d(PixelFormat::RGBA8Unorm, 4, 4, false);
++    desc.usage = TextureUsage::SHADER_READ;
++    desc.resource_options = ResourceOptions::private();
++    let texture = device.new_texture(&desc)?;
++    let readback = device.new_buffer(4096, ResourceOptions::shared())?;
++    let command = queue.command_buffer()?;
++    let mut blit = command.blit_command_encoder()?;
++    blit.copy_from_buffer_to_texture(
++        &buffer,
++        16,
++        16,
++        0,
++        Size::new(4, 4, 1),
++        &texture,
++        0,
++        0,
++        Origin::new(0, 0, 0),
++        BlitOption::None,
++    )?;
++    let scratch = blit.copy_scratch.clone().expect("upload did not stage");
++    blit.copy_from_texture_to_buffer(
++        &texture,
++        0,
++        0,
++        Origin::new(0, 0, 0),
++        Size::new(4, 4, 1),
++        &buffer,
++        128,
++        16,
++        0,
++        BlitOption::None,
++    )?;
++    assert_eq!(
++        blit.copy_scratch.as_ref(),
++        Some(&scratch),
++        "download allocated another scratch"
++    );
++    blit.copy_from_buffer_to_buffer(&buffer, 0, &readback, 0, 4096)?;
++    blit.end_encoding()?;
++    drop(scratch);
++    drop(texture);
++    drop(buffer);
++    command.commit()?;
++    command
++        .wait_until_completed_for(Duration::from_secs(20))
++        .expect("staged transfers did not complete");
++    assert_eq!(command.status(), CommandBufferStatus::Completed);
++    expected.copy_within(16..80, 128);
++    let at = readback.contents().ok_or("readback not mapped")?;
++    // SAFETY: all GPU writes have completed and the full read lies in the live buffer.
++    let observed = unsafe { std::slice::from_raw_parts(at.as_ptr(), 4096) };
++    assert_eq!(observed, expected);
++    println!(
++        "device={}, verifiedBytes=4096, stagedUploads=1, stagedDownloads=1, scratchAllocations=1",
++        device.name()
++    );
++    Ok(())
++}
++
++#[test]
++fn overlap_copies_reuse_storage_without_overwriting_prior_results(
++) -> Result<(), Box<dyn std::error::Error>> {
++    let options = DeviceOptions {
++        kinds: if cfg!(m2v_cpu_icd) {
++            vec![DeviceKind::Cpu]
++        } else {
++            vec![
++                DeviceKind::Discrete,
++                DeviceKind::Integrated,
++                DeviceKind::Virtual,
++            ]
++        },
++        ..DeviceOptions::default()
++    };
++    let device = Device::system_default_with(&options)?;
++    let queue = device.new_command_queue()?;
++    let mut expected: Vec<u8> = (0..65536).map(|i| ((i * 37 + 13) % 251) as u8).collect();
++    let data = device.new_buffer_with_bytes(&expected, ResourceOptions::shared())?;
++    let cases = [
++        (0, 1, 8192),
++        (1, 0, 4096),
++        (0, 0, 16384),
++        (3, 15, 1024),
++        (10, 11, 32768),
++        (17, 1, 8192),
++        (64, 80, 2048),
++    ];
++    let length = expected.len() as u64;
++    let readback = device.new_buffer(length * cases.len() as u64, ResourceOptions::shared())?;
++    let command = queue.command_buffer()?;
++    let mut blit = command.blit_command_encoder()?;
++    blit.copy_from_buffer_to_buffer(&data, length, &data, length, 0)?;
++    assert!(
++        blit.copy_scratch.is_none(),
++        "empty copy allocated temporary storage"
++    );
++    let mut snapshots = Vec::new();
++    let mut scratches: Vec<crate::Buffer> = Vec::new();
++    for (index, (from, to, size)) in cases.into_iter().enumerate() {
++        let previous = blit.copy_scratch.clone();
++        blit.copy_from_buffer_to_buffer(&data, from, &data, to, size)?;
++        let scratch = blit
++            .copy_scratch
++            .as_ref()
++            .expect("overlap did not use scratch");
++        if let Some(previous) = previous {
++            if previous.length() >= size {
++                assert_eq!(scratch, &previous, "fitting copy allocated another buffer");
++            } else {
++                assert_ne!(scratch, &previous, "larger copy kept undersized storage");
++            }
++        }
++        if !scratches.contains(scratch) {
++            scratches.push(scratch.clone());
++        }
++        expected.copy_within(from as usize..(from + size) as usize, to as usize);
++        snapshots.push(expected.clone());
++        blit.copy_from_buffer_to_buffer(&data, 0, &readback, index as u64 * length, length)?;
++    }
++    let scratch = blit.copy_scratch.clone();
++    assert!(blit
++        .copy_from_buffer_to_buffer(&data, length, &data, 0, 1)
++        .is_err());
++    assert_eq!(
++        blit.copy_scratch, scratch,
++        "refused copy changed scratch storage"
++    );
++    assert_eq!(scratches.len(), 3);
++    // No test-owned handles keep temporary allocations alive after this point.
++    drop(scratch);
++    drop(scratches);
++    blit.end_encoding()?;
++    drop(data);
++    command.commit()?;
++    command
++        .wait_until_completed_for(Duration::from_secs(20))
++        .expect("overlap copies did not complete");
++    assert_eq!(command.status(), CommandBufferStatus::Completed);
++    let at = readback.contents().ok_or("readback not mapped")?;
++    // SAFETY: GPU completion precedes these reads, all inside the live buffer.
++    let bytes = unsafe { std::slice::from_raw_parts(at.as_ptr(), readback.length() as usize) };
++    for (index, snapshot) in snapshots.iter().enumerate() {
++        assert_eq!(
++            &bytes[index * length as usize..(index + 1) * length as usize],
++            snapshot
++        );
++    }
++    println!(
++        "device={}, snapshots={}, verifiedBytes={}, scratchAllocations=3",
++        device.name(),
++        snapshots.len(),
++        bytes.len()
++    );
++    Ok(())
++}
+diff --git a/crates/metal2vulkan-validation/runtime-sources.sha256 b/crates/metal2vulkan-validation/runtime-sources.sha256
+index db91212..f0cfd30 100644
+--- a/crates/metal2vulkan-validation/runtime-sources.sha256
++++ b/crates/metal2vulkan-validation/runtime-sources.sha256
+@@ -1 +1 @@
+-0c8d28b40d676edd1104f442a0d38f65a30876303fd5778072ace3163c44bfdd
++540b29f3eae90c5a41fccf6d88d361e38a250cd3bf2b800970c610e33cef7d52
+diff --git a/crates/metal2vulkan/src/cache/mod.rs b/crates/metal2vulkan/src/cache/mod.rs
+index 74a92ac..6c637f2 100644
+--- a/crates/metal2vulkan/src/cache/mod.rs
++++ b/crates/metal2vulkan/src/cache/mod.rs
+@@ -93,7 +93,7 @@ pub const ARTIFACT_FORMAT_VERSION: u32 = 398;
+ /// changes no behaviour, and then updates that hash alone with the commit saying why, or changes
+ /// behaviour and also bumps this version. The commit that bumps it says what changed; this comment
+ /// keeps no history.
+-pub const RUNTIME_VERSION: u32 = 1185;
++pub const RUNTIME_VERSION: u32 = 1188;
+ 
+ /// The digest of the sources this build of the crate was compiled from: SHA-256, as lowercase hex,
+ /// of the manifest, the build script, and exactly the files the crate roots' module tree compiles
+diff --git a/docs/API.md b/docs/API.md
+index 7570c7b..79f77bf 100644
+--- a/docs/API.md
++++ b/docs/API.md
+@@ -808,19 +808,19 @@ fast forms record, and each `PrecisionNote`'s rustdoc states its bound.
+   and are copied on into the buffer after the pass.
+ - `metal2vulkan-degrade-overlapping-buffer-copy` (performance). `OverlappingBufferCopy`: A blit
+   copies between overlapping ranges of one buffer, which Vulkan's copy forbids. Cost: the range goes
+-  through a scratch buffer of its size, which its creation clears by a fill it waits for: two copies
+-  instead of one.
++  through private scratch storage reused within the encoder, without an initial clear: two ordered
++  copies instead of one.
+ - `metal2vulkan-degrade-split-buffer-fill` (performance). `SplitBufferFill`: A blit fills bytes that
+   are not whole 4-byte words at multiples of 4. Cost: the words are filled and the up to 3 bytes at
+   each end copied from a 1-KiB pattern buffer the encoder makes once.
+ - `metal2vulkan-degrade-staged-texture-copy` (performance). `StagedTextureCopy`: A blit copies
+   between a buffer and a texture in a layout Vulkan cannot state. Cost: the rows go through a
+-  tightly packed scratch buffer, which its creation clears by a fill it waits for: two copies
+-  instead of one.
++  tightly packed private scratch storage reused within the encoder, without an initial clear: two
++  ordered copies instead of one.
+ - `metal2vulkan-degrade-overlapping-texel-copy` (performance). `OverlappingTexelCopy`: A blit copies
+   texel rows of a texture over a buffer to or from bytes of the same buffer that they share, which
+-  Vulkan's copy forbids. Cost: the rows go through a tightly packed scratch buffer, which its
+-  creation clears by a fill it waits for: two copies instead of one.
++  Vulkan's copy forbids. Cost: the rows go through tightly packed private scratch storage reused
++  within the encoder, without an initial clear: two ordered copies instead of one.
+ - `metal2vulkan-degrade-split-dispatch` (performance). `SplitDispatch`: A dispatch is more than one
+   Vulkan dispatch: its grid is not a whole number of threadgroups, or a group count is past the
+   device's `maxComputeWorkGroupCount`. Cost: one Vulkan dispatch per region (the interior and each
