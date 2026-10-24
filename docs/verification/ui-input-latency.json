@@ -67,5 +67,24 @@
     "pendingDragP95Us": 8989,
     "pendingDragMaxUs": 9615,
     "scope": "A first immediate held-button move followed by a coalesced one. Confirms approximate eight-millisecond pacing, not end-to-end display latency."
+  },
+  "guestMotionPreference": {
+    "before": {
+      "reduceMotion": false,
+      "reduceTransparency": true
+    },
+    "after": {
+      "reduceMotion": true,
+      "reduceTransparency": true
+    },
+    "verifiedThrough": "Fresh AppKit process reading NSWorkspace accessibility display properties",
+    "purpose": "Reduce zoom and parallax effects in ordinary UI. No rendering throughput gain measured.",
+    "restoreCommand": "defaults delete com.apple.universalaccess reduceMotion"
+  },
+  "rejectedExperiment": {
+    "candidate": "Sample only the gamma table entry needed by each branch of the display shader",
+    "adopted": false,
+    "authoredReadbacks": "256x16 RGBA16Float and 3840x2160 BGRA8: reference/candidate comparisons matched for ordinary and extended/special-value inputs on the Intel VM",
+    "reason": "Interleaved timing ranges overlap; no reliable speed gain established. Product shaders remain unchanged."
   }
 }

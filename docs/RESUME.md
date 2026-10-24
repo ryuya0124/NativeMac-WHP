@@ -21,6 +21,12 @@ after (66.71 and 57.70 mean fps). Different boots/backgrounds, and a debugger
 snapshot in the reference, prevent interpreting that as a controlled comparison.
 No GPU throughput improvement or app-launch/build-speed improvement is claimed.
 GPU submission/compositing overhead remains an open performance work item.
+The guest's reduceMotion preference is now true (was absent/false), verified
+through fresh NSWorkspace accessibility display queries; reduceTransparency
+was already true. Restore with `defaults delete com.apple.universalaccess
+reduceMotion`. This suppresses zoom/parallax effects and is not a measured GPU
+throughput improvement. A branch-local display-gamma sampling experiment matched
+pixels but showed no reliable timing gain; it was not adopted into product code.
 See docs/verification/ui-input-latency.json. No monitor automation is enabled.
 
 # Previous checkpoint (2026-10-24, video target reuse and lost-wake repair)
