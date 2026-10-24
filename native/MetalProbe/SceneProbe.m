@@ -1,6 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <IOSurface/IOSurface.h>
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -53,6 +54,18 @@ int main(int argc, const char **argv) {
         BOOL noPresent=strcmp(mode,"drawable-no-present")==0 || strcmp(mode,"drawable-no-present-pipelined")==0;
         BOOL presenting=strcmp(mode,"drawable")==0 || strcmp(mode,"drawable-pipelined")==0;
         if (!offscreen && !presenting && !noPresent) return 64;
+        // Optional offscreen controls isolate drawable usage, depth and IOSurface backing.
+        if(argc>5 && strcmp(argv[5],"4") && strcmp(argv[5],"23"))return 64;
+        if(argc>6 && strcmp(argv[6],"0") && strcmp(argv[6],"1"))return 64;
+        if(argc>7 && strcmp(argv[7],"0") && strcmp(argv[7],"1"))return 64;
+        if(argc>8 && strcmp(argv[8],"0") && strcmp(argv[8],"1") && strcmp(argv[8],"2"))return 64;
+        unsigned targetUsage=argc>5 ? (unsigned)strtoul(argv[5],NULL,10) : 4;
+        unsigned useDepth=argc>6 ? (unsigned)strtoul(argv[6],NULL,10) : 1;
+        unsigned useSurface=argc>7 ? (unsigned)strtoul(argv[7],NULL,10) : 0;
+        unsigned transfer=argc>8 ? (unsigned)strtoul(argv[8],NULL,10) : 0;
+        if(argc>9 || (argc>5 && !offscreen) || (targetUsage!=4 && targetUsage!=23) || useDepth>1 || useSurface>1 || transfer>2) return 64;
+        if(transfer && !useSurface)return 64;
+        if(useSurface && !sharedOffscreen && !managedOffscreen) return 64;
         BOOL pipelined=strstr(mode,"-pipelined")!=NULL;
         if (!offscreen) {
             [NSApplication sharedApplication];
@@ -67,7 +80,7 @@ int main(int argc, const char **argv) {
         pd.vertexFunction = [library newFunctionWithName:@"scene_vertex"];
         pd.fragmentFunction = [library newFunctionWithName:@"scene_fragment"];
         pd.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-        pd.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+        pd.depthAttachmentPixelFormat = useDepth ? MTLPixelFormatDepth32Float : MTLPixelFormatInvalid;
         id<MTLRenderPipelineState> pipeline = [device newRenderPipelineStateWithDescriptor:pd error:&error];
         if (!pipeline) { fprintf(stderr,"pipeline: %s\n",error.description.UTF8String); return 3; }
         MTLDepthStencilDescriptor *dd = [MTLDepthStencilDescriptor new];
@@ -96,13 +109,38 @@ int main(int argc, const char **argv) {
         MTLTextureDescriptor *dt = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
             width:width height:height mipmapped:NO];
         dt.storageMode=MTLStorageModePrivate; dt.usage=MTLTextureUsageRenderTarget;
-        id<MTLTexture> depth = [device newTextureWithDescriptor:dt];
-        if (!vb || !ib || !witness || !texture || !depth || !depthState) return 4;
+        id<MTLTexture> depth = useDepth ? [device newTextureWithDescriptor:dt] : nil;
+        if (!vb || !ib || !witness || !texture || (useDepth && !depth) || !depthState) return 4;
         MTLTextureDescriptor *colorDescriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:width height:height mipmapped:NO];
         colorDescriptor.storageMode=sharedOffscreen ? MTLStorageModeShared : managedOffscreen ? MTLStorageModeManaged : MTLStorageModePrivate;
-        colorDescriptor.usage=MTLTextureUsageRenderTarget;
-        id<MTLTexture> offscreenTarget = offscreen ? [device newTextureWithDescriptor:colorDescriptor] : nil;
-        if (offscreen && !offscreenTarget) return 4;
+        colorDescriptor.usage=(MTLTextureUsage)targetUsage;
+        IOSurfaceRef targetSurface=NULL;
+        if(useSurface) {
+            targetSurface=IOSurfaceCreate((__bridge CFDictionaryRef)@{
+                (__bridge NSString *)kIOSurfaceWidth:@(width),
+                (__bridge NSString *)kIOSurfaceHeight:@(height),
+                (__bridge NSString *)kIOSurfaceBytesPerElement:@4,
+                (__bridge NSString *)kIOSurfaceBytesPerRow:@(width*4),
+                (__bridge NSString *)kIOSurfaceAllocSize:@((NSUInteger)width*height*4),
+                (__bridge NSString *)kIOSurfacePixelFormat:@(0x42475241u)});
+            if(!targetSurface)return 4;
+        }
+        id<MTLTexture> offscreenTarget = offscreen ? (targetSurface ?
+            [device newTextureWithDescriptor:colorDescriptor iosurface:targetSurface plane:0] :
+            [device newTextureWithDescriptor:colorDescriptor]) : nil;
+        // The Metal texture owns its surface; keep our reference until all GPU work drains too.
+        id<MTLTexture> explicitRenderTarget=nil;
+        id<MTLBuffer> surfaceBuffer=nil;
+        if(transfer) {
+            MTLTextureDescriptor *privateDescriptor=[colorDescriptor copy];
+            privateDescriptor.storageMode=MTLStorageModePrivate;
+            privateDescriptor.usage=MTLTextureUsageRenderTarget;
+            explicitRenderTarget=[device newTextureWithDescriptor:privateDescriptor];
+            if(transfer==2) surfaceBuffer=[device newBufferWithBytesNoCopy:IOSurfaceGetBaseAddress(targetSurface)
+                length:IOSurfaceGetAllocSize(targetSurface) options:MTLResourceStorageModeShared deallocator:nil];
+            if(!explicitRenderTarget || (transfer==2 && !surfaceBuffer)) {CFRelease(targetSurface);return 4;}
+        }
+        if (offscreen && !offscreenTarget) { if(targetSurface)CFRelease(targetSurface); return 4; }
         NSWindow *window = nil;
         CAMetalLayer *layer = nil;
         if (!offscreen) {
@@ -118,6 +156,8 @@ int main(int argc, const char **argv) {
         [window makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
         }
         printf("{\"presentation\":\"%s\"}\n",mode);
+        printf("{\"stage\":\"target-controls\",\"requestedUsage\":%u,\"depth\":%s,\"iosurface\":%s,\"explicitTransfer\":%u}\n",
+            targetUsage,useDepth?"true":"false",useSurface?"true":"false",transfer);
         double start=CACurrentMediaTime(), previous=start, report=start, worst=0;
         unsigned completed=0, failures=0; BOOL checked=NO;
         double totals[9]={0}, samples[9][8192]={0}, measuredWall=0;
@@ -155,23 +195,37 @@ int main(int argc, const char **argv) {
                 }
                 checkpoint=CACurrentMediaTime();phase[1]=checkpoint-mark;mark=checkpoint;
                 MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];
-                pass.colorAttachments[0].texture=target;
+                pass.colorAttachments[0].texture=explicitRenderTarget ?: target;
                 pass.colorAttachments[0].loadAction=MTLLoadActionClear;
                 pass.colorAttachments[0].storeAction=MTLStoreActionStore;
                 pass.colorAttachments[0].clearColor=MTLClearColorMake(0.015,0.02,0.035,1);
-                pass.depthAttachment.texture=depth; pass.depthAttachment.loadAction=MTLLoadActionClear;
-                pass.depthAttachment.storeAction=MTLStoreActionDontCare; pass.depthAttachment.clearDepth=1;
+                if(useDepth) {
+                    pass.depthAttachment.texture=depth; pass.depthAttachment.loadAction=MTLLoadActionClear;
+                    pass.depthAttachment.storeAction=MTLStoreActionDontCare; pass.depthAttachment.clearDepth=1;
+                }
                 id<MTLCommandBuffer> command=[queue commandBuffer];
                 id<MTLRenderCommandEncoder> encoder=[command renderCommandEncoderWithDescriptor:pass];
                 if (!command || !encoder) { if(pipelined)dispatch_semaphore_signal(slots); failures++; break; }
                 const float uniforms[4]={(float)(CACurrentMediaTime()-start),(float)width/(float)height,21,0};
-                [encoder setRenderPipelineState:pipeline]; [encoder setDepthStencilState:depthState];
+                [encoder setRenderPipelineState:pipeline];
+                if(useDepth)[encoder setDepthStencilState:depthState];
                 [encoder setVertexBuffer:vb offset:0 atIndex:0];
                 [encoder setVertexBytes:uniforms length:sizeof(uniforms) atIndex:1];
                 [encoder setFragmentTexture:texture atIndex:0];
                 [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:36 indexType:MTLIndexTypeUInt16
                     indexBuffer:ib indexBufferOffset:0 instanceCount:441];
                 [encoder endEncoding];
+                if(transfer) {
+                    id<MTLBlitCommandEncoder> move=[command blitCommandEncoder];
+                    if(transfer==1) [move copyFromTexture:explicitRenderTarget sourceSlice:0 sourceLevel:0
+                        sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(width,height,1)
+                        toTexture:target destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
+                    else [move copyFromTexture:explicitRenderTarget sourceSlice:0 sourceLevel:0
+                        sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(width,height,1)
+                        toBuffer:surfaceBuffer destinationOffset:0 destinationBytesPerRow:IOSurfaceGetBytesPerRow(targetSurface)
+                        destinationBytesPerImage:IOSurfaceGetBytesPerRow(targetSurface)*height];
+                    [move endEncoding];
+                }
                 if (!checked) {
                     id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];
                     [blit copyFromTexture:target sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(width/2,height/2,0)
@@ -242,6 +296,7 @@ int main(int argc, const char **argv) {
         }
         double elapsed=CACurrentMediaTime()-start;
         printf("{\"stage\":\"scene-final\",\"elapsed\":%.3f,\"completed\":%u,\"meanFps\":%.2f,\"errors\":%u,\"readbackPassed\":%s}\n",elapsed,completed,completed/MAX(elapsed,0.001),failures,checked?"true":"false");
-        [window orderOut:nil]; return failures||!checked ? 5 : 0;
+        [window orderOut:nil]; if(targetSurface)CFRelease(targetSurface);
+        return failures||!checked ? 5 : 0;
     }
 }

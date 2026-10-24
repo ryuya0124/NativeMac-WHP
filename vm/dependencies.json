@@ -230,5 +230,20 @@
     "status": "Active wake-only runtime. Broad and focused checks pass for touched functionality; prior GravityMark observation 3381 / 20.2 fps. No universal speedup qualification.",
     "verification": "docs/verification/runtime-overhead.json",
     "usesCpuRendering": false
+  },
+  "metal2vulkanTransferPreBarrier": {
+    "patch": "patches/metal2vulkan-transfer-pre-barrier.patch",
+    "applyAfter": "patches/metal2vulkan-completion-wakes.patch",
+    "baseCommit": "2b5f37cbb8c1299336f87fd15be669536ba65064",
+    "sourceRevision": "2c9e120c6baf0530e2ea37014611b94083ac2af7",
+    "runtimeVersion": 1189,
+    "runtimeSourceFingerprint": "a149cbbb6f593cbf888af23968439aec9083f02c34b57940f9bc84292b58e3d1",
+    "scope": "Only the destination scope of the pre-barrier around stand-in copy groups becomes TRANSFER read/write. All prior-source scopes, the full post-barrier, bytes, completion and resource lifetime remain unchanged.",
+    "status": "Parked. Shared-surface-only rates increased within noisy samples, but presented-drawable rates did not improve. No performance win is qualified.",
+    "verification": "docs/verification/presentation-surface.json",
+    "includesParkedScratchReuse": false,
+    "includesParkedImageMemoryCache": false,
+    "usesCpuRendering": false,
+    "active": false
   }
 }

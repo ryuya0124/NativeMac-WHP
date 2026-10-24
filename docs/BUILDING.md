@@ -45,6 +45,14 @@ below the earlier wake-only 3381 / 20.2 fps observation. No performance benefit
 is qualified; the active VM was restored to wake-only. See
 [verification](verification/runtime-overhead.json) for the exact test scope.
 
+Another parked experiment, `patches/metal2vulkan-transfer-pre-barrier.patch`,
+applies directly on the same wake-only 2b5f37c base (runtime 1189). It narrows
+only the pre-copy barrier's destination scope; the source and full post-copy
+barrier remain intact. It excludes both prior parked allocation experiments.
+Focused checks pass, but presented 4K scene rates did not improve. Do not apply
+it as a qualified performance upgrade. The active VM remains on runtime 1185.
+See [surface measurements](verification/presentation-surface.json).
+
 An authored guest/API correctness check is available independently of the
 performance diagnostic:
 
@@ -93,12 +101,33 @@ For the measured optimized build, run in the Intel guest:
 
 ```sh
 xcrun clang -O2 -fobjc-arc -Wall -Wextra -Werror SceneProbe.m \
-  -framework AppKit -framework Metal -framework QuartzCore -o scene-probe-x64
+  -framework AppKit -framework Metal -framework QuartzCore -framework IOSurface -o scene-probe-x64
 codesign -s - -f scene-probe-x64
 ./scene-probe-x64 10 3840 2160 offscreen-pipelined
 ./scene-probe-x64 10 3840 2160 drawable-pipelined
 ./scene-probe-x64 10 3840 2160 drawable-no-present-pipelined
 ```
+
+Offscreen modes also accept `usage depth iosurface transfer` after the mode.
+Defaults are `4 1 0 0`: render-target usage, depth enabled, ordinary allocation,
+automatic copy handling. Usage `23` requests shader read/write, render target
+and pixel-format views, matching the drawable descriptor used here. Set
+`iosurface=1` only with Shared or Managed storage. Transfer `1` renders to a
+Private texture and explicitly blits to the IOSurface texture; `2` copies that
+Private texture to a no-copy Shared buffer over the same IOSurface pages.
+These are diagnostic controls; disabling depth changes the workload.
+
+```sh
+./scene-probe-x64 10 3840 2160 offscreen-managed-pipelined 23 1 1 0
+```
+
+`SurfaceBarrierProbe.m` checks six full clears and one additive load/blend on
+an IOSurface texture with a depth attachment. It compares every pixel through
+both CPU access and GPU readback, plus untouched row padding. Build it with
+`-framework Foundation -framework Metal -framework IOSurface`; the build script
+also produces `surface-barrier-probe-x64`. Apple Silicon uses Shared storage;
+the Intel VM uses Managed storage. This small byte oracle complements the
+large-scene diagnostic, whose first-pixel check is much narrower.
 
 Repeat in reverse order to expose drift. Final rates count GPU-completed
 commands, include startup and pipeline drain, and are **not physical display
@@ -116,6 +145,23 @@ commands/s. No-present drawables also reach only 114–121, mostly waiting for
 next investigation to drawable/IOSurface recycling and synchronization, rather
 than establishing that the final host present or Managed storage alone is the
 cause. This diagnostic change does not accelerate the product or other games.
+
+[Follow-up surface controls](verification/presentation-surface.json) isolate
+IOSurface backing, requested usage and explicit copies. In that later session,
+ordinary Managed offscreen targets reached 609–771 completed commands/s, while
+IOSurface-backed ones with depth reached 333–341. These short control samples
+are not interchangeable with the earlier session's rates. Explicit copies to a
+Shared buffer did not help. A narrowed pre-copy barrier also failed to improve
+presented throughput and was parked after an A/B/A comparison.
+
+A larger improvement may require keeping shared-surface contents on the GPU
+across rendering and composition. That is an unimplemented direction, not a
+qualified optimization: CPU reads/writes, aliases, unchanged pixels and command
+completion must retain their visibility guarantees. The existing load/merge
+path preserves other writers' bytes; deleting it or delaying writeback without
+coherency tracking would change behavior. The measured acquisition/in-flight
+waits include GPU rendering and compositor work, so they do not isolate copies
+as the sole bottleneck.
 
 ## Experimental LLVM bitreverse repair
 

@@ -1,0 +1,100 @@
+diff --git a/crates/metal2vulkan-runtime/src/attachment_stand_in.rs b/crates/metal2vulkan-runtime/src/attachment_stand_in.rs
+index b74df68..102c625 100644
+--- a/crates/metal2vulkan-runtime/src/attachment_stand_in.rs
++++ b/crates/metal2vulkan-runtime/src/attachment_stand_in.rs
+@@ -545,6 +545,20 @@ pub(super) struct StandInCopies {
+     uses: Vec<Use<ResourceKey>>,
+ }
+ 
++/// All earlier accesses precede the copies, which run only in TRANSFER. The full
++/// barrier after the group still publishes every preceding write to later work.
++/// No non-transfer command lies between these two barriers, so the first need
++/// not invalidate the shader stages as well.
++fn before_copies() -> Barrier {
++    Barrier {
++        src: Barrier::everything().src,
++        dst: Access::new(
++            TRANSFER,
++            vk::AccessFlags2::TRANSFER_READ | vk::AccessFlags2::TRANSFER_WRITE,
++        ),
++    }
++}
++
+ impl StandInCopies {
+     /// The copies between `pairs` (each color attachment's stand-in, then its own target, then
+     /// the extent from the origin copied: the render area, or the reach of the pass's clear past
+@@ -654,7 +668,7 @@ impl StandInCopies {
+         // SAFETY: the caller's contract; every image has the transfer usage its copy needs
+         // (checked when the stand-in was made), and each region lies in both images.
+         unsafe {
+-            Barrier::everything().record(raw, command_buffer);
++            before_copies().record(raw, command_buffer);
+             for (from, to, region) in &self.copies {
+                 raw.cmd_copy_image(command_buffer, *from, general, *to, general, &[*region]);
+             }
+@@ -666,7 +680,7 @@ impl StandInCopies {
+     /// to everything after.
+     pub(super) fn record(self, core: &mut EncoderCore) {
+         let StandInCopies { copies, uses } = self;
+-        core.barrier(Barrier::everything());
++        core.barrier(before_copies());
+         core.command(TRANSFER, &uses, |device, raw| {
+             let general = vk::ImageLayout::GENERAL;
+             // SAFETY: the encoder's command buffer is recording outside a render pass; the images
+@@ -682,3 +696,7 @@ impl StandInCopies {
+         core.barrier(Barrier::everything());
+     }
+ }
++
++#[cfg(test)]
++#[path = "tests/stand_in_copy_barrier.rs"]
++mod copy_barrier_tests;
+diff --git a/crates/metal2vulkan-runtime/src/tests/stand_in_copy_barrier.rs b/crates/metal2vulkan-runtime/src/tests/stand_in_copy_barrier.rs
+new file mode 100644
+index 0000000..69e3810
+--- /dev/null
++++ b/crates/metal2vulkan-runtime/src/tests/stand_in_copy_barrier.rs
+@@ -0,0 +1,23 @@
++use super::before_copies;
++use crate::tracker::{Access, Barrier};
++use ash::vk;
++
++#[test]
++fn copy_group_keeps_all_prior_accesses_and_only_targets_transfer() {
++    let before = before_copies();
++    assert_eq!(before.src, Barrier::everything().src);
++    assert_eq!(
++        before.dst,
++        Access::new(
++            vk::PipelineStageFlags2::TRANSFER,
++            vk::AccessFlags2::TRANSFER_READ | vk::AccessFlags2::TRANSFER_WRITE,
++        )
++    );
++    let full = Barrier::everything();
++    assert!(full
++        .dst
++        .stages
++        .contains(vk::PipelineStageFlags2::ALL_COMMANDS));
++    assert!(full.dst.access.contains(vk::AccessFlags2::MEMORY_READ));
++    assert!(full.dst.access.contains(vk::AccessFlags2::MEMORY_WRITE));
++}
+diff --git a/crates/metal2vulkan-validation/runtime-sources.sha256 b/crates/metal2vulkan-validation/runtime-sources.sha256
+index db91212..b3cb562 100644
+--- a/crates/metal2vulkan-validation/runtime-sources.sha256
++++ b/crates/metal2vulkan-validation/runtime-sources.sha256
+@@ -1 +1 @@
+-0c8d28b40d676edd1104f442a0d38f65a30876303fd5778072ace3163c44bfdd
++a149cbbb6f593cbf888af23968439aec9083f02c34b57940f9bc84292b58e3d1
+diff --git a/crates/metal2vulkan/src/cache/mod.rs b/crates/metal2vulkan/src/cache/mod.rs
+index 74a92ac..c5e27aa 100644
+--- a/crates/metal2vulkan/src/cache/mod.rs
++++ b/crates/metal2vulkan/src/cache/mod.rs
+@@ -93,7 +93,7 @@ pub const ARTIFACT_FORMAT_VERSION: u32 = 398;
+ /// changes no behaviour, and then updates that hash alone with the commit saying why, or changes
+ /// behaviour and also bumps this version. The commit that bumps it says what changed; this comment
+ /// keeps no history.
+-pub const RUNTIME_VERSION: u32 = 1185;
++pub const RUNTIME_VERSION: u32 = 1189;
+ 
+ /// The digest of the sources this build of the crate was compiled from: SHA-256, as lowercase hex,
+ /// of the manifest, the build script, and exactly the files the crate roots' module tree compiles
